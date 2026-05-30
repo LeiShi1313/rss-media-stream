@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import type { TmdbMedia } from "../shared/types.js";
+import type { TmdbMedia } from "@rss-media/shared/types";
 import type { AppConfig } from "./config.js";
 
 type TmdbResult = {

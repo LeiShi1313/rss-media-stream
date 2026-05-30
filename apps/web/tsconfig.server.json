@@ -8,5 +8,5 @@
     "noEmit": false,
     "sourceMap": true
   },
-  "include": ["src/server", "src/worker", "src/shared"]
+  "include": ["src/server", "src/worker"]
 }

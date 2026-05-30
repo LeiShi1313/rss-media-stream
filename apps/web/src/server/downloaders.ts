@@ -1,5 +1,5 @@
 import type { Downloader } from "@prisma/client";
-import { redactSecrets } from "../shared/redact.js";
+import { redactSecrets } from "@rss-media/shared/redact";
 import type { AppConfig } from "./config.js";
 import { decryptSecret } from "./secrets.js";
 

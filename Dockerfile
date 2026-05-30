@@ -1,20 +1,15 @@
-FROM node:22-bookworm-slim AS deps
+FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
+COPY apps/web/package.json ./apps/web/package.json
+COPY packages/shared/package.json ./packages/shared/package.json
 RUN npm install
-
-FROM deps AS build
-WORKDIR /app
 COPY . .
 RUN npm run prisma:generate && npm run build
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/prisma ./prisma
-RUN npx prisma generate
+COPY --from=build /app ./
 EXPOSE 4000
-CMD ["sh", "-c", "npx prisma db push && node dist/server/index.js"]
+CMD ["sh", "-c", "npm run prisma:push && npm start"]

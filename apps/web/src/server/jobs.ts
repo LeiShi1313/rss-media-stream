@@ -1,5 +1,5 @@
-import { evaluateSubscriptionRule } from "../shared/subscriptionRules.js";
-import { redactSecrets } from "../shared/redact.js";
+import { redactSecrets } from "@rss-media/shared/redact";
+import { evaluateSubscriptionRule } from "@rss-media/shared/subscriptionRules";
 import type { AppConfig } from "./config.js";
 import { prisma } from "./db.js";
 import { decryptSecret } from "./secrets.js";

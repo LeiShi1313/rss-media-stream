@@ -28,7 +28,7 @@ services:
       API_PORT: 4000
     ports:
       - "4000:4000"
-    command: sh -c "npx prisma db push && node dist/server/index.js"
+    command: sh -c "npm run prisma:push && npm start"
 
   worker:
     build: .
@@ -41,7 +41,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
-    command: sh -c "npx prisma db push && node dist/worker/index.js"
+    command: sh -c "npm run prisma:push && npm run worker"
 
 volumes:
   postgres-data:

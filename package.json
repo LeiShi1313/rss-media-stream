@@ -1,38 +1,20 @@
 {
-  "name": "rss-media-stream",
+  "name": "rss-media-stream-monorepo",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "concurrently -n api,worker,client -c cyan,magenta,green \"npm:dev:api\" \"npm:dev:worker\" \"npm:dev:client\"",
-    "dev:api": "tsx watch src/server/index.ts",
-    "dev:worker": "tsx watch src/worker/index.ts",
-    "dev:client": "vite --host 0.0.0.0",
-    "build": "npm run build:server && npm run build:client",
-    "build:server": "tsc -p tsconfig.server.json",
-    "build:client": "vite build",
-    "start": "node dist/server/index.js",
-    "worker": "node dist/worker/index.js",
-    "test": "vitest run",
-    "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push"
-  },
-  "dependencies": {
-    "@fastify/cookie": "^11.0.2",
-    "@fastify/cors": "^11.1.0",
-    "@fastify/jwt": "^10.0.0",
-    "@fastify/static": "^9.1.3",
-    "@prisma/client": "^6.19.0",
-    "bcryptjs": "^3.0.3",
-    "clsx": "^2.1.1",
-    "date-fns": "^4.1.0",
-    "dotenv": "^17.4.2",
-    "fastify": "^5.6.2",
-    "lucide-react": "^0.554.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "rss-parser": "^3.13.0",
-    "zod": "^4.1.12"
+    "dev": "npm run dev -w @rss-media/web",
+    "build": "npm run build -w @rss-media/shared && npm run build -w @rss-media/web",
+    "start": "npm run start -w @rss-media/web",
+    "worker": "npm run worker -w @rss-media/web",
+    "test": "npm run build -w @rss-media/shared && npm run test -w @rss-media/shared && npm run test -w @rss-media/web",
+    "prisma:generate": "npm run prisma:generate -w @rss-media/web",
+    "prisma:push": "npm run prisma:push -w @rss-media/web"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

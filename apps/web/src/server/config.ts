@@ -1,4 +1,11 @@
-import "dotenv/config";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadDotenv } from "dotenv";
+
+loadDotenv();
+loadDotenv({
+  path: join(dirname(fileURLToPath(import.meta.url)), "../../../../.env")
+});
 
 export type AppConfig = {
   databaseUrl: string;

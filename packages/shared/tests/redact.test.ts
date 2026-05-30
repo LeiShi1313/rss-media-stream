@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactSecrets } from "../src/shared/redact.js";
+import { redactSecrets } from "../src/redact.js";
 
 describe("redactSecrets", () => {
   it("redacts RSS passkeys in query strings", () => {

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import Parser from "rss-parser";
 import type { Prisma } from "@prisma/client";
-import { parseReleaseTitle } from "../shared/releaseParser.js";
-import { redactSecrets } from "../shared/redact.js";
+import { redactSecrets } from "@rss-media/shared/redact";
+import { parseReleaseTitle } from "@rss-media/shared/releaseParser";
 import type { AppConfig } from "./config.js";
 import { prisma } from "./db.js";
 import { decryptSecret, encryptSecret } from "./secrets.js";

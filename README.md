@@ -2,6 +2,11 @@
 
 Local self-hosted dashboard for private RSS media feeds, TMDB enrichment, subscription rules, and qBittorrent/Transmission dispatch.
 
+## Monorepo Layout
+
+- `apps/web`: React dashboard, Fastify API, worker, Prisma schema, and app tests.
+- `packages/shared`: RSS title parsing, passkey redaction, shared types, and subscription rule evaluation.
+
 ## Run Locally
 
 1. Copy `.env.example` to `.env` and fill `APP_SECRET`, `JWT_SECRET`, and optionally `TMDB_API_KEY`.
@@ -25,6 +30,15 @@ docker compose up --build
 ```
 
 The API container serves the built dashboard on port `4000`.
+
+## Workspace Commands
+
+```bash
+npm run build
+npm test
+npm run dev
+npm run worker
+```
 
 ## Safety Defaults
 

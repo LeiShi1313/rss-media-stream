@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateSubscriptionRule } from "../src/shared/subscriptionRules.js";
+import { evaluateSubscriptionRule } from "../src/subscriptionRules.js";
 
 describe("evaluateSubscriptionRule", () => {
   it("accepts a high confidence movie match that passes regex and quality", () => {

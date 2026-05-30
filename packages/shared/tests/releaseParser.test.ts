@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReleaseTitle } from "../src/shared/releaseParser.js";
+import { parseReleaseTitle } from "../src/releaseParser.js";
 
 describe("parseReleaseTitle", () => {
   it("extracts movie metadata", () => {
