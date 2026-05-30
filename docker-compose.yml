@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: rss
+      POSTGRES_PASSWORD: media
+      POSTGRES_DB: rss_media
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rss -d rss_media"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+    ports:
+      - "4000:4000"
+    command: sh -c "npx prisma db push && node dist/server/index.js"
+
+  worker:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
+    command: sh -c "npx prisma db push && node dist/worker/index.js"
+
+volumes:
+  postgres-data:
