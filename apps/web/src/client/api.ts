@@ -1,14 +1,21 @@
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { headers: inputHeaders, body, ...rest } = options;
+  const method = (rest.method ?? "GET").toUpperCase();
   const headers = new Headers(inputHeaders);
-  if (body !== undefined && body !== null && !headers.has("Content-Type")) {
+  const normalizedBody = (body === undefined && ["POST", "PUT", "PATCH", "DELETE"].includes(method))
+    ? "{}"
+    : body;
+  const effectiveBody = normalizedBody;
+
+  if (effectiveBody !== undefined && effectiveBody !== null && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
   const response = await fetch(path, {
     credentials: "include",
     ...rest,
-    body,
+    method: rest.method,
+    body: effectiveBody,
     headers
   });
   if (!response.ok) {

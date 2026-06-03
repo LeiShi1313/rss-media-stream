@@ -1,14 +1,15 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
-  CalendarClock,
   CheckCircle2,
   Clock3,
   DownloadCloud,
+  Eye,
   Film,
   HardDrive,
   ListFilter,
   LogOut,
+  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -17,9 +18,9 @@ import {
   ServerCog,
   Settings,
   Shield,
+  SlidersHorizontal,
   Tv,
   Users,
-  X,
   XCircle
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -36,9 +37,19 @@ import {
   type Workspace,
   type WorkspaceMember
 } from "./api.js";
+import {
+  AppDialog,
+  FieldLabel,
+  CheckboxField,
+  MenuButton,
+  FormInput,
+  UiButton,
+  SegmentedTabs,
+  SelectField,
+  StatTile,
+  Tooltip
+} from "./ui.js";
 
-type HeatItem = { title: string; count: number; posterPath?: string; latest: string };
-type PosterItem = { id: string; title: string; year?: number; kind: string; posterUrl: string; score: number };
 type TimelinePoint = { time: string; count: number };
 type PageId = "overview" | "rss" | "downloaders" | "subscriptions" | "activity" | "workspace";
 type ActionResult = { ok: true } | { ok: false; message: string };
@@ -143,31 +154,31 @@ function AuthScreen({
           </div>
         </div>
         <form onSubmit={submit} className="stack">
-          <label>
+          <FieldLabel>
             Email
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
-          </label>
+            <FormInput value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
+          </FieldLabel>
           {setupRequired && (
-            <label>
+            <FieldLabel>
               Name
-              <input value={name} onChange={(event) => setName(event.target.value)} required />
-            </label>
+              <FormInput value={name} onChange={(event) => setName(event.target.value)} required />
+            </FieldLabel>
           )}
-          <label>
+          <FieldLabel>
             Password
-            <input
+            <FormInput
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               type="password"
               minLength={setupRequired ? 10 : 1}
               required
             />
-          </label>
+          </FieldLabel>
           {error && <p className="error">{error}</p>}
-          <button className="primary" type="submit">
+          <UiButton className="primary" type="submit">
             <Shield size={18} />
             {setupRequired ? "Create Owner" : "Sign In"}
-          </button>
+          </UiButton>
         </form>
       </section>
     </main>
@@ -190,8 +201,6 @@ function Dashboard({
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [heat, setHeat] = useState<HeatItem[]>([]);
-  const [posters, setPosters] = useState<PosterItem[]>([]);
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -209,8 +218,6 @@ function Dashboard({
       api<Feed[]>("/api/feeds"),
       api<Item[]>("/api/items?limit=120"),
       api<Downloader[]>("/api/downloaders"),
-      api<HeatItem[]>("/api/dashboard/heat"),
-      api<PosterItem[]>("/api/dashboard/posters"),
       api<TimelinePoint[]>("/api/dashboard/timeline"),
       loadSubscriptions(),
       api<DownloadJob[]>("/api/download-jobs"),
@@ -220,12 +227,10 @@ function Dashboard({
     applyResult(results[0], setFeeds);
     applyResult(results[1], setItems);
     applyResult(results[2], setDownloaders);
-    applyResult(results[3], setHeat);
-    applyResult(results[4], setPosters);
-    applyResult(results[5], setTimeline);
-    applyResult(results[6], setSubscriptions);
-    applyResult(results[7], setJobs);
-    applyResult(results[8], setMembers);
+    applyResult(results[3], setTimeline);
+    applyResult(results[4], setSubscriptions);
+    applyResult(results[5], setJobs);
+    applyResult(results[6], setMembers);
 
     const firstError = results.find((result) => result.status === "rejected");
     setError(firstError?.status === "rejected" ? errorMessage(firstError.reason) : "");
@@ -290,10 +295,10 @@ function Dashboard({
         </nav>
         <div className="sidebar-footer">
           <span>{user.email}</span>
-          <button className="ghost" onClick={onLogout}>
+          <UiButton className="ghost" onClick={onLogout}>
             <LogOut size={18} />
             Sign Out
-          </button>
+          </UiButton>
         </div>
       </aside>
 
@@ -305,9 +310,9 @@ function Dashboard({
           </div>
           <div className="topbar-actions">
             {lastLoadedAt && <span>{relativeTime(lastLoadedAt)}</span>}
-            <button className="icon-button" onClick={() => void load()} title="Refresh dashboard">
+            <UiButton className="icon-button" onClick={() => void load()} title="Refresh dashboard">
               <RefreshCw size={18} />
-            </button>
+            </UiButton>
           </div>
         </header>
 
@@ -317,9 +322,7 @@ function Dashboard({
           <OverviewPage
             busy={busy}
             downloaders={downloaders}
-            heat={heat}
             items={items}
-            posters={posters}
             stats={stats}
             timeline={timeline}
             runAction={runAction}
@@ -354,18 +357,14 @@ function Dashboard({
 function OverviewPage({
   busy,
   downloaders,
-  heat,
   items,
-  posters,
   stats,
   timeline,
   runAction
 }: {
   busy: boolean;
   downloaders: Downloader[];
-  heat: HeatItem[];
   items: Item[];
-  posters: PosterItem[];
   stats: {
     totalItems: number;
     matched: number;
@@ -378,68 +377,202 @@ function OverviewPage({
   timeline: TimelinePoint[];
   runAction: RunAction;
 }) {
-  const focusItem = items.find((item) => item.mediaMatch?.posterPath || item.mediaMatch?.backdropPath) ?? items[0];
+  const [selectedRelease, setSelectedRelease] = useState<Item | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [queueView, setQueueView] = useState("review");
+  const [query, setQuery] = useState("");
+  const [feedFilter, setFeedFilter] = useState("");
+  const [matchFilter, setMatchFilter] = useState("all");
+
+  const feedOptions = useMemo(
+    () => [
+      { value: "", label: "All feeds" },
+      ...Array.from(new Map(items.flatMap((item) => item.feed ? [[item.feed.id, item.feed.name]] : [])).entries())
+        .map(([value, label]) => ({ value, label }))
+    ],
+    [items]
+  );
+  const visibleItems = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return items.filter((item) => {
+      const status = releaseStatus(item);
+      const matchesQueue =
+        queueView === "review" ||
+        (queueView === "matched" && Boolean(item.mediaMatch)) ||
+        (queueView === "downloaded" && status.group === "downloaded") ||
+        (queueView === "failed" && status.group === "failed");
+      const matchesSearch =
+        !normalizedQuery ||
+        [
+          item.rawTitle,
+          item.parsedRelease?.title,
+          item.mediaMatch?.title,
+          item.feed?.name,
+          item.parsedRelease?.quality,
+          item.parsedRelease?.source,
+          item.parsedRelease?.codec
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+      const matchesFeed = !feedFilter || item.feed?.id === feedFilter;
+      const matchesMatch =
+        matchFilter === "all" ||
+        (matchFilter === "matched" && Boolean(item.mediaMatch)) ||
+        (matchFilter === "unmatched" && !item.mediaMatch);
+      return matchesQueue && matchesSearch && matchesFeed && matchesMatch;
+    });
+  }, [feedFilter, items, matchFilter, query, queueView]);
+  const visibleIds = visibleItems.map((item) => item.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+  const selectedItems = items.filter((item) => selectedIds.includes(item.id));
+  const queueTabs = [
+    { value: "review", label: "Review Queue", count: items.length },
+    { value: "matched", label: "Matched", count: stats.matched },
+    {
+      value: "downloaded",
+      label: "Downloaded",
+      count: items.filter((item) => releaseStatus(item).group === "downloaded").length
+    },
+    {
+      value: "failed",
+      label: "Failed",
+      count: items.filter((item) => releaseStatus(item).group === "failed").length
+    }
+  ];
+
+  function toggleVisibleSelection(checked: boolean) {
+    setSelectedIds((current) => {
+      const withoutVisible = current.filter((id) => !visibleIds.includes(id));
+      return checked ? [...withoutVisible, ...visibleIds] : withoutVisible;
+    });
+  }
 
   return (
     <div className="page-stack">
-      <section className="overview-focus">
-        {focusItem?.mediaMatch?.posterPath ? (
-          <img src={tmdbImage(focusItem.mediaMatch.posterPath, "w342")} alt={focusItem.mediaMatch.title} />
-        ) : (
-          <div className="poster-placeholder"><Film size={34} /></div>
-        )}
-        <div>
-          <span className="section-kicker">Latest matched release</span>
-          <h3>{focusItem?.mediaMatch?.title ?? focusItem?.parsedRelease?.title ?? focusItem?.rawTitle ?? "No RSS items yet"}</h3>
-          <p>{focusItem?.mediaMatch?.overview ?? focusItem?.rawTitle ?? "Add a private RSS feed and refresh it to populate the release timeline."}</p>
-          <div className="token-row">
-            {focusItem?.mediaMatch?.kind && <Pill>{focusItem.mediaMatch.kind}</Pill>}
-            {focusItem?.mediaMatch?.year && <Pill>{focusItem.mediaMatch.year}</Pill>}
-            {focusItem?.feed?.name && <Pill>{focusItem.feed.name}</Pill>}
-            {focusItem?.mediaMatch?.score !== undefined && <Pill>{Math.round(focusItem.mediaMatch.score * 100)}%</Pill>}
+      <section className="stat-grid">
+        <StatTile label="RSS feeds" value={stats.feeds} detail={`${stats.totalItems} recent items`} icon={<Rss size={20} />} />
+        <StatTile label="Downloaders" value={stats.downloaders} detail="enabled endpoints" icon={<HardDrive size={20} />} />
+        <StatTile label="Matching rules" value={stats.subscriptions} detail="active subscriptions" icon={<SlidersHorizontal size={20} />} />
+        <StatTile label="Matched releases" value={stats.matched} detail={`${matchRate(stats.matched, stats.totalItems)} match rate`} icon={<Film size={20} />} tone="accent" />
+        <StatTile label="Failed jobs" value={stats.failedJobs} detail={stats.failedJobs > 0 ? "needs review" : "all clear"} icon={<XCircle size={20} />} tone={stats.failedJobs > 0 ? "danger" : "good"} />
+      </section>
+
+      <section className="release-workbench">
+        <header className="workbench-header">
+          <div>
+            <span className="section-kicker">Release review</span>
+            <h3>New releases from your feeds</h3>
+            <p>Verify matches, inspect parsed metadata, and send releases to the right downloader.</p>
           </div>
-        </div>
-      </section>
+          <div className="workbench-actions">
+            <MenuButton
+              className="secondary"
+              label={selectedIds.length ? `${selectedIds.length} selected` : "Bulk actions"}
+              icon={<ListFilter size={16} />}
+              items={[
+                {
+                  label: "Match selected",
+                  icon: <Film size={15} />,
+                  disabled: selectedItems.length === 0 || busy,
+                  onSelect: () =>
+                    void runAction(() =>
+                      Promise.all(selectedItems.map((item) => api(`/api/items/${item.id}/match`, { method: "POST" })))
+                    )
+                },
+                {
+                  label: "Clear selection",
+                  icon: <XCircle size={15} />,
+                  disabled: selectedIds.length === 0,
+                  onSelect: () => setSelectedIds([])
+                }
+              ]}
+            />
+          </div>
+        </header>
 
-      <section className="metric-grid">
-        <Metric label="RSS Items" value={stats.totalItems} icon={<Activity size={19} />} />
-        <Metric label="Matched" value={stats.matched} icon={<Film size={19} />} />
-        <Metric label="Feeds" value={stats.feeds} icon={<Rss size={19} />} />
-        <Metric label="Jobs" value={stats.jobs} icon={<DownloadCloud size={19} />} />
-      </section>
+        <SegmentedTabs value={queueView} onValueChange={setQueueView} tabs={queueTabs} />
 
-      <section className="overview-grid">
-        <Panel title="RSS Title Timeline" icon={<CalendarClock size={19} />}>
-          <ReleaseTimeline
-            busy={busy}
-            downloaders={downloaders}
-            items={items}
-            runAction={runAction}
+        <div className="filter-bar">
+          <FieldLabel className="search-control">
+            <Search size={16} />
+            <FormInput
+              placeholder="Search title, feed, or release tag"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </FieldLabel>
+          <SelectField value={feedFilter} onValueChange={setFeedFilter} options={feedOptions} placeholder="Feed" />
+          <SelectField
+            value={matchFilter}
+            onValueChange={setMatchFilter}
+            options={[
+              { value: "all", label: "All matches" },
+              { value: "matched", label: "Matched only" },
+              { value: "unmatched", label: "Unmatched only" }
+            ]}
+            placeholder="Match"
           />
-        </Panel>
-        <div className="side-stack">
-          <Panel title="Release Heat" icon={<Activity size={19} />}>
-            <HeatList heat={heat} />
-          </Panel>
-          <Panel title="Hourly Intake" icon={<Clock3 size={19} />}>
-            <TimelineBars timeline={timeline} />
-          </Panel>
+          <Tooltip content="Filters are applied locally to the loaded RSS items.">
+            <UiButton className="icon-button" type="button" aria-label="Filter details">
+              <SlidersHorizontal size={17} />
+            </UiButton>
+          </Tooltip>
         </div>
+
+        <Panel title="Review queue" icon={<Activity size={19} />}>
+          <div className="release-table">
+            <div className="release-table-head">
+              <CheckboxField checked={allVisibleSelected} onCheckedChange={toggleVisibleSelection} />
+              <span>Release</span>
+              <span>Feed</span>
+              <span>Quality</span>
+              <span>Match</span>
+              <span>Status</span>
+              <span>Actions</span>
+            </div>
+            {visibleItems.length === 0 && <Empty label="No releases match the current filters" />}
+            {visibleItems.map((item) => (
+              <ReleaseReviewRow
+                busy={busy}
+                checked={selectedIds.includes(item.id)}
+                downloaders={downloaders}
+                item={item}
+                key={item.id}
+                onCheckedChange={(checked) =>
+                  setSelectedIds((current) =>
+                    checked ? [...new Set([...current, item.id])] : current.filter((id) => id !== item.id)
+                  )
+                }
+                onInspect={() => setSelectedRelease(item)}
+                runAction={runAction}
+              />
+            ))}
+          </div>
+          <footer className="table-footer">
+            <span>{visibleItems.length} of {items.length} releases</span>
+            <span>TMDB metadata and images are used when a match is available.</span>
+          </footer>
+        </Panel>
       </section>
 
-      <Panel title="Poster Wall" icon={<Film size={19} />}>
-        <div className="poster-wall">
-          {posters.length === 0 && <Empty label="Matched posters will appear here" />}
-          {posters.map((poster) => (
-            <article className="poster" key={poster.id}>
-              <img src={poster.posterUrl} alt={poster.title} />
-              <strong>{poster.title}</strong>
-              <span>{poster.year ?? "Unknown"} · {Math.round(poster.score * 100)}%</span>
-            </article>
-          ))}
-        </div>
-        <p className="tmdb">Metadata and images are provided by TMDB.</p>
-      </Panel>
+      <section className="overview-insight-grid">
+        <Panel title="Feed intake" icon={<Clock3 size={19} />}>
+          <TimelineBars timeline={timeline} compact />
+        </Panel>
+        <Panel title="Queue health" icon={<CheckCircle2 size={19} />}>
+          <StatusSummary items={items} />
+        </Panel>
+      </section>
+
+      {selectedRelease && (
+        <ReleaseInspectorModal
+          busy={busy}
+          downloaders={downloaders}
+          item={selectedRelease}
+          onClose={() => setSelectedRelease(null)}
+          runAction={runAction}
+        />
+      )}
     </div>
   );
 }
@@ -457,14 +590,39 @@ function RssPage({
 
   return (
     <div className="page-stack">
+      <section className="overview-insight-grid">
+        <Panel title="Feed volume" icon={<Activity size={19} />}>
+          <DistributionBars
+            entries={feeds.map((feed) => ({
+              label: feed.name,
+              value: feed.itemCount,
+              detail: feed.enabled ? "enabled" : "disabled",
+              tone: feed.lastError ? "danger" : feed.enabled ? "good" : "neutral"
+            }))}
+            emptyLabel="Add feeds to see item volume"
+          />
+        </Panel>
+        <Panel title="Polling cadence" icon={<Clock3 size={19} />}>
+          <DistributionBars
+            entries={feeds.map((feed) => ({
+              label: feed.name,
+              value: Math.round(feed.pollIntervalSeconds / 60),
+              detail: feed.lastPolledAt ? `last polled ${relativeTime(feed.lastPolledAt)}` : "not polled yet",
+              tone: feed.lastError ? "danger" : "accent"
+            }))}
+            suffix="m"
+            emptyLabel="Polling cadence appears after feeds are configured"
+          />
+        </Panel>
+      </section>
       <Panel
         title="Feed Sources"
         icon={<ServerCog size={19} />}
         actions={
-          <button className="primary" disabled={busy} onClick={() => setFeedModal("new")}>
+          <UiButton className="primary" disabled={busy} onClick={() => setFeedModal("new")}>
             <Plus size={17} />
             Add Feed
-          </button>
+          </UiButton>
         }
       >
         <div className="list">
@@ -479,18 +637,18 @@ function RssPage({
               </div>
               <div className="row-actions">
                 <StatusPill ok={feed.enabled}>{feed.enabled ? "Enabled" : "Disabled"}</StatusPill>
-                <button className="secondary" disabled={busy} onClick={() => setFeedModal(feed)}>
+                <UiButton className="secondary" disabled={busy} onClick={() => setFeedModal(feed)}>
                   <Pencil size={16} />
                   Edit
-                </button>
-                <button
+                </UiButton>
+                <UiButton
                   className="icon-button"
                   disabled={busy}
                   onClick={() => runAction(() => api(`/api/feeds/${feed.id}/refresh`, { method: "POST" }))}
                   title="Refresh feed"
                 >
                   <RefreshCw size={17} />
-                </button>
+                </UiButton>
               </div>
             </article>
           ))}
@@ -536,14 +694,30 @@ function DownloadersPage({
 
   return (
     <div className="page-stack">
+      <section className="overview-insight-grid">
+        <Panel title="Dispatch volume" icon={<DownloadCloud size={19} />}>
+          <DistributionBars
+            entries={downloaders.map((downloader) => ({
+              label: downloader.name,
+              value: downloader.jobCount ?? 0,
+              detail: downloader.type,
+              tone: downloader.enabled ? "accent" : "neutral"
+            }))}
+            emptyLabel="No downloader jobs yet"
+          />
+        </Panel>
+        <Panel title="Endpoint status" icon={<ServerCog size={19} />}>
+          <EndpointStatusGrid downloaders={downloaders} />
+        </Panel>
+      </section>
       <Panel
         title="Downloader Endpoints"
         icon={<ServerCog size={19} />}
         actions={
-          <button className="primary" disabled={busy} onClick={() => setDownloaderModal("new")}>
+          <UiButton className="primary" disabled={busy} onClick={() => setDownloaderModal("new")}>
             <Plus size={17} />
             Add Downloader
-          </button>
+          </UiButton>
         }
       >
         <div className="list">
@@ -558,12 +732,12 @@ function DownloadersPage({
               <div className="row-actions">
                 {downloader.isDefault && <Pill>Default</Pill>}
                 <StatusPill ok={downloader.enabled}>{downloader.enabled ? "Enabled" : "Disabled"}</StatusPill>
-                <button className="secondary" disabled={busy} onClick={() => setDownloaderModal(downloader)}>
+                <UiButton className="secondary" disabled={busy} onClick={() => setDownloaderModal(downloader)}>
                   <Pencil size={16} />
                   Edit
-                </button>
+                </UiButton>
                 {!downloader.isDefault && (
-                  <button
+                  <UiButton
                     className="secondary"
                     disabled={busy}
                     onClick={() =>
@@ -576,15 +750,15 @@ function DownloadersPage({
                     }
                   >
                     Make Default
-                  </button>
+                  </UiButton>
                 )}
-                <button
+                <UiButton
                   className="secondary"
                   disabled={busy}
                   onClick={() => runAction(() => api(`/api/downloaders/${downloader.id}/test`, { method: "POST" }))}
                 >
                   Test
-                </button>
+                </UiButton>
               </div>
             </article>
           ))}
@@ -637,10 +811,10 @@ function SubscriptionsPage({
         title="Subscription Rules"
         icon={<ListFilter size={19} />}
         actions={
-          <button className="primary" disabled={busy} onClick={() => setCreateOpen(true)}>
+          <UiButton className="primary" disabled={busy} onClick={() => setCreateOpen(true)}>
             <Plus size={17} />
             Create Subscription
-          </button>
+          </UiButton>
         }
       >
         <div className="list">
@@ -656,10 +830,10 @@ function SubscriptionsPage({
                 <StatusPill ok={subscription.enabled}>{subscription.enabled ? "Enabled" : "Disabled"}</StatusPill>
                 <StatusPill ok={subscription.autoDownload}>{subscription.autoDownload ? "Auto" : "Manual"}</StatusPill>
                 {subscription.downloader ? <Pill>{subscription.downloader.name}</Pill> : <Pill>Default downloader</Pill>}
-                <button className="secondary" disabled={busy} onClick={() => setEditingSubscription(subscription)}>
+                <UiButton className="secondary" disabled={busy} onClick={() => setEditingSubscription(subscription)}>
                   <Pencil size={16} />
                   Edit
-                </button>
+                </UiButton>
               </div>
             </article>
           ))}
@@ -800,99 +974,311 @@ function WorkspacePage({
   );
 }
 
-function ReleaseTimeline({
+function ReleaseReviewRow({
+  busy,
+  checked,
+  downloaders,
+  item,
+  onCheckedChange,
+  onInspect,
+  runAction
+}: {
+  busy: boolean;
+  checked: boolean;
+  downloaders: Downloader[];
+  item: Item;
+  onCheckedChange: (checked: boolean) => void;
+  onInspect: () => void;
+  runAction: RunAction;
+}) {
+  const title = releaseTitle(item);
+  const status = releaseStatus(item);
+  const confidence = item.mediaMatch?.score ?? item.parseConfidence ?? 0;
+
+  return (
+    <article className="release-table-row">
+      <CheckboxField checked={checked} onCheckedChange={onCheckedChange} />
+      <div className="release-title-cell">
+        <div className="release-poster">
+          {item.mediaMatch?.posterPath ? (
+            <img src={tmdbImage(item.mediaMatch.posterPath, "w185")} alt={title} />
+          ) : (
+            <Film size={24} />
+          )}
+        </div>
+        <div className="release-copy">
+          <UiButton className="release-title-button" onClick={onInspect} type="button">
+            {title}
+          </UiButton>
+          <span>{item.rawTitle}</span>
+          <small>{relativeTime(item.firstSeenAt)}{item.sizeBytes ? ` · ${formatBytes(item.sizeBytes)}` : ""}</small>
+        </div>
+      </div>
+      <div className="release-feed-cell">
+        <strong>{item.feed?.name ?? "Feed"}</strong>
+        <span>{item.parsedRelease?.kind ?? item.mediaMatch?.kind ?? "UNKNOWN"}</span>
+      </div>
+      <div className="token-row quality-cell">
+        {item.parsedRelease?.quality && <Pill>{item.parsedRelease.quality}</Pill>}
+        {item.parsedRelease?.source && <Pill>{item.parsedRelease.source}</Pill>}
+        {item.parsedRelease?.codec && <Pill>{item.parsedRelease.codec}</Pill>}
+        {item.parsedRelease?.kind === "TV" && (
+          <Pill>
+            <Tv size={13} />
+            S{item.parsedRelease.season ?? "?"}E{item.parsedRelease.episode ?? "?"}
+          </Pill>
+        )}
+      </div>
+      <div className="confidence-cell">
+        <strong>{confidencePercent(confidence)}</strong>
+        <span><i style={{ width: confidenceBarWidth(confidence) }} /></span>
+        <small>{item.mediaMatch ? "TMDB match" : "Parse confidence"}</small>
+      </div>
+      <div className="status-cell">
+        <StatusPill ok={status.ok}>{status.label}</StatusPill>
+        <small>{status.detail}</small>
+      </div>
+      <div className="item-actions">
+        <UiButton
+          className="secondary"
+          disabled={busy}
+          onClick={() => runAction(() => api(`/api/items/${item.id}/match`, { method: "POST" }))}
+        >
+          Match
+        </UiButton>
+        <ManualDownload
+          disabled={busy || downloaders.length === 0}
+          downloaders={downloaders}
+          onDownload={(downloaderId) =>
+            runAction(() =>
+              api(`/api/items/${item.id}/downloads`, {
+                method: "POST",
+                body: JSON.stringify({ downloaderId })
+              })
+            )
+          }
+        />
+        <MenuButton
+          className="icon-button"
+          label={<span className="sr-only">Release actions</span>}
+          icon={<MoreHorizontal size={17} />}
+          items={[
+            { label: "Open details", icon: <Eye size={15} />, onSelect: onInspect },
+            {
+              label: "Match release",
+              icon: <Film size={15} />,
+              disabled: busy,
+              onSelect: () => void runAction(() => api(`/api/items/${item.id}/match`, { method: "POST" }))
+            }
+          ]}
+        />
+      </div>
+    </article>
+  );
+}
+
+function ReleaseInspectorModal({
   busy,
   downloaders,
-  items,
+  item,
+  onClose,
   runAction
 }: {
   busy: boolean;
   downloaders: Downloader[];
-  items: Item[];
+  item: Item;
+  onClose: () => void;
   runAction: RunAction;
 }) {
-  if (items.length === 0) return <Empty label="Add a feed and refresh it to start tracking releases" />;
+  const title = releaseTitle(item);
+  const status = releaseStatus(item);
+  const backdropUrl = item.mediaMatch?.backdropPath ? tmdbImage(item.mediaMatch.backdropPath, "w342") : undefined;
 
   return (
-    <div className="release-timeline">
-      {items.map((item) => (
-        <article className="release-row" key={item.id}>
-          <div className="release-poster">
-            {item.mediaMatch?.posterPath ? (
-              <img src={tmdbImage(item.mediaMatch.posterPath, "w185")} alt={item.mediaMatch.title} />
-            ) : (
-              <Film size={24} />
-            )}
+    <AppDialog
+      className="release-dialog"
+      description={item.rawTitle}
+      onClose={onClose}
+      title={title}
+    >
+      <section
+        className="release-dialog-hero"
+        style={backdropUrl ? { backgroundImage: `linear-gradient(90deg, rgba(255,255,255,0.96), rgba(255,255,255,0.78)), url(${backdropUrl})` } : undefined}
+      >
+        <div className="release-dialog-poster">
+          {item.mediaMatch?.posterPath ? (
+            <img src={tmdbImage(item.mediaMatch.posterPath, "w342")} alt={title} />
+          ) : (
+            <Film size={34} />
+          )}
+        </div>
+        <div className="release-dialog-summary">
+          <div className="token-row">
+            <StatusPill ok={status.ok}>{status.label}</StatusPill>
+            {item.mediaMatch?.year && <Pill>{item.mediaMatch.year}</Pill>}
+            {item.mediaMatch?.kind && <Pill>{item.mediaMatch.kind}</Pill>}
+            {item.mediaMatch?.score !== undefined && <Pill>{confidencePercent(item.mediaMatch.score)} match</Pill>}
           </div>
-          <div className="release-copy">
-            <strong>{item.mediaMatch?.title ?? item.parsedRelease?.title ?? item.rawTitle}</strong>
-            <span>{item.rawTitle}</span>
-            {item.mediaMatch?.overview && <p>{item.mediaMatch.overview}</p>}
-            <small>{item.feed?.name ?? "Feed"} · {relativeTime(item.firstSeenAt)}{item.sizeBytes ? ` · ${formatBytes(item.sizeBytes)}` : ""}</small>
+          <p>{item.mediaMatch?.overview ?? "No TMDB overview is available for this release yet."}</p>
+          <div className="release-dialog-actions">
+            <UiButton
+              className="secondary"
+              disabled={busy}
+              onClick={() => runAction(() => api(`/api/items/${item.id}/match`, { method: "POST" }))}
+            >
+              <Film size={17} />
+              Match
+            </UiButton>
+            <ManualDownload
+              disabled={busy || downloaders.length === 0}
+              downloaders={downloaders}
+              onDownload={(downloaderId) =>
+                runAction(() =>
+                  api(`/api/items/${item.id}/downloads`, {
+                    method: "POST",
+                    body: JSON.stringify({ downloaderId })
+                  })
+                )
+              }
+            />
           </div>
-          <div className="release-meta">
-            <div className="token-row">
-              <Pill>{item.parsedRelease?.kind ?? item.mediaMatch?.kind ?? "UNKNOWN"}</Pill>
-              {item.mediaMatch?.year && <Pill>{item.mediaMatch.year}</Pill>}
-              {item.parsedRelease?.quality && <Pill>{item.parsedRelease.quality}</Pill>}
-              {item.parsedRelease?.kind === "TV" && (
-                <Pill>
-                  <Tv size={13} />
-                  S{item.parsedRelease.season ?? "?"}E{item.parsedRelease.episode ?? "?"}
-                </Pill>
-              )}
-              {item.mediaMatch ? <Pill>{Math.round(item.mediaMatch.score * 100)}%</Pill> : <Pill>Unmatched</Pill>}
-            </div>
-            <div className="item-actions">
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() => runAction(() => api(`/api/items/${item.id}/match`, { method: "POST" }))}
-              >
-                Match
-              </button>
-              <ManualDownload
-                disabled={busy || downloaders.length === 0}
-                downloaders={downloaders}
-                onDownload={(downloaderId) =>
-                  runAction(() =>
-                    api(`/api/items/${item.id}/downloads`, {
-                      method: "POST",
-                      body: JSON.stringify({ downloaderId })
-                    })
-                  )
-                }
-              />
-            </div>
-          </div>
-        </article>
-      ))}
-    </div>
+        </div>
+      </section>
+      <section className="release-dialog-grid">
+        <DetailGroup
+          title="Parsed release"
+          rows={[
+            ["Kind", item.parsedRelease?.kind ?? item.mediaMatch?.kind ?? "Unknown"],
+            ["Quality", item.parsedRelease?.quality ?? "Unknown"],
+            ["Source", item.parsedRelease?.source ?? "Unknown"],
+            ["Codec", item.parsedRelease?.codec ?? "Unknown"],
+            ["Size", item.sizeBytes ? formatBytes(item.sizeBytes) : "Unknown"]
+          ]}
+        />
+        <DetailGroup
+          title="Match detail"
+          rows={[
+            ["Provider", item.mediaMatch?.provider ?? "Not matched"],
+            ["Provider ID", item.mediaMatch?.providerId ?? "Not matched"],
+            ["Confidence", confidencePercent(item.mediaMatch?.score ?? item.parseConfidence ?? 0)],
+            ["Reason", item.mediaMatch?.reason ?? "No match reason provided"]
+          ]}
+        />
+        <DetailGroup
+          title="Source and target"
+          rows={[
+            ["Feed", item.feed?.name ?? "Feed"],
+            ["First seen", new Date(item.firstSeenAt).toLocaleString()],
+            ["Downloader", downloaders.find((downloader) => downloader.isDefault)?.name ?? downloaders[0]?.name ?? "No downloader"],
+            ["Job status", status.detail]
+          ]}
+        />
+      </section>
+    </AppDialog>
   );
 }
 
-function HeatList({ heat }: { heat: HeatItem[] }) {
+function DetailGroup({ title, rows }: { title: string; rows: Array<[string, string]> }) {
   return (
-    <div className="heat-list">
-      {heat.length === 0 && <Empty label="No feed activity yet" />}
-      {heat.map((entry) => (
-        <div className="heat-row" key={entry.title}>
-          <strong>{entry.title}</strong>
-          <span>{entry.count} releases</span>
+    <article className="detail-group">
+      <h4>{title}</h4>
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </article>
+  );
+}
+
+function StatusSummary({ items }: { items: Item[] }) {
+  const summary = [
+    { label: "Matched", count: items.filter((item) => item.mediaMatch).length, tone: "good" },
+    { label: "Unmatched", count: items.filter((item) => !item.mediaMatch).length, tone: "neutral" },
+    { label: "Downloaded", count: items.filter((item) => releaseStatus(item).group === "downloaded").length, tone: "accent" },
+    { label: "Failed", count: items.filter((item) => releaseStatus(item).group === "failed").length, tone: "danger" }
+  ];
+  const total = Math.max(items.length, 1);
+
+  return (
+    <div className="summary-bars">
+      {summary.map((entry) => (
+        <div className="summary-bar" key={entry.label}>
+          <div>
+            <span>{entry.label}</span>
+            <strong>{entry.count}</strong>
+          </div>
+          <span className={`bar-track ${entry.tone}`}>
+            <i style={{ width: `${Math.round((entry.count / total) * 100)}%` }} />
+          </span>
         </div>
       ))}
     </div>
   );
 }
 
-function TimelineBars({ timeline }: { timeline: TimelinePoint[] }) {
+function DistributionBars({
+  entries,
+  emptyLabel,
+  suffix = ""
+}: {
+  entries: Array<{ label: string; value: number; detail: string; tone?: string }>;
+  emptyLabel: string;
+  suffix?: string;
+}) {
+  const maxValue = Math.max(1, ...entries.map((entry) => entry.value));
+
   return (
-    <div className="timeline">
+    <div className="summary-bars">
+      {entries.length === 0 && <Empty label={emptyLabel} />}
+      {entries.map((entry) => (
+        <div className="summary-bar" key={entry.label}>
+          <div>
+            <span>{entry.label}</span>
+            <strong>{entry.value}{suffix}</strong>
+          </div>
+          <span className={`bar-track ${entry.tone ?? "neutral"}`}>
+            <i style={{ width: `${Math.max(4, Math.round((entry.value / maxValue) * 100))}%` }} />
+          </span>
+          <small>{entry.detail}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EndpointStatusGrid({ downloaders }: { downloaders: Downloader[] }) {
+  if (downloaders.length === 0) return <Empty label="No downloader endpoints configured" />;
+
+  return (
+    <div className="endpoint-grid">
+      {downloaders.map((downloader) => (
+        <article className="endpoint-tile" key={downloader.id}>
+          <div>
+            <strong>{downloader.name}</strong>
+            <span>{downloader.type}</span>
+          </div>
+          <div className="token-row">
+            {downloader.isDefault && <Pill>Default</Pill>}
+            <StatusPill ok={downloader.enabled}>{downloader.enabled ? "Enabled" : "Disabled"}</StatusPill>
+          </div>
+          <small>{downloader.jobCount ?? 0} jobs{downloader.category ? ` · ${downloader.category}` : ""}</small>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function TimelineBars({ timeline, compact = false }: { timeline: TimelinePoint[]; compact?: boolean }) {
+  const maxCount = Math.max(1, ...timeline.map((point) => point.count));
+  return (
+    <div className={compact ? "timeline compact" : "timeline"}>
       {timeline.length === 0 && <Empty label="No timeline data yet" />}
       {timeline.map((point) => (
         <div className="bar-row" key={point.time}>
           <span>{new Date(point.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-          <div><i style={{ width: `${Math.max(8, point.count * 12)}px` }} /></div>
+          <div><i style={{ width: `${Math.max(6, Math.round((point.count / maxCount) * 100))}%` }} /></div>
           <b>{point.count}</b>
         </div>
       ))}
@@ -941,32 +1327,10 @@ function Modal({
   children: ReactNode;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-      role="presentation"
-    >
-      <section aria-label={title} aria-modal="true" className="modal-dialog" role="dialog">
-        <header className="modal-header">
-          <h3>{title}</h3>
-          <button className="icon-button" onClick={onClose} title="Close" type="button">
-            <X size={18} />
-          </button>
-        </header>
-        {children}
-      </section>
-    </div>
+    <AppDialog description={title} title={title} onClose={onClose}>
+      {children}
+    </AppDialog>
   );
 }
 
@@ -1008,44 +1372,41 @@ function FeedModalForm({
         if (!result.ok) setSubmitError(result.message);
       }}
     >
-      <label>
+      <FieldLabel>
         Feed name
-        <input value={name} onChange={(event) => setName(event.target.value)} required />
-      </label>
-      <label>
+        <FormInput value={name} onChange={(event) => setName(event.target.value)} required />
+      </FieldLabel>
+      <FieldLabel>
         Private RSS URL
-        <input
+        <FormInput
           placeholder={editing ? "Leave blank to keep current URL" : "https://tracker.example/rss"}
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           required={!editing}
         />
-      </label>
+      </FieldLabel>
       <div className="form-grid">
-        <label>
+        <FieldLabel>
           Poll interval
-          <input
+          <FormInput
             type="number"
             min={60}
             value={pollIntervalSeconds}
             onChange={(event) => setPollIntervalSeconds(event.target.value)}
             required
           />
-        </label>
-        <label className="checkbox-row">
-          <input checked={enabled} onChange={(event) => setEnabled(event.target.checked)} type="checkbox" />
-          Enabled
-        </label>
+        </FieldLabel>
+        <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
       </div>
       {submitError && <p className="modal-feedback error">{submitError}</p>}
       <div className="modal-actions">
-        <button className="secondary" onClick={onCancel} type="button">
+        <UiButton className="secondary" onClick={onCancel} type="button">
           Cancel
-        </button>
-        <button className="primary" disabled={busy} type="submit">
+        </UiButton>
+        <UiButton className="primary" disabled={busy} type="submit">
           {editing ? <Pencil size={17} /> : <Plus size={17} />}
           {editing ? "Save Feed" : "Add Feed"}
-        </button>
+        </UiButton>
       </div>
     </form>
   );
@@ -1130,55 +1491,56 @@ function DownloaderModalForm({
       }}
     >
       <div className="form-grid">
-        <label>
-          Type
-          <select value={type} onChange={(event) => setType(event.target.value as Downloader["type"])}>
-            <option value="QBITTORRENT">qBittorrent</option>
-            <option value="TRANSMISSION">Transmission</option>
-          </select>
-        </label>
-        <label>
+        <div className="field">
+          <span>Type</span>
+          <SelectField
+            value={type}
+            onValueChange={(value) => setType(value as Downloader["type"])}
+            options={[
+              { value: "QBITTORRENT", label: "qBittorrent" },
+              { value: "TRANSMISSION", label: "Transmission" }
+            ]}
+          />
+        </div>
+        <FieldLabel>
           Name
-          <input value={name} onChange={(event) => setName(event.target.value)} required />
-        </label>
+          <FormInput value={name} onChange={(event) => setName(event.target.value)} required />
+        </FieldLabel>
       </div>
-      <label>
+      <FieldLabel>
         Base URL
-        <input placeholder="http://localhost:8080" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required />
-      </label>
+        <FormInput placeholder="http://localhost:8080" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required />
+      </FieldLabel>
       <div className="form-grid">
-        <label>
+        <FieldLabel>
           Username
-          <input value={username} onChange={(event) => setUsername(event.target.value)} />
-        </label>
-        <label>
+          <FormInput value={username} onChange={(event) => setUsername(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Password
-          <input
+          <FormInput
             placeholder={editing ? "Leave blank to keep current password" : ""}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             type="password"
           />
-        </label>
+        </FieldLabel>
       </div>
       <div className="form-grid">
-        <label>
+        <FieldLabel>
           Save path
-          <input value={defaultSavePath} onChange={(event) => setDefaultSavePath(event.target.value)} />
-        </label>
-        <label>
+          <FormInput value={defaultSavePath} onChange={(event) => setDefaultSavePath(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Category
-          <input value={category} onChange={(event) => setCategory(event.target.value)} />
-        </label>
+          <FormInput value={category} onChange={(event) => setCategory(event.target.value)} />
+        </FieldLabel>
       </div>
-      <label>
+      <FieldLabel>
         Tags
-        <input placeholder="movies, private" value={tags} onChange={(event) => setTags(event.target.value)} />
-      </label>
-      <label className="checkbox-row">
-        <input checked={enabled} onChange={(event) => setEnabled(event.target.checked)} type="checkbox" />
-        Enabled
-      </label>
+        <FormInput placeholder="movies, private" value={tags} onChange={(event) => setTags(event.target.value)} />
+      </FieldLabel>
+      <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
       {testResult && (
         <p className={testResult.ok ? "modal-feedback success" : "modal-feedback error"}>
           {testResult.message}
@@ -1186,17 +1548,17 @@ function DownloaderModalForm({
       )}
       {submitError && <p className="modal-feedback error">{submitError}</p>}
       <div className="modal-actions">
-        <button className="secondary" onClick={onCancel} type="button">
+        <UiButton className="secondary" onClick={onCancel} type="button">
           Cancel
-        </button>
-        <button className="secondary" disabled={busy || testBusy} onClick={() => void testConnection()} type="button">
+        </UiButton>
+        <UiButton className="secondary" disabled={busy || testBusy} onClick={() => void testConnection()} type="button">
           <ServerCog size={17} />
           {testBusy ? "Testing" : "Test Connection"}
-        </button>
-        <button className="primary" disabled={busy} type="submit">
+        </UiButton>
+        <UiButton className="primary" disabled={busy} type="submit">
           {editing ? <Pencil size={17} /> : <Plus size={17} />}
           {editing ? "Save Downloader" : "Add Downloader"}
-        </button>
+        </UiButton>
       </div>
     </form>
   );
@@ -1285,146 +1647,150 @@ function SubscriptionEditForm({
         if (!result.ok) setSubmitError(result.message);
       }}
     >
-      <label>
+      <FieldLabel>
         Subscription title
-        <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-      </label>
+        <FormInput value={title} onChange={(event) => setTitle(event.target.value)} required />
+      </FieldLabel>
       <div className="form-grid">
-        <label>
-          Downloader
-          <select value={downloaderId} onChange={(event) => setDownloaderId(event.target.value)}>
-            <option value="">Default downloader</option>
-            {downloaders.map((downloader) => (
-              <option value={downloader.id} key={downloader.id}>{downloader.name}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Media kind
-          <select value={mediaKind} onChange={(event) => setMediaKind(event.target.value as typeof mediaKind)}>
-            <option value="">Any kind</option>
-            <option value="MOVIE">Movie</option>
-            <option value="TV">Series</option>
-            <option value="UNKNOWN">Unknown</option>
-          </select>
-        </label>
+        <div className="field">
+          <span>Downloader</span>
+          <SelectField
+            value={downloaderId}
+            onValueChange={setDownloaderId}
+            options={[
+              { value: "", label: "Default downloader" },
+              ...downloaders.map((downloader) => ({ value: downloader.id, label: downloader.name }))
+            ]}
+          />
+        </div>
+        <div className="field">
+          <span>Media kind</span>
+          <SelectField
+            value={mediaKind}
+            onValueChange={(value) => setMediaKind(value as typeof mediaKind)}
+            options={[
+              { value: "", label: "Any kind" },
+              { value: "MOVIE", label: "Movie" },
+              { value: "TV", label: "Series" },
+              { value: "UNKNOWN", label: "Unknown" }
+            ]}
+          />
+        </div>
       </div>
       <div className="form-grid">
-        <label>
-          Provider
-          <select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)}>
-            <option value="">Any provider</option>
-            <option value="tmdb">TMDB</option>
-            <option value="imdb">IMDb</option>
-            <option value="douban">Douban</option>
-          </select>
-        </label>
-        <label>
+        <div className="field">
+          <span>Provider</span>
+          <SelectField
+            value={provider}
+            onValueChange={(value) => setProvider(value as typeof provider)}
+            options={[
+              { value: "", label: "Any provider" },
+              { value: "tmdb", label: "TMDB" },
+              { value: "imdb", label: "IMDb" },
+              { value: "douban", label: "Douban" }
+            ]}
+          />
+        </div>
+        <FieldLabel>
           Provider ID
-          <input value={providerId} onChange={(event) => setProviderId(event.target.value)} />
-        </label>
+          <FormInput value={providerId} onChange={(event) => setProviderId(event.target.value)} />
+        </FieldLabel>
       </div>
       <div className="form-grid">
-        <label>
+        <FieldLabel>
           IMDb ID
-          <input placeholder="tt1234567" value={imdbId} onChange={(event) => setImdbId(event.target.value)} />
-        </label>
-        <label>
+          <FormInput placeholder="tt1234567" value={imdbId} onChange={(event) => setImdbId(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Douban ID
-          <input value={doubanId} onChange={(event) => setDoubanId(event.target.value)} />
-        </label>
+          <FormInput value={doubanId} onChange={(event) => setDoubanId(event.target.value)} />
+        </FieldLabel>
       </div>
       <div className="form-grid">
-        <label>
+        <FieldLabel>
           Title regex
-          <input value={titleRegex} onChange={(event) => setTitleRegex(event.target.value)} />
-        </label>
-        <label>
+          <FormInput value={titleRegex} onChange={(event) => setTitleRegex(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Include regex
-          <input value={includeRegex} onChange={(event) => setIncludeRegex(event.target.value)} />
-        </label>
+          <FormInput value={includeRegex} onChange={(event) => setIncludeRegex(event.target.value)} />
+        </FieldLabel>
       </div>
-      <label>
+      <FieldLabel>
         Exclude regex
-        <input value={excludeRegex} onChange={(event) => setExcludeRegex(event.target.value)} />
-      </label>
+        <FormInput value={excludeRegex} onChange={(event) => setExcludeRegex(event.target.value)} />
+      </FieldLabel>
       <div className="form-grid">
-        <label>
+        <FieldLabel>
           Min resolution
-          <input min={1} type="number" value={minResolution} onChange={(event) => setMinResolution(event.target.value)} />
-        </label>
-        <label>
+          <FormInput min={1} type="number" value={minResolution} onChange={(event) => setMinResolution(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Max resolution
-          <input min={1} type="number" value={maxResolution} onChange={(event) => setMaxResolution(event.target.value)} />
-        </label>
+          <FormInput min={1} type="number" value={maxResolution} onChange={(event) => setMaxResolution(event.target.value)} />
+        </FieldLabel>
       </div>
       <div className="form-grid">
-        <label>
+        <FieldLabel>
           Sources
-          <input placeholder="WEB-DL, BluRay" value={sources} onChange={(event) => setSources(event.target.value)} />
-        </label>
-        <label>
+          <FormInput placeholder="WEB-DL, BluRay" value={sources} onChange={(event) => setSources(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Codecs
-          <input placeholder="x264, x265" value={codecs} onChange={(event) => setCodecs(event.target.value)} />
-        </label>
+          <FormInput placeholder="x264, x265" value={codecs} onChange={(event) => setCodecs(event.target.value)} />
+        </FieldLabel>
       </div>
-      <label>
+      <FieldLabel>
         Audio
-        <input placeholder="Atmos, TrueHD" value={audio} onChange={(event) => setAudio(event.target.value)} />
-      </label>
+        <FormInput placeholder="Atmos, TrueHD" value={audio} onChange={(event) => setAudio(event.target.value)} />
+      </FieldLabel>
       <div className="form-grid">
-        <label>
+        <FieldLabel>
           Include release groups
-          <input value={releaseGroupsInclude} onChange={(event) => setReleaseGroupsInclude(event.target.value)} />
-        </label>
-        <label>
+          <FormInput value={releaseGroupsInclude} onChange={(event) => setReleaseGroupsInclude(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Exclude release groups
-          <input value={releaseGroupsExclude} onChange={(event) => setReleaseGroupsExclude(event.target.value)} />
-        </label>
+          <FormInput value={releaseGroupsExclude} onChange={(event) => setReleaseGroupsExclude(event.target.value)} />
+        </FieldLabel>
       </div>
       <div className="form-grid">
-        <label>
+        <FieldLabel>
           Min size bytes
-          <input min={1} type="number" value={minSizeBytes} onChange={(event) => setMinSizeBytes(event.target.value)} />
-        </label>
-        <label>
+          <FormInput min={1} type="number" value={minSizeBytes} onChange={(event) => setMinSizeBytes(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Max size bytes
-          <input min={1} type="number" value={maxSizeBytes} onChange={(event) => setMaxSizeBytes(event.target.value)} />
-        </label>
+          <FormInput min={1} type="number" value={maxSizeBytes} onChange={(event) => setMaxSizeBytes(event.target.value)} />
+        </FieldLabel>
       </div>
       <div className="form-grid three">
-        <label>
+        <FieldLabel>
           Season
-          <input min={1} type="number" value={season} onChange={(event) => setSeason(event.target.value)} />
-        </label>
-        <label>
+          <FormInput min={1} type="number" value={season} onChange={(event) => setSeason(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Episode start
-          <input min={1} type="number" value={episodeStart} onChange={(event) => setEpisodeStart(event.target.value)} />
-        </label>
-        <label>
+          <FormInput min={1} type="number" value={episodeStart} onChange={(event) => setEpisodeStart(event.target.value)} />
+        </FieldLabel>
+        <FieldLabel>
           Episode end
-          <input min={1} type="number" value={episodeEnd} onChange={(event) => setEpisodeEnd(event.target.value)} />
-        </label>
+          <FormInput min={1} type="number" value={episodeEnd} onChange={(event) => setEpisodeEnd(event.target.value)} />
+        </FieldLabel>
       </div>
       <div className="form-grid">
-        <label className="checkbox-row">
-          <input checked={autoDownload} onChange={(event) => setAutoDownload(event.target.checked)} type="checkbox" />
-          Auto download
-        </label>
-        <label className="checkbox-row">
-          <input checked={enabled} onChange={(event) => setEnabled(event.target.checked)} type="checkbox" />
-          Enabled
-        </label>
+        <CheckboxField className="checkbox-row" checked={autoDownload} onCheckedChange={setAutoDownload} label="Auto download" />
+        <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
       </div>
       {submitError && <p className="modal-feedback error">{submitError}</p>}
       <div className="modal-actions">
-        <button className="secondary" onClick={onCancel} type="button">
+        <UiButton className="secondary" onClick={onCancel} type="button">
           Cancel
-        </button>
-        <button className="primary" disabled={busy} type="submit">
+        </UiButton>
+        <UiButton className="primary" disabled={busy} type="submit">
           <Pencil size={17} />
           Save Subscription
-        </button>
+        </UiButton>
       </div>
     </form>
   );
@@ -1454,24 +1820,34 @@ function SubscriptionSearch({
   return (
     <div className="subscription-tool">
       <form className="search-form" onSubmit={search}>
-        <select value={kind} onChange={(event) => setKind(event.target.value as "MOVIE" | "TV")}>
-          <option value="MOVIE">Movie</option>
-          <option value="TV">Series</option>
-        </select>
-        <input placeholder="Search TMDB" value={query} onChange={(event) => setQuery(event.target.value)} required />
-        <input placeholder="Include regex" value={includeRegex} onChange={(event) => setIncludeRegex(event.target.value)} />
-        <select value={minResolution} onChange={(event) => setMinResolution(Number(event.target.value))}>
-          <option value={720}>720p+</option>
-          <option value={1080}>1080p+</option>
-          <option value={2160}>2160p+</option>
-        </select>
-        <select value={downloaderId} onChange={(event) => setDownloaderId(event.target.value)}>
-          <option value="">Default downloader</option>
-          {downloaders.map((downloader) => (
-            <option value={downloader.id} key={downloader.id}>{downloader.name}</option>
-          ))}
-        </select>
-        <button className="primary" type="submit"><Search size={17} />Search</button>
+        <SelectField
+          value={kind}
+          onValueChange={(value) => setKind(value as "MOVIE" | "TV")}
+          options={[
+            { value: "MOVIE", label: "Movie" },
+            { value: "TV", label: "Series" }
+          ]}
+        />
+        <FormInput placeholder="Search TMDB" value={query} onChange={(event) => setQuery(event.target.value)} required />
+        <FormInput placeholder="Include regex" value={includeRegex} onChange={(event) => setIncludeRegex(event.target.value)} />
+        <SelectField
+          value={String(minResolution)}
+          onValueChange={(value) => setMinResolution(Number(value))}
+          options={[
+            { value: "720", label: "720p+" },
+            { value: "1080", label: "1080p+" },
+            { value: "2160", label: "2160p+" }
+          ]}
+        />
+        <SelectField
+          value={downloaderId}
+          onValueChange={setDownloaderId}
+          options={[
+            { value: "", label: "Default downloader" },
+            ...downloaders.map((downloader) => ({ value: downloader.id, label: downloader.name }))
+          ]}
+        />
+        <UiButton className="primary" type="submit"><Search size={17} />Search</UiButton>
       </form>
       <div className="result-grid">
         {results.map((result) => (
@@ -1483,7 +1859,7 @@ function SubscriptionSearch({
             )}
             <strong>{result.title}</strong>
             <span>{result.year ?? "Unknown"} · {Math.round(result.score * 100)}%</span>
-            <button
+            <UiButton
               className="secondary"
               onClick={async () => {
                 setSubscribeError("");
@@ -1506,7 +1882,7 @@ function SubscriptionSearch({
               }}
             >
               Subscribe
-            </button>
+            </UiButton>
           </article>
         ))}
       </div>
@@ -1530,15 +1906,17 @@ function ManualDownload({
   }, [downloaders, downloaderId]);
   return (
     <div className="download-control">
-      <select value={downloaderId} onChange={(event) => setDownloaderId(event.target.value)} disabled={disabled}>
-        {downloaders.map((downloader) => (
-          <option key={downloader.id} value={downloader.id}>{downloader.name}</option>
-        ))}
-      </select>
-      <button className="primary" disabled={disabled || !downloaderId} onClick={() => onDownload(downloaderId)}>
+      <SelectField
+        value={downloaderId}
+        onValueChange={setDownloaderId}
+        disabled={disabled}
+        options={downloaders.map((downloader) => ({ value: downloader.id, label: downloader.name }))}
+        placeholder="Downloader"
+      />
+      <UiButton className="primary" disabled={disabled || !downloaderId} onClick={() => onDownload(downloaderId)}>
         <DownloadCloud size={17} />
         Send
-      </button>
+      </UiButton>
     </div>
   );
 }
@@ -1592,7 +1970,7 @@ function pageTitle(page: PageId) {
 
 function pageSummary(page: PageId) {
   return {
-    overview: "RSS title timeline with TMDB posters, match detail, and downloader actions",
+    overview: "Review new releases, verify matches, and dispatch downloads",
     rss: "Private tracker feeds, polling cadence, and refresh status",
     downloaders: "Tenant-level qBittorrent and Transmission endpoints",
     subscriptions: "Rule-based media subscriptions and auto-download criteria",
@@ -1635,6 +2013,45 @@ function formatBytes(value: string) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${bytes} B`;
+}
+
+function releaseTitle(item: Item) {
+  return item.mediaMatch?.title ?? item.parsedRelease?.title ?? item.rawTitle;
+}
+
+function releaseStatus(item: Item): {
+  label: string;
+  detail: string;
+  ok: boolean;
+  group: "review" | "downloaded" | "failed";
+} {
+  const latestJob = [...(item.downloadJobs ?? [])].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )[0];
+  if (latestJob?.status === "FAILED") {
+    return { label: "Failed", detail: latestJob.error ?? "Download error", ok: false, group: "failed" };
+  }
+  if (latestJob && ["SENT", "COMPLETED"].includes(latestJob.status)) {
+    return { label: "Downloaded", detail: "Sent to downloader", ok: true, group: "downloaded" };
+  }
+  if (latestJob) {
+    return { label: latestJob.status, detail: "Download job active", ok: true, group: "review" };
+  }
+  if (item.mediaMatch) return { label: "Pending review", detail: "New match", ok: true, group: "review" };
+  return { label: "Unmatched", detail: "Needs matching", ok: false, group: "review" };
+}
+
+function confidencePercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function confidenceBarWidth(value: number) {
+  return `${Math.min(100, Math.max(6, Math.round(value * 100)))}%`;
+}
+
+function matchRate(matched: number, total: number) {
+  if (total <= 0) return "0%";
+  return `${Math.round((matched / total) * 100)}%`;
 }
 
 function optionalText(value: string) {

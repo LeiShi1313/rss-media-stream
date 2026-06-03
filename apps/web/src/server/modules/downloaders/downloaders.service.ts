@@ -2,6 +2,7 @@ import type { DownloaderType } from "@prisma/client";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { createDownloaderClient } from "../../downloaders.js";
+import { badGateway } from "../../core/errors.js";
 import { encryptSecret } from "../../secrets.js";
 import { notFound } from "../../core/errors.js";
 import type {
@@ -209,7 +210,11 @@ export async function testDownloader(
   });
   if (!downloader) throw notFound("Downloader");
 
-  return createDownloaderClient(downloader, config).test();
+  try {
+    return await createDownloaderClient(downloader, config).test();
+  } catch (error) {
+    throw badGateway(`Downloader test failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export async function testDownloaderConfig(
@@ -226,20 +231,24 @@ export async function testDownloaderConfig(
       : null;
   if (input.id && !input.password && !existing) throw notFound("Downloader");
 
-  return createDownloaderClient(
-    {
-      type: input.type,
-      baseUrl: input.baseUrl,
-      username: input.username ?? null,
-      encryptedPassword: input.password
-        ? encryptSecret(input.password, config.appSecret)
-        : existing?.encryptedPassword ?? null,
-      defaultSavePath: input.defaultSavePath ?? null,
-      category: input.category ?? null,
-      tags: input.tags
-    },
-    config
-  ).test();
+  try {
+    return await createDownloaderClient(
+      {
+        type: input.type,
+        baseUrl: input.baseUrl,
+        username: input.username ?? null,
+        encryptedPassword: input.password
+          ? encryptSecret(input.password, config.appSecret)
+          : existing?.encryptedPassword ?? null,
+        defaultSavePath: input.defaultSavePath ?? null,
+        category: input.category ?? null,
+        tags: input.tags
+      },
+      config
+    ).test();
+  } catch (error) {
+    throw badGateway(`Downloader test failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export async function listDownloaderTorrents(
