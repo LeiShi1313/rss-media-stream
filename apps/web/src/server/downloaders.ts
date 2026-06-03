@@ -1,4 +1,3 @@
-import type { Downloader } from "@prisma/client";
 import { redactSecrets } from "@rss-media/shared/redact";
 import type { AppConfig } from "./config.js";
 import { decryptSecret } from "./secrets.js";
@@ -15,12 +14,25 @@ export type TorrentSnapshot = {
 
 export type DownloaderClient = {
   test(): Promise<{ ok: true; version?: string }>;
-  addTorrent(data: Buffer, options: { savePath?: string | null; category?: string | null; tags?: string | null }): Promise<{ hash?: string }>;
+  addTorrent(
+    data: Buffer,
+    options: { savePath?: string | null; category?: string | null; tags?: string[] | null }
+  ): Promise<{ hash?: string }>;
   listTorrents(): Promise<TorrentSnapshot[]>;
 };
 
+export type DownloaderClientConfig = {
+  type: "QBITTORRENT" | "TRANSMISSION";
+  baseUrl: string;
+  username?: string | null;
+  encryptedPassword?: string | null;
+  defaultSavePath?: string | null;
+  category?: string | null;
+  tags?: string[] | null;
+};
+
 export function createDownloaderClient(
-  downloader: Downloader,
+  downloader: DownloaderClientConfig,
   config: AppConfig
 ): DownloaderClient {
   if (downloader.type === "QBITTORRENT") {
@@ -33,7 +45,7 @@ class QBittorrentClient implements DownloaderClient {
   private cookie = "";
 
   constructor(
-    private readonly downloader: Downloader,
+    private readonly downloader: DownloaderClientConfig,
     private readonly config: AppConfig
   ) {}
 
@@ -48,14 +60,15 @@ class QBittorrentClient implements DownloaderClient {
 
   async addTorrent(
     data: Buffer,
-    options: { savePath?: string | null; category?: string | null; tags?: string | null }
+    options: { savePath?: string | null; category?: string | null; tags?: string[] | null }
   ) {
     await this.login();
     const form = new FormData();
     form.set("torrents", new Blob([new Uint8Array(data)]), "release.torrent");
     if (options.savePath) form.set("savepath", options.savePath);
     if (options.category) form.set("category", options.category);
-    if (options.tags) form.set("tags", options.tags);
+    const tags = normalizeTags(options.tags);
+    if (tags) form.set("tags", tags);
     const response = await fetch(this.url("/api/v2/torrents/add"), {
       method: "POST",
       headers: this.headers(),
@@ -125,7 +138,7 @@ class TransmissionClient implements DownloaderClient {
   private sessionId = "";
 
   constructor(
-    private readonly downloader: Downloader,
+    private readonly downloader: DownloaderClientConfig,
     private readonly config: AppConfig
   ) {}
 
@@ -136,12 +149,13 @@ class TransmissionClient implements DownloaderClient {
 
   async addTorrent(
     data: Buffer,
-    options: { savePath?: string | null; category?: string | null; tags?: string | null }
+    options: { savePath?: string | null; category?: string | null; tags?: string[] | null }
   ) {
+    const tags = normalizeTags(options.tags);
     const body = await this.rpc("torrent-add", {
       metainfo: data.toString("base64"),
       "download-dir": options.savePath || undefined,
-      labels: options.tags ? options.tags.split(",").map((tag) => tag.trim()).filter(Boolean) : undefined
+      labels: tags ? tags.split(",").map((tag) => tag.trim()).filter(Boolean) : undefined
     });
     return { hash: body.arguments?.["torrent-added"]?.hashString };
   }
@@ -213,6 +227,11 @@ class TransmissionClient implements DownloaderClient {
 
 function ensureSlash(value: string): string {
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+function normalizeTags(tags: string[] | null | undefined): string | undefined {
+  if (!tags) return undefined;
+  return tags.join(",");
 }
 
 function transmissionState(status: number): string {

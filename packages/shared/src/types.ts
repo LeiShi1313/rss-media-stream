@@ -7,6 +7,7 @@ export type ParsedRelease = {
   season?: number;
   episode?: number;
   episodeEnd?: number;
+  resolution?: number;
   quality?: string;
   source?: string;
   codec?: string;
@@ -26,26 +27,66 @@ export type TmdbMedia = {
   backdropPath?: string;
   overview?: string;
   score: number;
+  raw?: unknown;
 };
 
 export type SubscriptionRuleInput = {
-  mediaProvider: string;
-  mediaProviderId: string;
-  mediaKind: MediaKind;
+  mediaKind?: MediaKind | null;
+  provider?: string | null;
+  providerId?: string | null;
+  imdbId?: string | null;
+  doubanId?: string | null;
+  titleRegex?: string | null;
   includeRegex?: string | null;
   excludeRegex?: string | null;
-  minQuality?: string | null;
+  minResolution?: number | string | null;
+  maxResolution?: number | string | null;
+  sources?: string[] | null;
+  codecs?: string[] | null;
+  audio?: string[] | null;
+  releaseGroupsInclude?: string[] | null;
+  releaseGroupsExclude?: string[] | null;
+  minSizeBytes?: bigint | number | string | null;
+  maxSizeBytes?: bigint | number | string | null;
   season?: number | null;
   episodeStart?: number | null;
   episodeEnd?: number | null;
+  criteriaJson?: unknown;
+};
+
+export type NormalizedSubscriptionRule = {
+  mediaKind?: MediaKind;
+  provider?: string;
+  providerId?: string;
+  imdbId?: string;
+  doubanId?: string;
+  titleRegex?: string;
+  includeRegex?: string;
+  excludeRegex?: string;
+  minResolution?: number;
+  maxResolution?: number;
+  sources: string[];
+  codecs: string[];
+  audio: string[];
+  releaseGroupsInclude: string[];
+  releaseGroupsExclude: string[];
+  minSizeBytes?: bigint;
+  maxSizeBytes?: bigint;
+  season?: number;
+  episodeStart?: number;
+  episodeEnd?: number;
 };
 
 export type CandidateInput = {
   rawTitle: string;
+  sizeBytes?: bigint | number | string | null;
   release: ParsedRelease;
   match?: {
+    mediaId?: string;
     provider: string;
     providerId: string;
+    imdbId?: string | null;
+    doubanId?: string | null;
     kind: MediaKind;
     score: number;
     status: string;
@@ -55,4 +96,5 @@ export type CandidateInput = {
 export type RuleDecision = {
   accepted: boolean;
   reason: string;
+  ruleSnapshot?: Record<string, unknown>;
 };

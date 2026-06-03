@@ -1,0 +1,596 @@
+import type { FastifyRequest } from "fastify";
+import { redactSecrets } from "@rss-media/shared/redact";
+import {
+  evaluateSubscriptionRule,
+  normalizeRule,
+  serializeRuleSnapshot
+} from "@rss-media/shared/subscriptionRules";
+import type { CandidateInput, SubscriptionRuleInput } from "@rss-media/shared/types";
+import type { AppConfig } from "../../config.js";
+import { prisma } from "../../db.js";
+import { forbidden, notFound } from "../../core/errors.js";
+import { isAdminRole } from "../../core/permissions.js";
+import { createDownloadJob, sendDownloadJob } from "../jobs/jobs.service.js";
+import type {
+  matchHistoryQuerySchema,
+  subscriptionCreateSchema,
+  subscriptionPatchSchema,
+  subscriptionRuleSchema
+} from "./subscriptions.schemas.js";
+import type { z } from "zod";
+
+type SubscriptionCreateInput = z.infer<typeof subscriptionCreateSchema>;
+type SubscriptionPatchInput = z.infer<typeof subscriptionPatchSchema>;
+type SubscriptionRuleBody = z.infer<typeof subscriptionRuleSchema>;
+type MatchHistoryQuery = z.infer<typeof matchHistoryQuerySchema>;
+
+const subscriptionInclude = {
+  rule: true,
+  media: {
+    select: {
+      id: true,
+      provider: true,
+      providerId: true,
+      kind: true,
+      title: true,
+      year: true,
+      posterPath: true
+    }
+  },
+  downloader: {
+    select: {
+      id: true,
+      name: true,
+      type: true,
+      enabled: true
+    }
+  }
+};
+
+export async function requireOwnSubscriptionOrAdmin(
+  request: FastifyRequest,
+  id: string
+) {
+  const subscription = await db().subscription.findFirst({
+    where: { id, tenantId: request.tenantId! },
+    include: subscriptionInclude
+  });
+  if (!subscription) throw notFound("Subscription");
+
+  if (
+    !isAdminRole(request.currentMembership!.role) &&
+    subscription.createdByUserId !== request.currentUser!.id
+  ) {
+    throw forbidden();
+  }
+
+  return subscription;
+}
+
+export async function listSubscriptions(input: {
+  tenantId: string;
+  userId: string;
+  scope: "mine" | "all";
+  canSeeAll: boolean;
+}) {
+  const subscriptions = await db().subscription.findMany({
+    where: {
+      tenantId: input.tenantId,
+      createdByUserId:
+        input.scope === "mine" || !input.canSeeAll ? input.userId : undefined
+    },
+    include: subscriptionInclude,
+    orderBy: { createdAt: "desc" }
+  });
+
+  return subscriptions.map(serializeSubscription);
+}
+
+export async function createSubscriptionWithRule(args: {
+  tenantId: string;
+  userId: string;
+  input: SubscriptionCreateInput;
+}) {
+  return prisma.$transaction(async (tx) => {
+    await validateSubscriptionReferences(tx, {
+      tenantId: args.tenantId,
+      mediaId: args.input.mediaId,
+      downloaderId: args.input.downloaderId
+    });
+
+    const rule = normalizeRule(args.input.rule);
+
+    const subscription = await db(tx).subscription.create({
+      data: {
+        tenantId: args.tenantId,
+        createdByUserId: args.userId,
+        title: args.input.title,
+        mediaId: args.input.mediaId,
+        downloaderId: args.input.downloaderId,
+        autoDownload: args.input.autoDownload,
+        enabled: args.input.enabled,
+        rule: {
+          create: {
+            tenantId: args.tenantId,
+            ...rulePersistenceData(rule)
+          }
+        }
+      },
+      include: subscriptionInclude
+    });
+
+    return serializeSubscription(subscription);
+  });
+}
+
+export async function updateSubscription(input: {
+  tenantId: string;
+  id: string;
+  patch: SubscriptionPatchInput;
+}) {
+  return prisma.$transaction(async (tx) => {
+    await validateSubscriptionReferences(tx, {
+      tenantId: input.tenantId,
+      mediaId: input.patch.mediaId,
+      downloaderId: input.patch.downloaderId
+    });
+
+    const subscription = await db(tx).subscription.update({
+      where: {
+        id_tenantId: {
+          id: input.id,
+          tenantId: input.tenantId
+        }
+      },
+      data: {
+        title: input.patch.title,
+        mediaId: input.patch.mediaId === null ? null : input.patch.mediaId,
+        downloaderId:
+          input.patch.downloaderId === null ? null : input.patch.downloaderId,
+        autoDownload: input.patch.autoDownload,
+        enabled: input.patch.enabled
+      },
+      include: subscriptionInclude
+    });
+
+    return serializeSubscription(subscription);
+  });
+}
+
+export async function deleteSubscription(tenantId: string, id: string) {
+  const result = await db().subscription.deleteMany({
+    where: { id, tenantId }
+  });
+  if (result.count !== 1) throw notFound("Subscription");
+  return { ok: true };
+}
+
+export async function updateSubscriptionRule(input: {
+  tenantId: string;
+  subscriptionId: string;
+  rule: SubscriptionRuleBody;
+}) {
+  const normalized = normalizeRule(input.rule);
+
+  await db().subscriptionRule.upsert({
+    where: {
+      subscriptionId_tenantId: {
+        subscriptionId: input.subscriptionId,
+        tenantId: input.tenantId
+      }
+    },
+    create: {
+      tenantId: input.tenantId,
+      subscriptionId: input.subscriptionId,
+      ...rulePersistenceData(normalized)
+    },
+    update: rulePersistenceData(normalized)
+  });
+
+  const subscription = await db().subscription.findFirst({
+    where: { id: input.subscriptionId, tenantId: input.tenantId },
+    include: subscriptionInclude
+  });
+  if (!subscription) throw notFound("Subscription");
+  return serializeSubscription(subscription);
+}
+
+export async function listSubscriptionHistory(input: {
+  tenantId: string;
+  subscriptionId: string;
+}) {
+  const decisions = await db().subscriptionMatchDecision.findMany({
+    where: {
+      tenantId: input.tenantId,
+      subscriptionId: input.subscriptionId
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200
+  });
+
+  return decisions.map(serializeDecision);
+}
+
+export async function listMatchHistory(input: {
+  tenantId: string;
+  userId: string;
+  canSeeAll: boolean;
+  query: MatchHistoryQuery;
+}) {
+  const subscriptionIds = await visibleSubscriptionIds(input);
+  if (subscriptionIds.length === 0) return [];
+
+  const decisions = await db().subscriptionMatchDecision.findMany({
+    where: {
+      tenantId: input.tenantId,
+      subscriptionId: { in: subscriptionIds },
+      accepted: input.query.accepted,
+      ...(input.query.subscriptionId ? { subscriptionId: input.query.subscriptionId } : {})
+    },
+    orderBy: { createdAt: "desc" },
+    take: input.query.limit
+  });
+
+  return decisions.map(serializeDecision);
+}
+
+export async function evaluateAutoDownloadsForItem(input: {
+  tenantId: string;
+  itemId: string;
+  config: AppConfig;
+}) {
+  const item = await db().rssItem.findFirst({
+    where: { id: input.itemId, tenantId: input.tenantId },
+    include: {
+      parsedRelease: true,
+      mediaMatch: true
+    }
+  });
+  if (!item?.parsedRelease || !item.mediaMatch) return [];
+
+  const subscriptions = await db().subscription.findMany({
+    where: {
+      tenantId: input.tenantId,
+      enabled: true,
+      autoDownload: true
+    },
+    include: { rule: true }
+  });
+
+  const created: string[] = [];
+  for (const subscription of subscriptions) {
+    if (!subscription.rule) {
+      await recordDecision({
+        tenantId: input.tenantId,
+        subscriptionId: subscription.id,
+        itemId: item.id,
+        accepted: false,
+        reason: "subscription rule is missing",
+        ruleSnapshot: {}
+      });
+      continue;
+    }
+
+    const ruleInput = ruleFromRow(subscription.rule);
+    const decision = evaluateSubscriptionRule(ruleInput, candidateFromItem(item));
+
+    if (!decision.accepted) {
+      await recordDecision({
+        tenantId: input.tenantId,
+        subscriptionId: subscription.id,
+        itemId: item.id,
+        accepted: false,
+        reason: decision.reason,
+        ruleSnapshot: decision.ruleSnapshot ?? serializeRuleSnapshot(normalizeRule(ruleInput))
+      });
+      continue;
+    }
+
+    try {
+      const job = await createDownloadJob({
+        tenantId: input.tenantId,
+        itemId: item.id,
+        subscriptionId: subscription.id,
+        downloaderId: subscription.downloaderId ?? undefined,
+        source: "SUBSCRIPTION"
+      });
+
+      await recordDecision({
+        tenantId: input.tenantId,
+        subscriptionId: subscription.id,
+        itemId: item.id,
+        accepted: true,
+        reason: decision.reason,
+        ruleSnapshot: decision.ruleSnapshot ?? serializeRuleSnapshot(normalizeRule(ruleInput))
+      });
+
+      created.push(job.id);
+      await sendDownloadJob(job.id, input.config);
+    } catch (error) {
+      if (!isNonFatalAutoDownloadError(error)) throw error;
+
+      await recordDecision({
+        tenantId: input.tenantId,
+        subscriptionId: subscription.id,
+        itemId: item.id,
+        accepted: isDuplicateDownloadError(error),
+        reason: redactSecrets(error instanceof Error ? error.message : String(error)),
+        ruleSnapshot: decision.ruleSnapshot ?? serializeRuleSnapshot(normalizeRule(ruleInput))
+      });
+    }
+  }
+
+  return created;
+}
+
+async function validateSubscriptionReferences(
+  tx: unknown,
+  input: {
+    tenantId: string;
+    mediaId?: string | null;
+    downloaderId?: string | null;
+  }
+) {
+  if (input.mediaId) {
+    const media = await db(tx).media.findFirst({
+      where: { id: input.mediaId, tenantId: input.tenantId },
+      select: { id: true }
+    });
+    if (!media) throw notFound("Media");
+  }
+
+  if (input.downloaderId) {
+    const downloader = await db(tx).downloader.findFirst({
+      where: {
+        id: input.downloaderId,
+        tenantId: input.tenantId,
+        enabled: true
+      },
+      select: { id: true }
+    });
+    if (!downloader) throw notFound("Downloader");
+  }
+}
+
+async function visibleSubscriptionIds(input: {
+  tenantId: string;
+  userId: string;
+  canSeeAll: boolean;
+  query: MatchHistoryQuery;
+}) {
+  if (input.query.subscriptionId) {
+    const subscription = await db().subscription.findFirst({
+      where: { id: input.query.subscriptionId, tenantId: input.tenantId },
+      select: { id: true, createdByUserId: true }
+    });
+    if (!subscription) throw notFound("Subscription");
+    if (!input.canSeeAll && subscription.createdByUserId !== input.userId) {
+      throw forbidden();
+    }
+    return [subscription.id];
+  }
+
+  if (input.canSeeAll) {
+    const subscriptions = await db().subscription.findMany({
+      where: { tenantId: input.tenantId },
+      select: { id: true }
+    });
+    return subscriptions.map((subscription: { id: string }) => subscription.id);
+  }
+
+  const subscriptions = await db().subscription.findMany({
+    where: { tenantId: input.tenantId, createdByUserId: input.userId },
+    select: { id: true }
+  });
+  return subscriptions.map((subscription: { id: string }) => subscription.id);
+}
+
+async function recordDecision(input: {
+  tenantId: string;
+  subscriptionId: string;
+  itemId: string;
+  accepted: boolean;
+  reason: string;
+  ruleSnapshot: unknown;
+}) {
+  await db().subscriptionMatchDecision.create({
+    data: {
+      tenantId: input.tenantId,
+      subscriptionId: input.subscriptionId,
+      itemId: input.itemId,
+      accepted: input.accepted,
+      reason: input.reason,
+      ruleSnapshot: input.ruleSnapshot as object
+    }
+  });
+}
+
+function rulePersistenceData(rule: ReturnType<typeof normalizeRule>) {
+  return {
+    mediaKind: rule.mediaKind ?? null,
+    provider: rule.provider ?? null,
+    providerId: rule.providerId ?? null,
+    imdbId: rule.imdbId ?? null,
+    doubanId: rule.doubanId ?? null,
+    titleRegex: rule.titleRegex ?? null,
+    includeRegex: rule.includeRegex ?? null,
+    excludeRegex: rule.excludeRegex ?? null,
+    minResolution: rule.minResolution ?? null,
+    maxResolution: rule.maxResolution ?? null,
+    sources: rule.sources,
+    codecs: rule.codecs,
+    audio: rule.audio,
+    releaseGroupsInclude: rule.releaseGroupsInclude,
+    releaseGroupsExclude: rule.releaseGroupsExclude,
+    minSizeBytes: rule.minSizeBytes ?? null,
+    maxSizeBytes: rule.maxSizeBytes ?? null,
+    season: rule.season ?? null,
+    episodeStart: rule.episodeStart ?? null,
+    episodeEnd: rule.episodeEnd ?? null
+  };
+}
+
+function ruleFromRow(rule: any): SubscriptionRuleInput {
+  return {
+    mediaKind: rule.mediaKind ?? undefined,
+    provider: rule.provider ?? undefined,
+    providerId: rule.providerId ?? undefined,
+    imdbId: rule.imdbId ?? undefined,
+    doubanId: rule.doubanId ?? undefined,
+    titleRegex: rule.titleRegex ?? undefined,
+    includeRegex: rule.includeRegex ?? undefined,
+    excludeRegex: rule.excludeRegex ?? undefined,
+    minResolution: rule.minResolution ?? undefined,
+    maxResolution: rule.maxResolution ?? undefined,
+    sources: rule.sources ?? [],
+    codecs: rule.codecs ?? [],
+    audio: rule.audio ?? [],
+    releaseGroupsInclude: rule.releaseGroupsInclude ?? [],
+    releaseGroupsExclude: rule.releaseGroupsExclude ?? [],
+    minSizeBytes: rule.minSizeBytes ?? undefined,
+    maxSizeBytes: rule.maxSizeBytes ?? undefined,
+    season: rule.season ?? undefined,
+    episodeStart: rule.episodeStart ?? undefined,
+    episodeEnd: rule.episodeEnd ?? undefined
+  };
+}
+
+function candidateFromItem(item: any): CandidateInput {
+  return {
+    rawTitle: item.rawTitle,
+    sizeBytes: item.sizeBytes,
+    release: {
+      title: item.parsedRelease.title,
+      year: item.parsedRelease.year ?? undefined,
+      kind: item.parsedRelease.kind,
+      season: item.parsedRelease.season ?? undefined,
+      episode: item.parsedRelease.episode ?? undefined,
+      episodeEnd: item.parsedRelease.episodeEnd ?? undefined,
+      resolution: item.parsedRelease.resolution ?? undefined,
+      quality: item.parsedRelease.quality ?? undefined,
+      source: item.parsedRelease.source ?? undefined,
+      codec: item.parsedRelease.codec ?? undefined,
+      audio: item.parsedRelease.audio ?? undefined,
+      releaseGroup: item.parsedRelease.releaseGroup ?? undefined,
+      confidence: item.parsedRelease.confidence
+    },
+    match: {
+      mediaId: item.mediaMatch.mediaId ?? undefined,
+      provider: item.mediaMatch.provider,
+      providerId: item.mediaMatch.providerId,
+      imdbId: item.mediaMatch.imdbId ?? undefined,
+      doubanId: item.mediaMatch.doubanId ?? undefined,
+      kind: item.mediaMatch.kind ?? item.parsedRelease.kind,
+      score: item.mediaMatch.score,
+      status: item.mediaMatch.status
+    }
+  };
+}
+
+export function serializeSubscription(subscription: any) {
+  return {
+    id: subscription.id,
+    title: subscription.title,
+    createdByUserId: subscription.createdByUserId,
+    media: subscription.media
+      ? {
+          id: subscription.media.id,
+          provider: subscription.media.provider,
+          providerId: subscription.media.providerId,
+          kind: subscription.media.kind,
+          title: subscription.media.title,
+          year: subscription.media.year,
+          posterPath: subscription.media.posterPath
+        }
+      : undefined,
+    downloader: subscription.downloader
+      ? {
+          id: subscription.downloader.id,
+          name: subscription.downloader.name,
+          type: subscription.downloader.type,
+          enabled: subscription.downloader.enabled
+        }
+      : undefined,
+    autoDownload: subscription.autoDownload,
+    enabled: subscription.enabled,
+    rule: subscription.rule ? serializeRule(subscription.rule) : undefined,
+    createdAt: subscription.createdAt,
+    updatedAt: subscription.updatedAt
+  };
+}
+
+function serializeRule(rule: any) {
+  return {
+    id: rule.id,
+    mediaKind: rule.mediaKind,
+    provider: rule.provider,
+    providerId: rule.providerId,
+    imdbId: rule.imdbId,
+    doubanId: rule.doubanId,
+    titleRegex: rule.titleRegex,
+    includeRegex: rule.includeRegex,
+    excludeRegex: rule.excludeRegex,
+    minResolution: rule.minResolution,
+    maxResolution: rule.maxResolution,
+    sources: rule.sources ?? [],
+    codecs: rule.codecs ?? [],
+    audio: rule.audio ?? [],
+    releaseGroupsInclude: rule.releaseGroupsInclude ?? [],
+    releaseGroupsExclude: rule.releaseGroupsExclude ?? [],
+    minSizeBytes: rule.minSizeBytes?.toString?.(),
+    maxSizeBytes: rule.maxSizeBytes?.toString?.(),
+    season: rule.season,
+    episodeStart: rule.episodeStart,
+    episodeEnd: rule.episodeEnd,
+    createdAt: rule.createdAt,
+    updatedAt: rule.updatedAt
+  };
+}
+
+function serializeDecision(decision: any) {
+  return {
+    id: decision.id,
+    subscriptionId: decision.subscriptionId,
+    itemId: decision.itemId,
+    accepted: decision.accepted,
+    reason: decision.reason,
+    ruleSnapshot: serializeJsonValue(decision.ruleSnapshot),
+    createdAt: decision.createdAt
+  };
+}
+
+function serializeJsonValue(value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return value.map(serializeJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
+        key,
+        serializeJsonValue(nested)
+      ])
+    );
+  }
+  return value;
+}
+
+function isNonFatalAutoDownloadError(error: unknown) {
+  return isDuplicateDownloadError(error) || isDefaultDownloaderError(error);
+}
+
+function isDuplicateDownloadError(error: unknown) {
+  const value = error as { code?: string; message?: string };
+  return value?.code === "DOWNLOAD_DUPLICATE" || /download already exists/i.test(value?.message ?? "");
+}
+
+function isDefaultDownloaderError(error: unknown) {
+  const value = error as { code?: string; message?: string };
+  return (
+    value?.code === "DEFAULT_DOWNLOADER_REQUIRED" ||
+    value?.code === "DEFAULT_DOWNLOADER_UNAVAILABLE" ||
+    /default downloader/i.test(value?.message ?? "")
+  );
+}
+
+function db(tx?: unknown) {
+  return (tx ?? prisma) as any;
+}

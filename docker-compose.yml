@@ -1,12 +1,99 @@
+x-app-base: &app-base
+  build:
+    context: .
+    target: dev
+  working_dir: /app
+  env_file:
+    - .env
+  environment:
+    DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
+  volumes:
+    - .:/app
+    - node-modules:/app/node_modules
+    - web-node-modules:/app/apps/web/node_modules
+    - shared-node-modules:/app/packages/shared/node_modules
+
 services:
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy:1.11
+    depends_on:
+      - frontend
+      - api
+    ports:
+      - "${APP_PORT:-8090}:80"
+    environment:
+      DEFAULT_HOST: ${DEFAULT_HOST:-localhost}
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    restart: unless-stopped
+
+  frontend:
+    <<: *app-base
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
+      API_PROXY_TARGET: http://api:4000
+      VIRTUAL_HOST: ${VIRTUAL_HOST:-localhost,127.0.0.1}
+      VIRTUAL_PATH: /
+      VIRTUAL_PORT: "5173"
+    expose:
+      - "5173"
+    command: npm run dev:client -w @rss-media/web
+    restart: unless-stopped
+
+  api:
+    <<: *app-base
+    depends_on:
+      postgres:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+      CLIENT_ORIGIN: ${DOCKER_CLIENT_ORIGIN:-http://localhost:8090}
+      VIRTUAL_HOST: ${VIRTUAL_HOST:-localhost,127.0.0.1}
+      VIRTUAL_PATH: ~^/(api|events)(/|$$)
+      VIRTUAL_PORT: "4000"
+    expose:
+      - "4000"
+    command: npm run dev:api -w @rss-media/web
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  worker:
+    <<: *app-base
+    depends_on:
+      postgres:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    command: npm run dev:worker -w @rss-media/web
+    restart: unless-stopped
+
+  setup:
+    <<: *app-base
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "npm run build -w @rss-media/shared && npm run prisma:generate && npm run prisma:push -- --force-reset --accept-data-loss"
+    restart: "no"
+
   postgres:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: rss
       POSTGRES_PASSWORD: media
       POSTGRES_DB: rss_media
-    ports:
-      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -14,34 +101,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-
-  api:
-    build: .
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
-      API_HOST: 0.0.0.0
-      API_PORT: 4000
-    ports:
-      - "4000:4000"
-    command: sh -c "npm run prisma:push && npm start"
-
-  worker:
-    build: .
-    depends_on:
-      postgres:
-        condition: service_healthy
-      api:
-        condition: service_started
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
-    command: sh -c "npm run prisma:push && npm run worker"
+    restart: unless-stopped
 
 volumes:
   postgres-data:
+  node-modules:
+  web-node-modules:
+  shared-node-modules:

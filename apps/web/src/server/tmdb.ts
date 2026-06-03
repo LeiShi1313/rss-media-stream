@@ -1,4 +1,3 @@
-import type { PrismaClient } from "@prisma/client";
 import type { TmdbMedia } from "@rss-media/shared/types";
 import type { AppConfig } from "./config.js";
 
@@ -41,77 +40,6 @@ export async function searchTmdb(
   return (body.results ?? []).slice(0, 8).map((result) => toMedia(result, kind, input));
 }
 
-export async function matchItemWithTmdb(
-  prisma: PrismaClient,
-  config: AppConfig,
-  itemId: string
-) {
-  const item = await prisma.rssItem.findUnique({
-    where: { id: itemId },
-    include: { parsedRelease: true }
-  });
-  if (!item?.parsedRelease) {
-    throw new Error("Item has not been parsed");
-  }
-  const candidates = await searchTmdb(config, {
-    query: item.parsedRelease.title,
-    kind: item.parsedRelease.kind,
-    year: item.parsedRelease.year ?? undefined
-  });
-  const best = candidates[0];
-  if (!best) {
-    return prisma.mediaMatch.upsert({
-      where: { itemId },
-      create: {
-        itemId,
-        provider: "tmdb",
-        providerId: "unmatched",
-        kind: "UNKNOWN",
-        title: item.parsedRelease.title,
-        score: 0,
-        status: "UNMATCHED"
-      },
-      update: {
-        providerId: "unmatched",
-        kind: "UNKNOWN",
-        title: item.parsedRelease.title,
-        score: 0,
-        status: "UNMATCHED"
-      }
-    });
-  }
-  return prisma.mediaMatch.upsert({
-    where: { itemId },
-    create: {
-      itemId,
-      provider: best.provider,
-      providerId: best.providerId,
-      kind: best.kind,
-      title: best.title,
-      originalTitle: best.originalTitle,
-      year: best.year,
-      posterPath: best.posterPath,
-      backdropPath: best.backdropPath,
-      overview: best.overview,
-      score: best.score,
-      status: best.score >= 0.88 ? "MATCHED" : "CANDIDATE"
-    },
-    update: {
-      provider: best.provider,
-      providerId: best.providerId,
-      kind: best.kind,
-      title: best.title,
-      originalTitle: best.originalTitle,
-      year: best.year,
-      posterPath: best.posterPath,
-      backdropPath: best.backdropPath,
-      overview: best.overview,
-      score: best.score,
-      status: best.score >= 0.88 ? "MATCHED" : "CANDIDATE"
-    }
-  });
-}
-
 function toMedia(
   result: TmdbResult,
   endpoint: "movie" | "tv",
@@ -133,7 +61,8 @@ function toMedia(
     posterPath: result.poster_path,
     backdropPath: result.backdrop_path,
     overview: result.overview,
-    score: scoreCandidate(input.query, title ?? "", input.year, year, result)
+    score: scoreCandidate(input.query, title ?? "", input.year, year, result),
+    raw: result
   };
 }
 

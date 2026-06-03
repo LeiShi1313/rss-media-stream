@@ -28,7 +28,7 @@ export function loadConfig(): AppConfig {
     apiHost: process.env.API_HOST ?? "0.0.0.0",
     apiPort: Number(process.env.API_PORT ?? 4000),
     clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
-    pollIntervalSeconds: Number(process.env.POLL_INTERVAL_SECONDS ?? 300),
+    pollIntervalSeconds: Number(process.env.POLL_INTERVAL_SECONDS ?? 600),
     nodeEnv: process.env.NODE_ENV ?? "development"
   };
 }

@@ -6,3 +6,5 @@ apps/*/dist
 packages/*/dist
 coverage
 .DS_Store
+*.tsbuildinfo
+**/*.tsbuildinfo

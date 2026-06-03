@@ -29,7 +29,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The API container serves the built dashboard on port `4000`.
+The dashboard and API are both served through `nginxproxy/nginx-proxy` on
+`http://localhost:8090` by default. Compose runs Vite, the Fastify API, the
+worker, Postgres, and a one-shot setup task inside containers. The proxy routes
+`/` to the frontend dev server and `/api` plus `/events` to the API dev server.
+Override the host port with `APP_PORT=80 docker compose up --build`.
 
 ## Workspace Commands
 

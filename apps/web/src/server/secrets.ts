@@ -1,4 +1,10 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes
+} from "node:crypto";
 
 export function encryptSecret(value: string, appSecret: string): string {
   const iv = randomBytes(12);
@@ -30,6 +36,27 @@ export function decryptSecret(value: string, appSecret: string): string {
   ]).toString("utf8");
 }
 
+export function encryptAead(value: string, appSecret = defaultAppSecret()): string {
+  return encryptSecret(value, appSecret);
+}
+
+export function decryptAead(value: string, appSecret = defaultAppSecret()): string {
+  return decryptSecret(value, appSecret);
+}
+
+export function hmacSecret(value: string, appSecret = defaultAppSecret()): string {
+  return createHmac("sha256", key(appSecret)).update(value).digest("hex");
+}
+
 function key(secret: string): Buffer {
   return createHash("sha256").update(secret).digest();
+}
+
+function defaultAppSecret(): string {
+  const value = process.env.APP_SECRET;
+  if (value) return value;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("APP_SECRET is required in production");
+  }
+  return "dev-app-secret-change-me-please-32chars";
 }
