@@ -48,6 +48,16 @@ export type Workspace = {
   role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 };
 
+export type TmdbSettings = {
+  configured: boolean;
+  source: "workspace" | "environment" | null;
+  configuredAt?: string | null;
+  lastValidatedAt?: string | null;
+  lastError?: string | null;
+  tmdbLanguage?: string;
+  webLanguage?: string;
+};
+
 export type AuthResponse = {
   user: User;
   workspace?: Workspace;
@@ -56,21 +66,47 @@ export type AuthResponse = {
 };
 
 export type ParsedRelease = {
+  id?: string;
   title: string;
   year?: number;
   kind: "MOVIE" | "TV" | "UNKNOWN";
   season?: number;
   episode?: number;
+  episodeEnd?: number;
+  resolution?: number;
   quality?: string;
   source?: string;
   codec?: string;
+  audio?: string;
+  releaseGroup?: string;
   confidence: number;
+};
+
+export type Media = {
+  id: string;
+  provider: string;
+  providerId: string;
+  kind: "MOVIE" | "TV" | "UNKNOWN";
+  title: string;
+  originalTitle?: string;
+  year?: number;
+  posterPath?: string;
+  backdropPath?: string;
+  overview?: string;
+  searchTitle?: string;
+  tmdbFetchedAt?: string;
+  metadataJson?: unknown;
+  createdAt?: string;
+  updatedAt?: string;
+  matchCount?: number;
+  subscriptionCount?: number;
 };
 
 export type Item = {
   id: string;
   feed?: { id: string; name: string };
   rawTitle: string;
+  sourceUrl?: string | null;
   firstSeenAt: string;
   sizeBytes?: string;
   parseConfidence?: number;
@@ -90,9 +126,26 @@ export type Item = {
     score: number;
     status: string;
     reason?: string;
+    matchedAt?: string;
+    media?: Media;
     updatedAt?: string;
   };
   downloadJobs?: Array<{ id: string; status: string; error?: string; createdAt: string }>;
+};
+
+export type TrendingMedia = {
+  media: Media;
+  releaseCount: number;
+  latestReleaseAt: string;
+  feedCount: number;
+  feeds: string[];
+  qualities: string[];
+  releaseGroups: string[];
+};
+
+export type MediaDetail = {
+  media: Media;
+  releases: Item[];
 };
 
 export type Downloader = {

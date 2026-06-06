@@ -13,7 +13,7 @@ export function redactSecrets(input: string): string {
   let output = input;
   for (const key of SECRET_QUERY_KEYS) {
     output = output.replace(
-      new RegExp(`([?&]${key}=)[^&#]+`, "gi"),
+      new RegExp(`([?&]${key}=)[^&#"'\\\\\\s]+`, "gi"),
       `$1[REDACTED]`
     );
   }

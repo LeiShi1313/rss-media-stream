@@ -27,6 +27,7 @@ export type TmdbMedia = {
   backdropPath?: string;
   overview?: string;
   score: number;
+  metadataJson?: unknown;
   raw?: unknown;
 };
 

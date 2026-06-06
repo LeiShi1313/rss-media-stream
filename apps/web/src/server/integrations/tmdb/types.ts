@@ -13,6 +13,13 @@ export type TmdbResult = {
   popularity?: number;
 };
 
+export type TmdbSearchResponse = {
+  page?: number;
+  results?: TmdbResult[];
+  total_pages?: number;
+  total_results?: number;
+};
+
 export type TmdbSearchInput = {
   query: string;
   kind?: "MOVIE" | "TV" | "UNKNOWN";

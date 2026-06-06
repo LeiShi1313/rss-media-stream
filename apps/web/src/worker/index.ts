@@ -1,6 +1,7 @@
 import { redactSecrets } from "@rss-media/shared/redact";
 import { loadConfig } from "../server/config.js";
 import { prisma } from "../server/db.js";
+import { tenantHasTmdbCredential } from "../server/tmdb.js";
 import { matchItemWithExternalMedia } from "../server/modules/media/media.service.js";
 import { evaluateAutoDownloadsForItem } from "../server/modules/subscriptions/subscriptions.service.js";
 import { pollDueFeeds } from "./feedWorker.js";
@@ -22,11 +23,14 @@ async function tick() {
 }
 
 async function enrichRecentUnmatchedItems() {
-  if (!config.tmdbApiKey) return;
+  const tenantIds = await tmdbEnabledTenantIds();
+  if (tenantIds.length === 0) return;
+
   const items = await prisma.rssItem.findMany({
     where: {
       parseStatus: "PARSED",
-      mediaMatch: null
+      mediaMatch: null,
+      tenantId: { in: tenantIds }
     },
     orderBy: { firstSeenAt: "desc" },
     take: 50,
@@ -35,6 +39,7 @@ async function enrichRecentUnmatchedItems() {
 
   for (const item of items) {
     try {
+      if (!(await tenantHasTmdbCredential(config, item.tenantId))) continue;
       await matchItemWithExternalMedia({
         tenantId: item.tenantId,
         itemId: item.id,
@@ -52,6 +57,19 @@ async function enrichRecentUnmatchedItems() {
       console.error(`TMDB match failed for ${item.id}`, message);
     }
   }
+}
+
+async function tmdbEnabledTenantIds() {
+  if (config.tmdbApiKey) {
+    const tenants = await prisma.tenant.findMany({ select: { id: true } });
+    return tenants.map((tenant) => tenant.id);
+  }
+
+  const settings = await prisma.tenantSettings.findMany({
+    where: { encryptedTmdbApiKey: { not: null } },
+    select: { tenantId: true }
+  });
+  return settings.map((setting) => setting.tenantId);
 }
 
 console.log("RSS media worker started");

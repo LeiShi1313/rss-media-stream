@@ -1,4 +1,5 @@
 import { DownloadCloud } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { Downloader } from "../../api.js";
 import { SelectField, UiButton } from "../ui/index.js";
 
@@ -31,4 +32,3 @@ export function ManualDownload({
     </div>
   );
 }
-

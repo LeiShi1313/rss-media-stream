@@ -3,24 +3,23 @@ import type { ParsedRelease } from "./types.js";
 const QUALITY_RE = /\b(2160p|4k|1080p|720p|480p)\b/i;
 const SOURCE_RE = /\b(WEB[- .]?DL|WEBRip|BluRay|BDRip|HDTV|DVDRip|Remux|UHD|HDRip)\b/i;
 const CODEC_RE = /\b(x265|x264|h\.?265|h\.?264|hevc|avc|av1)\b/i;
-const AUDIO_RE = /\b(DDP?5\.1|DDP?7\.1|DTS[- .]?HD|TrueHD|Atmos|AAC[ .]?2\.0|AAC[ .]?5\.1|FLAC)\b/i;
+const AUDIO_RE = /\b(DDP?5\.1|DDP?7\.1|DTS[- .]?HD|TrueHD|Atmos|AAC[ .]?2\.0|AAC[ .]?5\.1|AAC|FLAC)\b/i;
 const YEAR_RE = /\b(19\d{2}|20\d{2})\b/;
 const TV_RE = /\bS(\d{1,2})E(\d{1,3})(?:[- .]?E?(\d{1,3}))?\b/i;
 const SEASON_PACK_RE = /\bS(\d{1,2})(?:\b|[- .])(?!E\d)/i;
+const SEASON_WORD_PACK_RE = /\bSeason[ ._-]?(\d{1,2})\b/i;
 
 export function parseReleaseTitle(rawTitle: string): ParsedRelease {
-  const withoutSiteTags = rawTitle
-    .replace(/\[[^\]]+\]/g, " ")
-    .replace(/\([^\)]*(?:ourbits|torrent|rss)[^\)]*\)/gi, " ");
-  const releaseGroup = extractReleaseGroup(withoutSiteTags);
-  const normalized = withoutSiteTags
+  const parseInput = releaseParseInput(rawTitle);
+  const releaseGroup = extractReleaseGroup(parseInput);
+  const normalized = parseInput
     .replace(/_/g, ".")
     .replace(/\s+/g, ".")
     .replace(/\.+/g, ".")
     .replace(/^\.+|\.+$/g, "");
 
   const tv = normalized.match(TV_RE);
-  const seasonPack = normalized.match(SEASON_PACK_RE);
+  const seasonPack = normalized.match(SEASON_PACK_RE) ?? normalized.match(SEASON_WORD_PACK_RE);
   const yearMatch = normalized.match(YEAR_RE);
   const quality = normalized.match(QUALITY_RE)?.[1]?.replace(/^4k$/i, "2160p");
   const source = normalized.match(SOURCE_RE)?.[1]?.replace(/[ .]/g, "-");
@@ -62,8 +61,45 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   };
 }
 
+function releaseParseInput(rawTitle: string): string {
+  const bracketSegments = [...rawTitle.matchAll(/\[([^\]]*)\]/g)]
+    .map((match) => match[1]?.trim())
+    .filter((segment): segment is string => Boolean(segment));
+  const rawWithoutBracketSegments = rawTitle.replace(/\[[^\]]*\]/g, " ").trim();
+  const bestBracketSegment = bracketSegments
+    .map((segment) => ({ segment, score: scoreReleaseLikeSegment(segment) }))
+    .sort((a, b) => b.score - a.score)[0];
+  const unbracketedScore = scoreReleaseLikeSegment(rawWithoutBracketSegments);
+
+  if (unbracketedScore >= 3) {
+    return rawWithoutBracketSegments;
+  }
+
+  if (bestBracketSegment && bestBracketSegment.score >= 3 && bestBracketSegment.score > unbracketedScore) {
+    return bestBracketSegment.segment;
+  }
+
+  return rawTitle
+    .replace(/\[[^\]]*(?:ourbits|torrent|rss)[^\]]*\]/gi, " ")
+    .replace(/\([^\)]*(?:ourbits|torrent|rss)[^\)]*\)/gi, " ");
+}
+
+function scoreReleaseLikeSegment(segment: string): number {
+  if (!segment || /^\d+(?:\.\d+)?\s*(?:gib|gb|mib|mb|tib|tb)$/i.test(segment)) return 0;
+  let score = 0;
+  if (TV_RE.test(segment)) score += 5;
+  if (SEASON_PACK_RE.test(segment) || SEASON_WORD_PACK_RE.test(segment)) score += 3;
+  if (YEAR_RE.test(segment)) score += 3;
+  if (QUALITY_RE.test(segment)) score += 2;
+  if (SOURCE_RE.test(segment)) score += 2;
+  if (CODEC_RE.test(segment)) score += 1;
+  if (AUDIO_RE.test(segment)) score += 1;
+  if (extractReleaseGroup(segment)) score += 1;
+  return score;
+}
+
 function extractReleaseGroup(input: string): string | undefined {
-  const match = input.match(/-([A-Za-z0-9]+)\s*$/);
+  const match = input.match(/-([A-Za-z0-9]+)(?:\s*[\])]+)?\s*$/);
   return match?.[1];
 }
 

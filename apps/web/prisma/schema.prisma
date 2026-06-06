@@ -73,6 +73,7 @@ model Tenant {
   mediaExternalIds MediaExternalId[]
   mediaMatches   MediaMatch[]
   matchCandidates MediaMatchCandidate[]
+  tmdbCache      TmdbCache[]
   downloaders    Downloader[]
   subscriptions  Subscription[]
   subscriptionRules SubscriptionRule[]
@@ -82,11 +83,31 @@ model Tenant {
 }
 
 model TenantSettings {
-  tenantId            String  @id
-  defaultDownloaderId String?
-  tenant              Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId              String    @id
+  defaultDownloaderId   String?
+  encryptedTmdbApiKey   String?   @db.Text
+  tmdbConfiguredAt      DateTime?
+  tmdbLastValidatedAt   DateTime?
+  tmdbLastError         String?
+  tmdbLanguage          String    @default("en-US")
+  webLanguage           String    @default("en-US")
+  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([defaultDownloaderId])
+}
+
+model TmdbCache {
+  id        String   @id @default(cuid())
+  tenantId  String
+  cacheKey  String
+  payload   Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, cacheKey])
+  @@index([tenantId, expiresAt])
 }
 
 model User {
@@ -153,6 +174,7 @@ model RssItem {
   releaseSignature    String?
   rawTitle            String
   encryptedTorrentUrl String          @db.Text
+  encryptedSourceUrl  String?         @db.Text
   publishDate         DateTime?
   sizeBytes           BigInt?
   rawJsonEncrypted    String?         @db.Text
@@ -200,6 +222,7 @@ model ParsedRelease {
   @@unique([itemId, tenantId])
   @@unique([id, tenantId])
   @@index([tenantId, title])
+  @@index([tenantId, releaseGroup])
 }
 
 model Media {
@@ -214,6 +237,9 @@ model Media {
   posterPath    String?
   backdropPath  String?
   overview      String?
+  searchTitle   String?
+  tmdbFetchedAt DateTime?
+  metadataJson  Json?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -224,6 +250,7 @@ model Media {
   @@unique([tenantId, provider, providerId])
   @@unique([id, tenantId])
   @@index([tenantId, kind, title])
+  @@index([tenantId, kind, searchTitle])
 }
 
 model MediaExternalId {
@@ -257,6 +284,7 @@ model MediaMatch {
   score      Float
   status     MatchStatus @default(CANDIDATE)
   reason     String?
+  matchedAt  DateTime?
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -267,6 +295,8 @@ model MediaMatch {
   @@unique([id, tenantId])
   @@index([tenantId, provider, providerId])
   @@index([tenantId, status])
+  @@index([tenantId, mediaId, status, matchedAt])
+  @@index([tenantId, status, matchedAt])
 }
 
 model MediaMatchCandidate {
