@@ -24,6 +24,7 @@ export function toMedia(
     backdropPath: result.backdrop_path,
     overview: result.overview,
     score: scoreCandidate(input.query, title ?? "", input.year, year, result),
+    metadataJson: tmdbMetadata(result),
     raw: result
   };
 }
@@ -32,4 +33,11 @@ function extractYear(value?: string): number | undefined {
   if (!value) return undefined;
   const year = Number(value.slice(0, 4));
   return Number.isFinite(year) ? year : undefined;
+}
+
+function tmdbMetadata(result: TmdbResult) {
+  return {
+    popularity: result.popularity,
+    voteCount: result.vote_count
+  };
 }

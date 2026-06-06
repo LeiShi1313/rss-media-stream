@@ -1,12 +1,13 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../db.js";
 import { notFound } from "../../core/errors.js";
+import { decryptAead } from "../../secrets.js";
 import type { ItemQueryInput } from "./items.schemas.js";
 
 const itemRelations = {
   feed: { select: { id: true, name: true } },
   parsedRelease: true,
-  mediaMatch: true,
+  mediaMatch: { include: { media: true } },
   downloadJobs: {
     orderBy: { createdAt: "desc" },
     take: 3,
@@ -23,6 +24,7 @@ export type ItemResponse = {
   id: string;
   feed: { id: string; name: string };
   rawTitle: string;
+  sourceUrl?: string | null;
   sizeBytes?: string | null;
   firstSeenAt: string;
   dedupeKeyType: "INFO_HASH" | "RELEASE_SIGNATURE" | "LINK_HASH";
@@ -113,6 +115,7 @@ export function serializeItem(item: ItemWithRelations): ItemResponse {
       name: item.feed.name
     },
     rawTitle: item.rawTitle,
+    sourceUrl: item.encryptedSourceUrl ? decryptAead(item.encryptedSourceUrl) : null,
     sizeBytes: item.sizeBytes?.toString() ?? null,
     firstSeenAt: item.firstSeenAt.toISOString(),
     dedupeKeyType: item.dedupeKeyType,
@@ -166,6 +169,24 @@ function serializeMediaMatch(match: NonNullable<ItemWithRelations["mediaMatch"]>
     score: match.score,
     status: match.status,
     reason: match.reason,
+    matchedAt: match.matchedAt?.toISOString(),
+    media: match.media
+      ? {
+          id: match.media.id,
+          provider: match.media.provider,
+          providerId: match.media.providerId,
+          kind: match.media.kind,
+          title: match.media.title,
+          originalTitle: match.media.originalTitle,
+          year: match.media.year,
+          posterPath: match.media.posterPath,
+          backdropPath: match.media.backdropPath,
+          overview: match.media.overview,
+          searchTitle: match.media.searchTitle,
+          tmdbFetchedAt: match.media.tmdbFetchedAt?.toISOString(),
+          metadataJson: match.media.metadataJson
+        }
+      : undefined,
     createdAt: match.createdAt.toISOString(),
     updatedAt: match.updatedAt.toISOString()
   };

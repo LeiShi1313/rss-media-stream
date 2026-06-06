@@ -36,6 +36,7 @@ type RssParserItem = {
 type ParsedFeedItem = {
   rawTitle: string;
   torrentUrl: string;
+  sourceUrl?: string;
   guid?: string;
   infoHash?: string;
   publishDate?: Date;
@@ -170,57 +171,78 @@ export async function refreshFeed(feedId: string, ctx: TenantJobContext) {
       const dedupe = chooseDedupeKey(item);
       const safeRaw = safeRawPayload(raw);
       const release = parseReleaseTitle(item.rawTitle);
+      const infoHash = item.infoHash ? hmacSecret(item.infoHash.toLowerCase()) : null;
+      const guidHash = item.guid ? hmacSecret(item.guid) : null;
+      const linkHash = hmacSecret(item.torrentUrl);
       const unique = {
         feedId,
         dedupeKeyType: dedupe.type,
         dedupeKeyHash: dedupe.hash
       };
 
-      const existing = await prisma.rssItem.findUnique({
-        where: { feedId_dedupeKeyType_dedupeKeyHash: unique },
-        select: { id: true }
+      const existing = await findExistingFeedItem({
+        feedId,
+        tenantId: ctx.tenantId,
+        unique,
+        infoHash,
+        guidHash,
+        linkHash
       });
 
-      await prisma.rssItem.upsert({
-        where: { feedId_dedupeKeyType_dedupeKeyHash: unique },
-        create: {
-          tenantId: ctx.tenantId,
-          feedId,
-          rawTitle: item.rawTitle,
-          infoHash: item.infoHash ? hmacSecret(item.infoHash.toLowerCase()) : null,
-          guidHash: item.guid ? hmacSecret(item.guid) : null,
-          linkHash: hmacSecret(item.torrentUrl),
-          dedupeKeyType: dedupe.type,
-          dedupeKeyHash: dedupe.hash,
-          releaseSignature: dedupe.releaseSignature,
-          encryptedTorrentUrl: encryptAead(item.torrentUrl),
-          publishDate: item.publishDate,
-          sizeBytes: item.sizeBytes,
-          ...safeRaw,
-          parseStatus: "PARSED",
-          parseConfidence: release.confidence,
-          parsedRelease: {
-            create: parsedReleaseData(release)
-          }
-        },
-        update: {
-          rawTitle: item.rawTitle,
-          publishDate: item.publishDate,
-          sizeBytes: item.sizeBytes,
-          ...safeRaw,
-          parseStatus: "PARSED",
-          parseConfidence: release.confidence,
-          parsedRelease: {
-            upsert: {
-              create: parsedReleaseData(release),
-              update: parsedReleaseData(release)
+      if (existing) {
+        await prisma.rssItem.update({
+          where: { id_tenantId: { id: existing.id, tenantId: ctx.tenantId } },
+          data: {
+            rawTitle: item.rawTitle,
+            infoHash,
+            guidHash,
+            linkHash,
+            dedupeKeyType: dedupe.type,
+            dedupeKeyHash: dedupe.hash,
+            releaseSignature: dedupe.releaseSignature,
+            encryptedTorrentUrl: encryptAead(item.torrentUrl),
+            encryptedSourceUrl: item.sourceUrl ? encryptAead(item.sourceUrl) : null,
+            publishDate: item.publishDate,
+            sizeBytes: item.sizeBytes,
+            ...safeRaw,
+            parseStatus: "PARSED",
+            parseConfidence: release.confidence,
+            parsedRelease: {
+              upsert: {
+                create: parsedReleaseData(release),
+                update: parsedReleaseData(release)
+              }
             }
           }
-        }
-      });
-
-      if (existing) updated += 1;
-      else created += 1;
+        });
+        await syncUnmatchedMediaMatchTitle(ctx.tenantId, existing.id, release.title);
+        updated += 1;
+      } else {
+        await prisma.rssItem.create({
+          data: {
+            tenantId: ctx.tenantId,
+            feedId,
+            rawTitle: item.rawTitle,
+            infoHash,
+            guidHash,
+            linkHash,
+            dedupeKeyType: dedupe.type,
+            dedupeKeyHash: dedupe.hash,
+            releaseSignature: dedupe.releaseSignature,
+            encryptedTorrentUrl: encryptAead(item.torrentUrl),
+            encryptedSourceUrl: item.sourceUrl ? encryptAead(item.sourceUrl) : null,
+            publishDate: item.publishDate,
+            sizeBytes: item.sizeBytes,
+            ...safeRaw,
+            parseStatus: "PARSED",
+            parseConfidence: release.confidence,
+            parsedRelease: {
+              create: parsedReleaseData(release)
+            }
+          }
+        });
+        created += 1;
+      }
     }
 
     await prisma.rssFeed.update({
@@ -277,13 +299,29 @@ export function normalizeFeedItem(raw: RssParserItem): ParsedFeedItem | null {
   return {
     rawTitle,
     torrentUrl,
+    sourceUrl: extractSourceUrl(raw, torrentUrl),
     guid: readString(raw.guid),
     infoHash: normalizeInfoHash(
-      readString(raw.torrentInfoHash) ?? extractInfoHash(torrentUrl)
+      readString(raw.torrentInfoHash) ?? extractInfoHash(torrentUrl) ?? readString(raw.guid)
     ),
     publishDate: parseDate(raw.isoDate ?? raw.pubDate),
     sizeBytes: parseSize(raw.torrentContentLength ?? raw.enclosure?.length)
   };
+}
+
+async function syncUnmatchedMediaMatchTitle(
+  tenantId: string,
+  itemId: string,
+  title: string
+) {
+  await prisma.mediaMatch.updateMany({
+    where: {
+      tenantId,
+      itemId,
+      status: "UNMATCHED"
+    },
+    data: { title }
+  });
 }
 
 export function safeRawPayload(raw: unknown) {
@@ -292,6 +330,39 @@ export function safeRawPayload(raw: unknown) {
     rawJsonEncrypted: encryptAead(json),
     rawJsonRedacted: JSON.parse(redactSecrets(json)) as Prisma.InputJsonValue
   };
+}
+
+async function findExistingFeedItem(input: {
+  feedId: string;
+  tenantId: string;
+  unique: {
+    feedId: string;
+    dedupeKeyType: DedupeKey["type"];
+    dedupeKeyHash: string;
+  };
+  infoHash: string | null;
+  guidHash: string | null;
+  linkHash: string;
+}) {
+  const exact = await prisma.rssItem.findUnique({
+    where: { feedId_dedupeKeyType_dedupeKeyHash: input.unique },
+    select: { id: true }
+  });
+  if (exact) return exact;
+
+  const stableIdentifiers: Prisma.RssItemWhereInput[] = [{ linkHash: input.linkHash }];
+  if (input.infoHash) stableIdentifiers.push({ infoHash: input.infoHash });
+  if (input.guidHash) stableIdentifiers.push({ guidHash: input.guidHash });
+
+  return prisma.rssItem.findFirst({
+    where: {
+      feedId: input.feedId,
+      tenantId: input.tenantId,
+      OR: stableIdentifiers
+    },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true }
+  });
 }
 
 export function urlPreview(encryptedUrl: string): string {
@@ -338,6 +409,19 @@ function extractTorrentUrl(item: RssParserItem): string {
     readUrlLikeGuid(item.guid) ??
     ""
   );
+}
+
+function extractSourceUrl(item: RssParserItem, torrentUrl: string): string | undefined {
+  return [
+    readString(item.link),
+    readUrlFromText(readString(item.contentSnippet)),
+    readUrlFromText(readString(item.content)),
+    readUrlFromText(readString(item.description))
+  ].find((value) => value && value !== torrentUrl && /^https?:\/\//i.test(value));
+}
+
+function readUrlFromText(value?: string): string | undefined {
+  return value?.trim().match(/https?:\/\/[^\s<>"']+/i)?.[0];
 }
 
 function readUrlLikeGuid(guid?: string): string | undefined {
