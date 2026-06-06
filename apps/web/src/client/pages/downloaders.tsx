@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { CheckCircle2, DownloadCloud, Pencil, Plus, ServerCog } from "lucide-react";
 import { api, type Downloader } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
@@ -269,3 +270,6 @@ function DownloaderModalForm({
   );
 }
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}

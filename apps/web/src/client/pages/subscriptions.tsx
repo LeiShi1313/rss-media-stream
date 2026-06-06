@@ -1,3 +1,4 @@
+import { useState, type FormEvent } from "react";
 import { Film, ListFilter, Pencil, Plus, Search } from "lucide-react";
 import { api, type Downloader, type MediaSearchResult, type Subscription } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
@@ -423,4 +424,3 @@ function SubscriptionSearch({
     </div>
   );
 }
-

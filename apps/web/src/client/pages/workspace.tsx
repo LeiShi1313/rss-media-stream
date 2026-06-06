@@ -1,7 +1,7 @@
-import { Activity, HardDrive, Rss, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import type { User, Workspace, WorkspaceMember } from "../api.js";
-import { Empty, StatusPill } from "../components/common/feedback.js";
-import { Metric, Panel } from "../components/common/surfaces.js";
+import { Empty, Pill } from "../components/common/feedback.js";
+import { Panel } from "../components/common/surfaces.js";
 
 export function WorkspacePage({
   user,
@@ -52,4 +52,3 @@ export function WorkspacePage({
     </div>
   );
 }
-

@@ -1,4 +1,4 @@
-import { Activity, Clock3, DownloadCloud, XCircle } from "lucide-react";
+import { CheckCircle2, Clock3, DownloadCloud, ListFilter, XCircle } from "lucide-react";
 import type { DownloadJob } from "../api.js";
 import type { TimelinePoint } from "../types.js";
 import { Empty, StatusPill } from "../components/common/feedback.js";
@@ -48,4 +48,3 @@ export function ActivityPage({
     </div>
   );
 }
-

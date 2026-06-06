@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Activity, Film, HardDrive, ListFilter, LogOut, RefreshCw, Rss, Settings, Shield } from "lucide-react";
+import { Activity, Film, HardDrive, ListFilter, LogOut, RefreshCw, Rss, Settings, Shield, Users } from "lucide-react";
 import {
   api,
   type AuthResponse,
@@ -8,6 +8,7 @@ import {
   type Feed,
   type Item,
   type Subscription,
+  type TrendingMedia,
   type User,
   type Workspace,
   type WorkspaceMember
@@ -17,9 +18,10 @@ import { ActivityPage } from "./pages/activity.js";
 import { DownloadersPage } from "./pages/downloaders.js";
 import { OverviewPage } from "./pages/overview.js";
 import { RssPage } from "./pages/rss.js";
+import { SettingsPage } from "./pages/settings.js";
 import { SubscriptionsPage } from "./pages/subscriptions.js";
 import { WorkspacePage } from "./pages/workspace.js";
-import { pageIds, type ActionResult, type PageId, type RunAction } from "./types.js";
+import { pageIds, type ActionResult, type PageId, type RunAction, type TimelinePoint } from "./types.js";
 import { relativeTime } from "./lib/format.js";
 
 export function App() {
@@ -166,6 +168,7 @@ function Dashboard({
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
+  const [trendingMedia, setTrendingMedia] = useState<TrendingMedia[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
@@ -185,7 +188,8 @@ function Dashboard({
       api<TimelinePoint[]>("/api/dashboard/timeline"),
       loadSubscriptions(),
       api<DownloadJob[]>("/api/download-jobs"),
-      api<WorkspaceMember[]>("/api/workspace/members")
+      api<WorkspaceMember[]>("/api/workspace/members"),
+      api<TrendingMedia[]>("/api/media/trending?windowDays=7&limit=18")
     ]);
 
     applyResult(results[0], setFeeds);
@@ -195,6 +199,7 @@ function Dashboard({
     applyResult(results[4], setSubscriptions);
     applyResult(results[5], setJobs);
     applyResult(results[6], setMembers);
+    applyResult(results[7], setTrendingMedia);
 
     const firstError = results.find((result) => result.status === "rejected");
     setError(firstError?.status === "rejected" ? errorMessage(firstError.reason) : "");
@@ -255,7 +260,8 @@ function Dashboard({
           <PageLink page="downloaders" active={page} icon={<HardDrive size={18} />} label="Downloaders" />
           <PageLink page="subscriptions" active={page} icon={<Film size={18} />} label="Subscriptions" />
           <PageLink page="activity" active={page} icon={<ListFilter size={18} />} label="Activity" />
-          <PageLink page="workspace" active={page} icon={<Settings size={18} />} label="Workspace" />
+          <PageLink page="workspace" active={page} icon={<Users size={18} />} label="Workspace" />
+          <PageLink page="settings" active={page} icon={<Settings size={18} />} label="Settings" />
         </nav>
         <div className="sidebar-footer">
           <span>{user.email}</span>
@@ -288,7 +294,7 @@ function Dashboard({
             downloaders={downloaders}
             items={items}
             stats={stats}
-            timeline={timeline}
+            trendingMedia={trendingMedia}
             runAction={runAction}
           />
         )}
@@ -312,6 +318,9 @@ function Dashboard({
             members={members}
             stats={stats}
           />
+        )}
+        {page === "settings" && (
+          <SettingsPage busy={busy} runAction={runAction} workspace={workspace} />
         )}
       </section>
     </main>
@@ -349,7 +358,8 @@ function pageTitle(page: PageId) {
     downloaders: "Downloader Management",
     subscriptions: "Subscription Management",
     activity: "Activity",
-    workspace: "Workspace"
+    workspace: "Workspace",
+    settings: "Settings"
   }[page];
 }
 
@@ -360,7 +370,8 @@ function pageSummary(page: PageId) {
     downloaders: "Tenant-level qBittorrent and Transmission endpoints",
     subscriptions: "Rule-based media subscriptions and auto-download criteria",
     activity: "Download jobs, ingestion rate, and failure visibility",
-    workspace: "Tenant context, members, and workspace-level status"
+    workspace: "Tenant context, members, and workspace-level status",
+    settings: "TMDB credentials, media language, and web language"
   }[page];
 }
 
@@ -382,4 +393,3 @@ function applyResult<T>(
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
-
