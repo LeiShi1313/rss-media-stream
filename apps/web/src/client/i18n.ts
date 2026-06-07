@@ -1,0 +1,701 @@
+import i18n from "i18next";
+import { initReactI18next } from "react-i18next";
+
+export const supportedUiLanguages = ["en-US", "zh-CN"] as const;
+export type UiLanguage = (typeof supportedUiLanguages)[number];
+
+const storageKey = "rss-media-ui-language";
+
+const en = {
+  common: {
+    add: "Add",
+    advancedDetails: "Advanced details",
+    anyCategory: "Any category",
+    anyKind: "Any kind",
+    anyProvider: "Any provider",
+    anyStatus: "Any status",
+    audio: "Audio",
+    auto: "Auto",
+    autoDownload: "Auto download",
+    baseUrl: "Base URL",
+    cancel: "Cancel",
+    category: "Category",
+    clear: "Clear",
+    close: "Close",
+    codecs: "Codecs",
+    configured: "Configured",
+    defaultDownloader: "Default downloader",
+    disabled: "Disabled",
+    downloader: "Downloader",
+    downloaders: "Downloaders",
+    edit: "Edit",
+    enabled: "Enabled",
+    episode: "Episode",
+    feed: "Feed",
+    feeds: "Feeds",
+    group: "Group",
+    includeRegex: "Include regex",
+    kind: "Kind",
+    language: "Language",
+    loading: "Loading",
+    manual: "Manual",
+    match: "Match",
+    missing: "Missing",
+    movie: "Movie",
+    movies: "Movies",
+    name: "Name",
+    noDownloader: "No downloader",
+    noAdditionalDetails: "No additional details",
+    notMatched: "Not matched",
+    password: "Password",
+    provider: "Provider",
+    providerId: "Provider ID",
+    quality: "Quality",
+    reason: "Reason",
+    releaseCount: "{{count}} releases",
+    releaseCount_one: "{{count}} release",
+    releaseCount_other: "{{count}} releases",
+    releases: "releases",
+    save: "Save",
+    search: "Search",
+    select: "Select",
+    send: "Send",
+    series: "Series",
+    size: "Size",
+    source: "Source",
+    status: "Status",
+    tags: "Tags",
+    test: "Test",
+    type: "Type",
+    tv: "TV",
+    unknown: "Unknown",
+    useId: "Use ID",
+    username: "Username",
+    validatedAt: "Validated {{date}}",
+    webUi: "web UI"
+  },
+  app: {
+    brandFull: "RSS Media Stream",
+    brandShort: "RSS Media",
+    createOwnerAccount: "Create the owner account",
+    signIn: "Sign in",
+    email: "Email",
+    ownerName: "Name",
+    createOwner: "Create Owner",
+    signOut: "Sign Out",
+    refreshDashboard: "Refresh dashboard"
+  },
+  nav: {
+    overview: "Overview",
+    rss: "RSS",
+    downloaders: "Downloaders",
+    subscriptions: "Subscriptions",
+    activity: "Activity",
+    workspace: "Workspace",
+    settings: "Settings"
+  },
+  page: {
+    overview: {
+      title: "Overview",
+      summary: "Review new releases, fix titles when needed, and dispatch downloads"
+    },
+    rss: {
+      title: "RSS Management",
+      summary: "Private tracker feeds, polling cadence, and refresh status"
+    },
+    downloaders: {
+      title: "Downloader Management",
+      summary: "Tenant-level qBittorrent and Transmission endpoints"
+    },
+    subscriptions: {
+      title: "Subscription Management",
+      summary: "Rule-based media subscriptions and auto-download criteria"
+    },
+    activity: {
+      title: "Activity",
+      summary: "Download jobs, ingestion rate, and failure visibility"
+    },
+    workspace: {
+      title: "Workspace",
+      summary: "Tenant context, members, and workspace-level status"
+    },
+    settings: {
+      title: "Settings",
+      summary: "TMDB credentials, media language, and web language"
+    }
+  },
+  overview: {
+    stats: {
+      feedsOnline: "Feeds online",
+      recentReleases: "{{count}} recent releases",
+      downloadersDetail: "enabled endpoints",
+      rules: "Rules",
+      rulesDetail: "active subscriptions",
+      matchRate: "Resolved titles",
+      matchedDetail: "{{count}} ready",
+      attention: "Attention",
+      attentionDetail: "failed or needs title"
+    },
+    filters: {
+      searchPlaceholder: "Search title, feed, group, quality",
+      allFeeds: "All feeds",
+      otherReleases: "Other releases",
+      matched: "Ready",
+      unmatched: "Needs title",
+      downloading: "Downloading",
+      attention: "Needs attention"
+    },
+    shelves: {
+      filtered: "Filtered releases",
+      filteredEmpty: "No releases match the current filters",
+      newlyAdded: "Newly added",
+      newlyAddedEmpty: "No newly added releases yet",
+      trending: "Trending titles",
+      trendingWindow: "last 7 days",
+      trendingEmpty: "No title trends yet",
+      matched: "Ready titles",
+      matchedEmpty: "No ready titles right now",
+      downloading: "Downloading",
+      downloadingEmpty: "No active downloads right now",
+      attention: "Needs attention",
+      attentionEmpty: "No releases need attention"
+    },
+    inspector: {
+      noOverview: "No TMDB overview is available for this release yet.",
+      parsedRelease: "Parsed release",
+      sourceTools: "source, raw RSS, and identity metadata",
+      tmdbId: "TMDB ID",
+      identityDetail: "Identity detail",
+      noMatchReason: "No match reason provided",
+      sourceAndTarget: "Source and target",
+      firstSeen: "First seen",
+      jobStatus: "Job status",
+      originalRssTitle: "Original RSS title",
+      groupedReleases: "Grouped media releases",
+      loadingMedia: "Loading media",
+      loadingDetail: "Loading media detail and release versions.",
+      releaseVersions: "Release versions",
+      noReleaseVersions: "No release versions loaded yet",
+      openSourceRelease: "Open source release",
+      titleCorrection: "Title correction",
+      wrongTitle: "Wrong title?",
+      chooseTitle: "Choose title",
+      downloadAnyway: "Download anyway",
+      chooseTitleLead: "Search TMDB only when the title shown here is missing or wrong.",
+      pasteTmdbId: "Paste TMDB ID"
+    }
+  },
+  release: {
+    status: {
+      failed: "Failed",
+      downloaded: "Downloaded",
+      queued: "QUEUED",
+      sent: "SENT",
+      skipped: "SKIPPED",
+      completed: "COMPLETED",
+      ready: "Ready",
+      checkTitle: "Check title",
+      needsTitle: "Needs title",
+      unmatched: "Needs title"
+    },
+    detail: {
+      downloadError: "Download error",
+      sentToDownloader: "Sent to downloader",
+      downloadJobActive: "Download job active",
+      readyToDownload: "Ready to download",
+      chooseTitle: "Choose the right title"
+    }
+  },
+  rss: {
+    feedVolume: "Feed volume",
+    pollingCadence: "Polling cadence",
+    addFeedsVolume: "Add feeds to see item volume",
+    pollingEmpty: "Polling cadence appears after feeds are configured",
+    enabled: "enabled",
+    disabled: "disabled",
+    lastPolled: "last polled {{time}}",
+    notPolled: "not polled yet",
+    feedSources: "Feed Sources",
+    addFeed: "Add Feed",
+    noFeeds: "No RSS feeds configured",
+    itemPoll: "{{count}} items · poll every {{seconds}}s",
+    refreshFeed: "Refresh feed",
+    addRssFeed: "Add RSS Feed",
+    editRssFeed: "Edit RSS Feed",
+    feedName: "Feed name",
+    privateUrl: "Private RSS URL",
+    keepCurrentUrl: "Leave blank to keep current URL",
+    urlPlaceholder: "https://tracker.example/rss",
+    pollInterval: "Poll interval",
+    saveFeed: "Save Feed"
+  },
+  downloaders: {
+    dispatchVolume: "Dispatch volume",
+    emptyJobs: "No downloader jobs yet",
+    endpointStatus: "Endpoint status",
+    endpoints: "Downloader Endpoints",
+    addDownloader: "Add Downloader",
+    editDownloader: "Edit Downloader",
+    noEndpoints: "No downloader endpoints configured",
+    jobs: "{{count}} jobs",
+    makeDefault: "Make Default",
+    default: "Default",
+    nameBaseRequired: "Name and base URL are required before testing.",
+    connectionSucceededVersion: "Connection succeeded: {{version}}",
+    connectionSucceeded: "Connection succeeded.",
+    savePath: "Save path",
+    leavePassword: "Leave blank to keep current password",
+    tagPlaceholder: "movies, private",
+    testing: "Testing",
+    testConnection: "Test Connection",
+    saveDownloader: "Save Downloader"
+  },
+  subscriptions: {
+    rules: "Subscription Rules",
+    create: "Create Subscription",
+    edit: "Edit Subscription",
+    none: "No subscription rules yet",
+    ruleOnly: "Rule-only subscription",
+    subscriptionTitle: "Subscription title",
+    mediaKind: "Media kind",
+    titleRegex: "Title regex",
+    excludeRegex: "Exclude regex",
+    minResolution: "Min resolution",
+    maxResolution: "Max resolution",
+    sources: "Sources",
+    includeReleaseGroups: "Include release groups",
+    excludeReleaseGroups: "Exclude release groups",
+    minSizeBytes: "Min size bytes",
+    maxSizeBytes: "Max size bytes",
+    season: "Season",
+    episodeStart: "Episode start",
+    episodeEnd: "Episode end",
+    saveSubscription: "Save Subscription",
+    searchTmdb: "Search TMDB",
+    subscribe: "Subscribe",
+    anyRelease: "Any release",
+    noRule: "No rule configured",
+    includeRule: "include /{{value}}/",
+    excludeRule: "exclude /{{value}}/"
+  },
+  activity: {
+    hourlyIntake: "Hourly Intake",
+    jobStatus: "Job Status",
+    queued: "Queued",
+    sent: "Sent",
+    failed: "Failed",
+    downloadJobs: "Download Jobs",
+    noJobs: "No download jobs yet",
+    noTimeline: "No timeline data yet"
+  },
+  workspace: {
+    current: "Current workspace",
+    members: "Members",
+    noMembers: "No members loaded",
+    feeds: "{{count}} feeds",
+    subscriptions: "{{count}} subscriptions",
+    downloaders: "{{count}} downloaders",
+    failedJobs: "{{count}} failed jobs"
+  },
+  settings: {
+    tmdbIntegration: "TMDB integration",
+    connected: "TMDB is connected",
+    notConnected: "TMDB is not connected",
+    workspaceCredential: "Using this workspace's encrypted TMDB credential",
+    environmentCredential: "Using the server environment TMDB credential",
+    addCredential: "Add a TMDB key or read access token to enable media metadata",
+    credentialLabel: "TMDB API key or read access token",
+    replaceCredential: "Paste a new key to replace the current one",
+    credentialPlaceholder: "Paste TMDB key or read access token",
+    tmdbLanguage: "TMDB media language",
+    webLanguage: "Web language",
+    saveSettings: "Save settings",
+    removeKey: "Remove TMDB key",
+    metadata: "TMDB metadata",
+    languageBehavior: "Language behavior",
+    tmdbBehaviorTitle: "TMDB media language changes future TMDB searches and cached metadata.",
+    tmdbBehaviorBody: "Changing it clears this workspace's TMDB cache so new searches use the selected language.",
+    webBehaviorTitle: "Web language is saved as the workspace UI preference.",
+    webBehaviorBody: "The interface changes immediately and is restored from the workspace preference after sign-in.",
+    languages: {
+      enUS: "English (US)",
+      zhCN: "Chinese Simplified",
+      zhTW: "Chinese Traditional",
+      jaJP: "Japanese",
+      koKR: "Korean",
+      frFR: "French",
+      deDE: "German",
+      esES: "Spanish"
+    }
+  }
+};
+
+const zh = {
+  common: {
+    add: "添加",
+    advancedDetails: "高级详情",
+    anyCategory: "任意类别",
+    anyKind: "任意类型",
+    anyProvider: "任意提供方",
+    anyStatus: "任意状态",
+    audio: "音频",
+    auto: "自动",
+    autoDownload: "自动下载",
+    baseUrl: "基础 URL",
+    cancel: "取消",
+    category: "分类",
+    clear: "清除",
+    close: "关闭",
+    codecs: "编码",
+    configured: "已配置",
+    defaultDownloader: "默认下载器",
+    disabled: "已禁用",
+    downloader: "下载器",
+    downloaders: "下载器",
+    edit: "编辑",
+    enabled: "已启用",
+    episode: "集",
+    feed: "Feed",
+    feeds: "Feed",
+    group: "发布组",
+    includeRegex: "包含正则",
+    kind: "类型",
+    language: "语言",
+    loading: "加载中",
+    manual: "手动",
+    match: "匹配",
+    missing: "缺失",
+    movie: "电影",
+    movies: "电影",
+    name: "名称",
+    noDownloader: "无下载器",
+    noAdditionalDetails: "没有更多详情",
+    notMatched: "未匹配",
+    password: "密码",
+    provider: "提供方",
+    providerId: "提供方 ID",
+    quality: "质量",
+    reason: "原因",
+    releaseCount: "{{count}} 个发布",
+    releaseCount_one: "{{count}} 个发布",
+    releaseCount_other: "{{count}} 个发布",
+    releases: "个发布",
+    save: "保存",
+    search: "搜索",
+    select: "选择",
+    send: "发送",
+    series: "剧集",
+    size: "大小",
+    source: "来源",
+    status: "状态",
+    tags: "标签",
+    test: "测试",
+    type: "类型",
+    tv: "电视",
+    unknown: "未知",
+    useId: "使用 ID",
+    username: "用户名",
+    validatedAt: "已验证 {{date}}",
+    webUi: "网页界面"
+  },
+  app: {
+    brandFull: "RSS Media Stream",
+    brandShort: "RSS Media",
+    createOwnerAccount: "创建所有者账号",
+    signIn: "登录",
+    email: "邮箱",
+    ownerName: "姓名",
+    createOwner: "创建所有者",
+    signOut: "退出登录",
+    refreshDashboard: "刷新仪表盘"
+  },
+  nav: {
+    overview: "总览",
+    rss: "RSS",
+    downloaders: "下载器",
+    subscriptions: "订阅",
+    activity: "活动",
+    workspace: "工作区",
+    settings: "设置"
+  },
+  page: {
+    overview: {
+      title: "总览",
+      summary: "查看新发布、必要时修正标题并分发下载"
+    },
+    rss: {
+      title: "RSS 管理",
+      summary: "私有 Tracker Feed、轮询节奏和刷新状态"
+    },
+    downloaders: {
+      title: "下载器管理",
+      summary: "租户级 qBittorrent 和 Transmission 端点"
+    },
+    subscriptions: {
+      title: "订阅管理",
+      summary: "基于规则的媒体订阅和自动下载条件"
+    },
+    activity: {
+      title: "活动",
+      summary: "下载任务、采集速率和失败可见性"
+    },
+    workspace: {
+      title: "工作区",
+      summary: "租户上下文、成员和工作区状态"
+    },
+    settings: {
+      title: "设置",
+      summary: "TMDB 凭据、媒体语言和网页语言"
+    }
+  },
+  overview: {
+    stats: {
+      feedsOnline: "在线 Feed",
+      recentReleases: "{{count}} 个近期发布",
+      downloadersDetail: "已启用端点",
+      rules: "规则",
+      rulesDetail: "启用的订阅",
+      matchRate: "已识别标题",
+      matchedDetail: "{{count}} 个可处理",
+      attention: "需处理",
+      attentionDetail: "失败或需要标题"
+    },
+    filters: {
+      searchPlaceholder: "搜索标题、Feed、发布组、质量",
+      allFeeds: "全部 Feed",
+      otherReleases: "其他发布",
+      matched: "可处理",
+      unmatched: "需要标题",
+      downloading: "下载中",
+      attention: "需要处理"
+    },
+    shelves: {
+      filtered: "筛选结果",
+      filteredEmpty: "没有发布符合当前筛选条件",
+      newlyAdded: "最新添加",
+      newlyAddedEmpty: "还没有新发布",
+      trending: "热门标题",
+      trendingWindow: "最近 7 天",
+      trendingEmpty: "还没有标题趋势",
+      matched: "可处理标题",
+      matchedEmpty: "当前没有可处理标题",
+      downloading: "下载中",
+      downloadingEmpty: "当前没有活跃下载",
+      attention: "需要处理",
+      attentionEmpty: "没有需要处理的发布"
+    },
+    inspector: {
+      noOverview: "该发布暂时没有 TMDB 简介。",
+      parsedRelease: "解析后的发布",
+      sourceTools: "来源、原始 RSS 和身份元数据",
+      tmdbId: "TMDB ID",
+      identityDetail: "身份详情",
+      noMatchReason: "没有匹配原因",
+      sourceAndTarget: "来源与目标",
+      firstSeen: "首次发现",
+      jobStatus: "任务状态",
+      originalRssTitle: "原始 RSS 标题",
+      groupedReleases: "分组媒体发布",
+      loadingMedia: "正在加载媒体",
+      loadingDetail: "正在加载媒体详情和发布版本。",
+      releaseVersions: "发布版本",
+      noReleaseVersions: "尚未加载发布版本",
+      openSourceRelease: "打开来源发布",
+      titleCorrection: "标题修正",
+      wrongTitle: "标题不对？",
+      chooseTitle: "选择标题",
+      downloadAnyway: "仍然下载",
+      chooseTitleLead: "只有当前标题缺失或不正确时才搜索 TMDB。",
+      pasteTmdbId: "粘贴 TMDB ID"
+    }
+  },
+  release: {
+    status: {
+      failed: "失败",
+      downloaded: "已下载",
+      queued: "排队中",
+      sent: "已发送",
+      skipped: "已跳过",
+      completed: "已完成",
+      ready: "可处理",
+      checkTitle: "检查标题",
+      needsTitle: "需要标题",
+      unmatched: "需要标题"
+    },
+    detail: {
+      downloadError: "下载错误",
+      sentToDownloader: "已发送到下载器",
+      downloadJobActive: "下载任务进行中",
+      readyToDownload: "可发送下载",
+      chooseTitle: "选择正确标题"
+    }
+  },
+  rss: {
+    feedVolume: "Feed 数量",
+    pollingCadence: "轮询节奏",
+    addFeedsVolume: "添加 Feed 后可查看条目数量",
+    pollingEmpty: "配置 Feed 后会显示轮询节奏",
+    enabled: "已启用",
+    disabled: "已禁用",
+    lastPolled: "上次轮询 {{time}}",
+    notPolled: "尚未轮询",
+    feedSources: "Feed 来源",
+    addFeed: "添加 Feed",
+    noFeeds: "未配置 RSS Feed",
+    itemPoll: "{{count}} 个条目 · 每 {{seconds}} 秒轮询",
+    refreshFeed: "刷新 Feed",
+    addRssFeed: "添加 RSS Feed",
+    editRssFeed: "编辑 RSS Feed",
+    feedName: "Feed 名称",
+    privateUrl: "私有 RSS URL",
+    keepCurrentUrl: "留空以保留当前 URL",
+    urlPlaceholder: "https://tracker.example/rss",
+    pollInterval: "轮询间隔",
+    saveFeed: "保存 Feed"
+  },
+  downloaders: {
+    dispatchVolume: "分发量",
+    emptyJobs: "还没有下载器任务",
+    endpointStatus: "端点状态",
+    endpoints: "下载器端点",
+    addDownloader: "添加下载器",
+    editDownloader: "编辑下载器",
+    noEndpoints: "未配置下载器端点",
+    jobs: "{{count}} 个任务",
+    makeDefault: "设为默认",
+    default: "默认",
+    nameBaseRequired: "测试前需要名称和基础 URL。",
+    connectionSucceededVersion: "连接成功：{{version}}",
+    connectionSucceeded: "连接成功。",
+    savePath: "保存路径",
+    leavePassword: "留空以保留当前密码",
+    tagPlaceholder: "movies, private",
+    testing: "测试中",
+    testConnection: "测试连接",
+    saveDownloader: "保存下载器"
+  },
+  subscriptions: {
+    rules: "订阅规则",
+    create: "创建订阅",
+    edit: "编辑订阅",
+    none: "还没有订阅规则",
+    ruleOnly: "仅规则订阅",
+    subscriptionTitle: "订阅标题",
+    mediaKind: "媒体类型",
+    titleRegex: "标题正则",
+    excludeRegex: "排除正则",
+    minResolution: "最低分辨率",
+    maxResolution: "最高分辨率",
+    sources: "来源",
+    includeReleaseGroups: "包含发布组",
+    excludeReleaseGroups: "排除发布组",
+    minSizeBytes: "最小字节数",
+    maxSizeBytes: "最大字节数",
+    season: "季",
+    episodeStart: "起始集",
+    episodeEnd: "结束集",
+    saveSubscription: "保存订阅",
+    searchTmdb: "搜索 TMDB",
+    subscribe: "订阅",
+    anyRelease: "任意发布",
+    noRule: "未配置规则",
+    includeRule: "包含 /{{value}}/",
+    excludeRule: "排除 /{{value}}/"
+  },
+  activity: {
+    hourlyIntake: "每小时采集",
+    jobStatus: "任务状态",
+    queued: "排队",
+    sent: "已发送",
+    failed: "失败",
+    downloadJobs: "下载任务",
+    noJobs: "还没有下载任务",
+    noTimeline: "还没有时间线数据"
+  },
+  workspace: {
+    current: "当前工作区",
+    members: "成员",
+    noMembers: "未加载成员",
+    feeds: "{{count}} 个 Feed",
+    subscriptions: "{{count}} 个订阅",
+    downloaders: "{{count}} 个下载器",
+    failedJobs: "{{count}} 个失败任务"
+  },
+  settings: {
+    tmdbIntegration: "TMDB 集成",
+    connected: "TMDB 已连接",
+    notConnected: "TMDB 未连接",
+    workspaceCredential: "正在使用此工作区的加密 TMDB 凭据",
+    environmentCredential: "正在使用服务器环境中的 TMDB 凭据",
+    addCredential: "添加 TMDB key 或读取访问令牌以启用媒体元数据",
+    credentialLabel: "TMDB API key 或读取访问令牌",
+    replaceCredential: "粘贴新 key 以替换当前 key",
+    credentialPlaceholder: "粘贴 TMDB key 或读取访问令牌",
+    tmdbLanguage: "TMDB 媒体语言",
+    webLanguage: "网页语言",
+    saveSettings: "保存设置",
+    removeKey: "移除 TMDB key",
+    metadata: "TMDB 元数据",
+    languageBehavior: "语言行为",
+    tmdbBehaviorTitle: "TMDB 媒体语言会影响未来的 TMDB 搜索和缓存元数据。",
+    tmdbBehaviorBody: "修改后会清空此工作区的 TMDB 缓存，让新的搜索使用所选语言。",
+    webBehaviorTitle: "网页语言会保存为工作区界面偏好。",
+    webBehaviorBody: "界面会立即切换，并在登录后从工作区偏好恢复。",
+    languages: {
+      enUS: "英语（美国）",
+      zhCN: "简体中文",
+      zhTW: "繁体中文",
+      jaJP: "日语",
+      koKR: "韩语",
+      frFR: "法语",
+      deDE: "德语",
+      esES: "西班牙语"
+    }
+  }
+};
+
+export const resources = {
+  en: { translation: en },
+  "en-US": { translation: en },
+  zh: { translation: zh },
+  "zh-CN": { translation: zh }
+};
+
+export function normalizeUiLanguage(value?: string | null): UiLanguage {
+  if (value?.toLowerCase().startsWith("zh")) return "zh-CN";
+  return "en-US";
+}
+
+export function readStoredUiLanguage(): UiLanguage {
+  if (typeof window === "undefined") return "en-US";
+  return normalizeUiLanguage(window.localStorage.getItem(storageKey) ?? window.navigator.language);
+}
+
+export async function applyUiLanguage(value?: string | null) {
+  const language = normalizeUiLanguage(value);
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(storageKey, language);
+  }
+  document.documentElement.lang = language;
+  await i18n.changeLanguage(language);
+  return language;
+}
+
+void i18n
+  .use(initReactI18next)
+  .init({
+    resources,
+    lng: readStoredUiLanguage(),
+    fallbackLng: "en-US",
+    supportedLngs: supportedUiLanguages,
+    interpolation: {
+      escapeValue: false
+    },
+    react: {
+      useSuspense: false
+    }
+  });
+
+document.documentElement.lang = i18n.language;
+
+export default i18n;

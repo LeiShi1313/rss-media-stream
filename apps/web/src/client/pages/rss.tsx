@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Activity, Clock3, Pencil, Plus, RefreshCw, ServerCog } from "lucide-react";
 import { api, type Feed } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
@@ -19,57 +20,58 @@ export function RssPage({
   feeds: Feed[];
   runAction: RunAction;
 }) {
+  const { t } = useTranslation();
   const [feedModal, setFeedModal] = useState<Feed | "new" | null>(null);
 
   return (
     <div className="page-stack">
       <section className="overview-insight-grid">
-        <Panel title="Feed volume" icon={<Activity size={19} />}>
+        <Panel title={t("rss.feedVolume")} icon={<Activity size={19} />}>
           <DistributionBars
             entries={feeds.map((feed) => ({
               label: feed.name,
               value: feed.itemCount,
-              detail: feed.enabled ? "enabled" : "disabled",
+              detail: feed.enabled ? t("rss.enabled") : t("rss.disabled"),
               tone: feed.lastError ? "danger" : feed.enabled ? "good" : "neutral"
             }))}
-            emptyLabel="Add feeds to see item volume"
+            emptyLabel={t("rss.addFeedsVolume")}
           />
         </Panel>
-        <Panel title="Polling cadence" icon={<Clock3 size={19} />}>
+        <Panel title={t("rss.pollingCadence")} icon={<Clock3 size={19} />}>
           <DistributionBars
             entries={feeds.map((feed) => ({
               label: feed.name,
               value: Math.round(feed.pollIntervalSeconds / 60),
-              detail: feed.lastPolledAt ? `last polled ${relativeTime(feed.lastPolledAt)}` : "not polled yet",
+              detail: feed.lastPolledAt ? t("rss.lastPolled", { time: relativeTime(feed.lastPolledAt) }) : t("rss.notPolled"),
               tone: feed.lastError ? "danger" : "accent"
             }))}
             suffix="m"
-            emptyLabel="Polling cadence appears after feeds are configured"
+            emptyLabel={t("rss.pollingEmpty")}
           />
         </Panel>
       </section>
       <Panel
-        title="Feed Sources"
+        title={t("rss.feedSources")}
         icon={<ServerCog size={19} />}
         actions={
           <UiButton className="primary" disabled={busy} onClick={() => setFeedModal("new")}>
             <Plus size={17} />
-            Add Feed
+            {t("rss.addFeed")}
           </UiButton>
         }
       >
         <div className="list">
-          {feeds.length === 0 && <Empty label="No RSS feeds configured" />}
+          {feeds.length === 0 && <Empty label={t("rss.noFeeds")} />}
           {feeds.map((feed) => (
             <article className="row-card feed-card" key={feed.id}>
               <div>
                 <strong>{feed.name}</strong>
                 <code>{feed.urlPreview}</code>
-                <span>{feed.itemCount} items · poll every {feed.pollIntervalSeconds}s</span>
+                <span>{t("rss.itemPoll", { count: feed.itemCount, seconds: feed.pollIntervalSeconds })}</span>
                 {feed.lastError && <p className="error">{feed.lastError}</p>}
               </div>
               <div className="row-actions">
-                <StatusPill ok={feed.enabled}>{feed.enabled ? "Enabled" : "Disabled"}</StatusPill>
+                <StatusPill ok={feed.enabled}>{feed.enabled ? t("common.enabled") : t("common.disabled")}</StatusPill>
                 <UiButton className="secondary" disabled={busy} onClick={() => setFeedModal(feed)}>
                   <Pencil size={16} />
                   Edit
@@ -78,7 +80,7 @@ export function RssPage({
                   className="icon-button"
                   disabled={busy}
                   onClick={() => runAction(() => api(`/api/feeds/${feed.id}/refresh`, { method: "POST" }))}
-                  title="Refresh feed"
+                  title={t("rss.refreshFeed")}
                 >
                   <RefreshCw size={17} />
                 </UiButton>
@@ -89,7 +91,7 @@ export function RssPage({
       </Panel>
       {feedModal && (
         <Modal
-          title={feedModal === "new" ? "Add RSS Feed" : "Edit RSS Feed"}
+          title={feedModal === "new" ? t("rss.addRssFeed") : t("rss.editRssFeed")}
           onClose={() => setFeedModal(null)}
         >
           <FeedModalForm
@@ -125,6 +127,7 @@ function FeedModalForm({
   onCancel: () => void;
   onSubmit: (body: string) => Promise<ActionResult>;
 }) {
+  const { t } = useTranslation();
   const editing = Boolean(feed);
   const [name, setName] = useState(feed?.name ?? "");
   const [url, setUrl] = useState("");
@@ -153,13 +156,13 @@ function FeedModalForm({
       }}
     >
       <FieldLabel>
-        Feed name
+        {t("rss.feedName")}
         <FormInput value={name} onChange={(event) => setName(event.target.value)} required />
       </FieldLabel>
       <FieldLabel>
-        Private RSS URL
+        {t("rss.privateUrl")}
         <FormInput
-          placeholder={editing ? "Leave blank to keep current URL" : "https://tracker.example/rss"}
+          placeholder={editing ? t("rss.keepCurrentUrl") : t("rss.urlPlaceholder")}
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           required={!editing}
@@ -167,7 +170,7 @@ function FeedModalForm({
       </FieldLabel>
       <div className="form-grid">
         <FieldLabel>
-          Poll interval
+          {t("rss.pollInterval")}
           <FormInput
             type="number"
             min={60}
@@ -176,16 +179,16 @@ function FeedModalForm({
             required
           />
         </FieldLabel>
-        <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
+        <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label={t("common.enabled")} />
       </div>
       {submitError && <p className="modal-feedback error">{submitError}</p>}
       <div className="modal-actions">
         <UiButton className="secondary" onClick={onCancel} type="button">
-          Cancel
+          {t("common.cancel")}
         </UiButton>
         <UiButton className="primary" disabled={busy} type="submit">
           {editing ? <Pencil size={17} /> : <Plus size={17} />}
-          {editing ? "Save Feed" : "Add Feed"}
+          {editing ? t("rss.saveFeed") : t("rss.addFeed")}
         </UiButton>
       </div>
     </form>

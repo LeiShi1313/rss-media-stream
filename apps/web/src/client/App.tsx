@@ -1,4 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { Activity, Film, HardDrive, ListFilter, LogOut, RefreshCw, Rss, Settings, Shield, Users } from "lucide-react";
 import {
   api,
@@ -8,6 +10,7 @@ import {
   type Feed,
   type Item,
   type Subscription,
+  type TmdbSettings,
   type TrendingMedia,
   type User,
   type Workspace,
@@ -23,8 +26,10 @@ import { SubscriptionsPage } from "./pages/subscriptions.js";
 import { WorkspacePage } from "./pages/workspace.js";
 import { pageIds, type ActionResult, type PageId, type RunAction, type TimelinePoint } from "./types.js";
 import { relativeTime } from "./lib/format.js";
+import { applyUiLanguage } from "./i18n.js";
 
 export function App() {
+  const { t } = useTranslation();
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -42,6 +47,7 @@ export function App() {
         const session = await api<AuthResponse>("/api/me");
         setUser(session.user);
         setWorkspace(session.activeWorkspace ?? session.workspace ?? session.workspaces?.[0] ?? null);
+        void syncUiLanguageFromSettings();
       }
     } catch (err) {
       setSetupRequired(false);
@@ -50,7 +56,7 @@ export function App() {
     }
   }
 
-  if (setupRequired === null) return <div className="boot">Loading</div>;
+  if (setupRequired === null) return <div className="boot">{t("common.loading")}</div>;
 
   if (setupRequired || !user) {
     return (
@@ -63,6 +69,7 @@ export function App() {
           setWorkspace(session.activeWorkspace ?? session.workspace ?? session.workspaces?.[0] ?? null);
           setSetupRequired(false);
           setError("");
+          void syncUiLanguageFromSettings();
         }}
       />
     );
@@ -92,6 +99,7 @@ function AuthScreen({
   onError: (value: string) => void;
   onDone: (session: AuthResponse) => void;
 }) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -115,23 +123,23 @@ function AuthScreen({
         <div className="brand-row">
           <Rss size={28} />
           <div>
-            <h1>RSS Media Stream</h1>
-            <p>{setupRequired ? "Create the owner account" : "Sign in"}</p>
+            <h1>{t("app.brandFull")}</h1>
+            <p>{setupRequired ? t("app.createOwnerAccount") : t("app.signIn")}</p>
           </div>
         </div>
         <form onSubmit={submit} className="stack">
           <FieldLabel>
-            Email
+            {t("app.email")}
             <FormInput value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
           </FieldLabel>
           {setupRequired && (
             <FieldLabel>
-              Name
+              {t("app.ownerName")}
               <FormInput value={name} onChange={(event) => setName(event.target.value)} required />
             </FieldLabel>
           )}
           <FieldLabel>
-            Password
+            {t("common.password")}
             <FormInput
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -143,7 +151,7 @@ function AuthScreen({
           {error && <p className="error">{error}</p>}
           <UiButton className="primary" type="submit">
             <Shield size={18} />
-            {setupRequired ? "Create Owner" : "Sign In"}
+            {setupRequired ? t("app.createOwner") : t("app.signIn")}
           </UiButton>
         </form>
       </section>
@@ -160,6 +168,7 @@ function Dashboard({
   workspace: Workspace | null;
   onLogout: () => void;
 }) {
+  const { t } = useTranslation();
   const [page, setPage] = useState<PageId>(() => readPageFromHash());
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -250,24 +259,24 @@ function Dashboard({
         <div className="brand-row">
           <Rss size={26} />
           <div>
-            <h1>RSS Media</h1>
+            <h1>{t("app.brandShort")}</h1>
             <p>{workspace ? `${workspace.name} · ${workspace.role}` : user.name}</p>
           </div>
         </div>
         <nav>
-          <PageLink page="overview" active={page} icon={<Activity size={18} />} label="Overview" />
-          <PageLink page="rss" active={page} icon={<Rss size={18} />} label="RSS" />
-          <PageLink page="downloaders" active={page} icon={<HardDrive size={18} />} label="Downloaders" />
-          <PageLink page="subscriptions" active={page} icon={<Film size={18} />} label="Subscriptions" />
-          <PageLink page="activity" active={page} icon={<ListFilter size={18} />} label="Activity" />
-          <PageLink page="workspace" active={page} icon={<Users size={18} />} label="Workspace" />
-          <PageLink page="settings" active={page} icon={<Settings size={18} />} label="Settings" />
+          <PageLink page="overview" active={page} icon={<Activity size={18} />} label={t("nav.overview")} />
+          <PageLink page="rss" active={page} icon={<Rss size={18} />} label={t("nav.rss")} />
+          <PageLink page="downloaders" active={page} icon={<HardDrive size={18} />} label={t("nav.downloaders")} />
+          <PageLink page="subscriptions" active={page} icon={<Film size={18} />} label={t("nav.subscriptions")} />
+          <PageLink page="activity" active={page} icon={<ListFilter size={18} />} label={t("nav.activity")} />
+          <PageLink page="workspace" active={page} icon={<Users size={18} />} label={t("nav.workspace")} />
+          <PageLink page="settings" active={page} icon={<Settings size={18} />} label={t("nav.settings")} />
         </nav>
         <div className="sidebar-footer">
           <span>{user.email}</span>
           <UiButton className="ghost" onClick={onLogout}>
             <LogOut size={18} />
-            Sign Out
+            {t("app.signOut")}
           </UiButton>
         </div>
       </aside>
@@ -275,12 +284,12 @@ function Dashboard({
       <section className="content">
         <header className="topbar">
           <div>
-            <h2>{pageTitle(page)}</h2>
-            <p>{pageSummary(page)}</p>
+            <h2>{pageTitle(page, t)}</h2>
+            <p>{pageSummary(page, t)}</p>
           </div>
           <div className="topbar-actions">
             {lastLoadedAt && <span>{relativeTime(lastLoadedAt)}</span>}
-            <UiButton className="icon-button" onClick={() => void load()} title="Refresh dashboard">
+            <UiButton className="icon-button" onClick={() => void load()} title={t("app.refreshDashboard")}>
               <RefreshCw size={18} />
             </UiButton>
           </div>
@@ -351,28 +360,37 @@ function readPageFromHash(): PageId {
   return pageIds.includes(value as PageId) ? (value as PageId) : "overview";
 }
 
-function pageTitle(page: PageId) {
+function pageTitle(page: PageId, t: TFunction) {
   return {
-    overview: "Overview",
-    rss: "RSS Management",
-    downloaders: "Downloader Management",
-    subscriptions: "Subscription Management",
-    activity: "Activity",
-    workspace: "Workspace",
-    settings: "Settings"
+    overview: t("page.overview.title"),
+    rss: t("page.rss.title"),
+    downloaders: t("page.downloaders.title"),
+    subscriptions: t("page.subscriptions.title"),
+    activity: t("page.activity.title"),
+    workspace: t("page.workspace.title"),
+    settings: t("page.settings.title")
   }[page];
 }
 
-function pageSummary(page: PageId) {
+function pageSummary(page: PageId, t: TFunction) {
   return {
-    overview: "Review new releases, verify matches, and dispatch downloads",
-    rss: "Private tracker feeds, polling cadence, and refresh status",
-    downloaders: "Tenant-level qBittorrent and Transmission endpoints",
-    subscriptions: "Rule-based media subscriptions and auto-download criteria",
-    activity: "Download jobs, ingestion rate, and failure visibility",
-    workspace: "Tenant context, members, and workspace-level status",
-    settings: "TMDB credentials, media language, and web language"
+    overview: t("page.overview.summary"),
+    rss: t("page.rss.summary"),
+    downloaders: t("page.downloaders.summary"),
+    subscriptions: t("page.subscriptions.summary"),
+    activity: t("page.activity.summary"),
+    workspace: t("page.workspace.summary"),
+    settings: t("page.settings.summary")
   }[page];
+}
+
+async function syncUiLanguageFromSettings() {
+  try {
+    const settings = await api<TmdbSettings>("/api/settings");
+    await applyUiLanguage(settings.webLanguage);
+  } catch {
+    // Keep the locally detected language if settings are unavailable.
+  }
 }
 
 async function loadSubscriptions() {

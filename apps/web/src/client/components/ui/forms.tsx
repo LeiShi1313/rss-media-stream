@@ -4,6 +4,8 @@ import { Primitive } from "@radix-ui/react-primitive";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import clsx from "clsx";
 import { Check, ChevronDown } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, LabelHTMLAttributes, ReactNode } from "react";
 
 const emptySelectValue = "__rss_media_empty__";
@@ -17,7 +19,7 @@ export function SelectField({
   value,
   onValueChange,
   options,
-  placeholder = "Select",
+  placeholder,
   disabled = false,
   className
 }: {
@@ -28,14 +30,27 @@ export function SelectField({
   disabled?: boolean;
   className?: string;
 }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const placeholderText = placeholder ?? t("common.select");
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return undefined;
+
+    document.body.classList.add("rss-select-open");
+    return () => document.body.classList.remove("rss-select-open");
+  }, [open]);
+
   return (
     <SelectPrimitive.Root
+      open={open}
+      onOpenChange={setOpen}
       value={value || emptySelectValue}
       onValueChange={(nextValue) => onValueChange(nextValue === emptySelectValue ? "" : nextValue)}
       disabled={disabled}
     >
-      <SelectPrimitive.Trigger className={clsx("select-trigger", className)} aria-label={placeholder}>
-        <SelectPrimitive.Value placeholder={placeholder} />
+      <SelectPrimitive.Trigger className={clsx("select-trigger", className)} aria-label={placeholderText}>
+        <SelectPrimitive.Value placeholder={placeholderText} />
         <SelectPrimitive.Icon asChild>
           <ChevronDown size={16} />
         </SelectPrimitive.Icon>
@@ -117,4 +132,3 @@ export function FieldLabel({
 }: LabelHTMLAttributes<HTMLLabelElement>) {
   return <LabelPrimitive.Root className={clsx(className)} {...props} />;
 }
-

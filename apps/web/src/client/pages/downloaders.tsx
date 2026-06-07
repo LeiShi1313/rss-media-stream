@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CheckCircle2, DownloadCloud, Pencil, Plus, ServerCog } from "lucide-react";
 import { api, type Downloader } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
@@ -17,12 +18,13 @@ export function DownloadersPage({
   downloaders: Downloader[];
   runAction: RunAction;
 }) {
+  const { t } = useTranslation();
   const [downloaderModal, setDownloaderModal] = useState<Downloader | "new" | null>(null);
 
   return (
     <div className="page-stack">
       <section className="overview-insight-grid">
-        <Panel title="Dispatch volume" icon={<DownloadCloud size={19} />}>
+        <Panel title={t("downloaders.dispatchVolume")} icon={<DownloadCloud size={19} />}>
           <DistributionBars
             entries={downloaders.map((downloader) => ({
               label: downloader.name,
@@ -30,38 +32,38 @@ export function DownloadersPage({
               detail: downloader.type,
               tone: downloader.enabled ? "accent" : "neutral"
             }))}
-            emptyLabel="No downloader jobs yet"
+            emptyLabel={t("downloaders.emptyJobs")}
           />
         </Panel>
-        <Panel title="Endpoint status" icon={<ServerCog size={19} />}>
+        <Panel title={t("downloaders.endpointStatus")} icon={<ServerCog size={19} />}>
           <EndpointStatusGrid downloaders={downloaders} />
         </Panel>
       </section>
       <Panel
-        title="Downloader Endpoints"
+        title={t("downloaders.endpoints")}
         icon={<ServerCog size={19} />}
         actions={
           <UiButton className="primary" disabled={busy} onClick={() => setDownloaderModal("new")}>
             <Plus size={17} />
-            Add Downloader
+            {t("downloaders.addDownloader")}
           </UiButton>
         }
       >
         <div className="list">
-          {downloaders.length === 0 && <Empty label="No downloader endpoints configured" />}
+          {downloaders.length === 0 && <Empty label={t("downloaders.noEndpoints")} />}
           {downloaders.map((downloader) => (
             <article className="row-card downloader-card" key={downloader.id}>
               <div>
                 <strong>{downloader.name}</strong>
                 <span>{downloader.type} · {downloader.baseUrl}</span>
-                <small>{downloader.jobCount ?? 0} jobs{downloader.tags?.length ? ` · ${downloader.tags.join(", ")}` : ""}</small>
+                <small>{t("downloaders.jobs", { count: downloader.jobCount ?? 0 })}{downloader.tags?.length ? ` · ${downloader.tags.join(", ")}` : ""}</small>
               </div>
               <div className="row-actions">
-                {downloader.isDefault && <Pill>Default</Pill>}
-                <StatusPill ok={downloader.enabled}>{downloader.enabled ? "Enabled" : "Disabled"}</StatusPill>
+                {downloader.isDefault && <Pill>{t("downloaders.default")}</Pill>}
+                <StatusPill ok={downloader.enabled}>{downloader.enabled ? t("common.enabled") : t("common.disabled")}</StatusPill>
                 <UiButton className="secondary" disabled={busy} onClick={() => setDownloaderModal(downloader)}>
                   <Pencil size={16} />
-                  Edit
+                  {t("common.edit")}
                 </UiButton>
                 {!downloader.isDefault && (
                   <UiButton
@@ -76,7 +78,7 @@ export function DownloadersPage({
                       )
                     }
                   >
-                    Make Default
+                    {t("downloaders.makeDefault")}
                   </UiButton>
                 )}
                 <UiButton
@@ -84,7 +86,7 @@ export function DownloadersPage({
                   disabled={busy}
                   onClick={() => runAction(() => api(`/api/downloaders/${downloader.id}/test`, { method: "POST" }))}
                 >
-                  Test
+                  {t("common.test")}
                 </UiButton>
               </div>
             </article>
@@ -93,7 +95,7 @@ export function DownloadersPage({
       </Panel>
       {downloaderModal && (
         <Modal
-          title={downloaderModal === "new" ? "Add Downloader" : "Edit Downloader"}
+          title={downloaderModal === "new" ? t("downloaders.addDownloader") : t("downloaders.editDownloader")}
           onClose={() => setDownloaderModal(null)}
         >
           <DownloaderModalForm
@@ -129,6 +131,7 @@ function DownloaderModalForm({
   onCancel: () => void;
   onSubmit: (body: string) => Promise<ActionResult>;
 }) {
+  const { t } = useTranslation();
   const editing = Boolean(downloader);
   const [type, setType] = useState<Downloader["type"]>(downloader?.type ?? "QBITTORRENT");
   const [name, setName] = useState(downloader?.name ?? "");
@@ -165,7 +168,7 @@ function DownloaderModalForm({
   async function testConnection() {
     setTestResult(null);
     if (!name.trim() || !baseUrl.trim()) {
-      setTestResult({ ok: false, message: "Name and base URL are required before testing." });
+      setTestResult({ ok: false, message: t("downloaders.nameBaseRequired") });
       return;
     }
 
@@ -177,7 +180,7 @@ function DownloaderModalForm({
       });
       setTestResult({
         ok: true,
-        message: result.version ? `Connection succeeded: ${result.version}` : "Connection succeeded."
+        message: result.version ? t("downloaders.connectionSucceededVersion", { version: result.version }) : t("downloaders.connectionSucceeded")
       });
     } catch (err) {
       setTestResult({ ok: false, message: errorMessage(err) });
@@ -198,7 +201,7 @@ function DownloaderModalForm({
     >
       <div className="form-grid">
         <div className="field">
-          <span>Type</span>
+          <span>{t("common.type")}</span>
           <SelectField
             value={type}
             onValueChange={(value) => setType(value as Downloader["type"])}
@@ -209,23 +212,23 @@ function DownloaderModalForm({
           />
         </div>
         <FieldLabel>
-          Name
+          {t("common.name")}
           <FormInput value={name} onChange={(event) => setName(event.target.value)} required />
         </FieldLabel>
       </div>
       <FieldLabel>
-        Base URL
+        {t("common.baseUrl")}
         <FormInput placeholder="http://localhost:8080" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required />
       </FieldLabel>
       <div className="form-grid">
         <FieldLabel>
-          Username
+          {t("common.username")}
           <FormInput value={username} onChange={(event) => setUsername(event.target.value)} />
         </FieldLabel>
         <FieldLabel>
-          Password
+          {t("common.password")}
           <FormInput
-            placeholder={editing ? "Leave blank to keep current password" : ""}
+            placeholder={editing ? t("downloaders.leavePassword") : ""}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             type="password"
@@ -234,19 +237,19 @@ function DownloaderModalForm({
       </div>
       <div className="form-grid">
         <FieldLabel>
-          Save path
+          {t("downloaders.savePath")}
           <FormInput value={defaultSavePath} onChange={(event) => setDefaultSavePath(event.target.value)} />
         </FieldLabel>
         <FieldLabel>
-          Category
+          {t("common.category")}
           <FormInput value={category} onChange={(event) => setCategory(event.target.value)} />
         </FieldLabel>
       </div>
       <FieldLabel>
-        Tags
-        <FormInput placeholder="movies, private" value={tags} onChange={(event) => setTags(event.target.value)} />
+        {t("common.tags")}
+        <FormInput placeholder={t("downloaders.tagPlaceholder")} value={tags} onChange={(event) => setTags(event.target.value)} />
       </FieldLabel>
-      <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
+      <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label={t("common.enabled")} />
       {testResult && (
         <p className={testResult.ok ? "modal-feedback success" : "modal-feedback error"}>
           {testResult.message}
@@ -255,15 +258,15 @@ function DownloaderModalForm({
       {submitError && <p className="modal-feedback error">{submitError}</p>}
       <div className="modal-actions">
         <UiButton className="secondary" onClick={onCancel} type="button">
-          Cancel
+          {t("common.cancel")}
         </UiButton>
         <UiButton className="secondary" disabled={busy || testBusy} onClick={() => void testConnection()} type="button">
           <ServerCog size={17} />
-          {testBusy ? "Testing" : "Test Connection"}
+          {testBusy ? t("downloaders.testing") : t("downloaders.testConnection")}
         </UiButton>
         <UiButton className="primary" disabled={busy} type="submit">
           {editing ? <Pencil size={17} /> : <Plus size={17} />}
-          {editing ? "Save Downloader" : "Add Downloader"}
+          {editing ? t("downloaders.saveDownloader") : t("downloaders.addDownloader")}
         </UiButton>
       </div>
     </form>

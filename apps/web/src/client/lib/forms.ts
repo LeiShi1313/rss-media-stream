@@ -1,5 +1,7 @@
 import type { Subscription } from "../api.js";
 
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
 export function optionalText(value: string) {
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
@@ -22,16 +24,15 @@ export function providerValue(value?: string): "" | "tmdb" | "imdb" | "douban" {
   return value === "tmdb" || value === "imdb" || value === "douban" ? value : "";
 }
 
-export function ruleSummary(subscription: Subscription) {
+export function ruleSummary(subscription: Subscription, t?: Translate) {
   const rule = subscription.rule;
-  if (!rule) return "No rule configured";
+  if (!rule) return t?.("subscriptions.noRule") ?? "No rule configured";
   return [
     rule.mediaKind,
     rule.minResolution ? `${rule.minResolution}p+` : undefined,
-    rule.includeRegex ? `include /${rule.includeRegex}/` : undefined,
-    rule.excludeRegex ? `exclude /${rule.excludeRegex}/` : undefined
+    rule.includeRegex ? t?.("subscriptions.includeRule", { value: rule.includeRegex }) ?? `include /${rule.includeRegex}/` : undefined,
+    rule.excludeRegex ? t?.("subscriptions.excludeRule", { value: rule.excludeRegex }) ?? `exclude /${rule.excludeRegex}/` : undefined
   ]
     .filter(Boolean)
-    .join(" · ") || "Any release";
+    .join(" · ") || t?.("subscriptions.anyRelease") || "Any release";
 }
-

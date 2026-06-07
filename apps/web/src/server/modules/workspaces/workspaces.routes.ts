@@ -27,12 +27,13 @@ const updateTmdbSettingsSchema = z.object({
   apiKey: z.string().trim().max(5000).optional()
 });
 
-const languageSchema = z.enum(["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"]);
+const mediaLanguageSchema = z.enum(["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"]);
+const webLanguageSchema = z.enum(["en-US", "zh-CN"]);
 
 const updateSettingsSchema = z.object({
   apiKey: z.string().trim().max(5000).optional(),
-  tmdbLanguage: languageSchema.optional(),
-  webLanguage: languageSchema.optional()
+  tmdbLanguage: mediaLanguageSchema.optional(),
+  webLanguage: webLanguageSchema.optional()
 });
 
 export async function registerWorkspaceRoutes(app: FastifyInstance, config: AppConfig) {

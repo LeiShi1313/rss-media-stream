@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Film, ListFilter, Pencil, Plus, Search } from "lucide-react";
 import { api, type Downloader, type MediaSearchResult, type Subscription } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
@@ -19,37 +20,38 @@ export function SubscriptionsPage({
   subscriptions: Subscription[];
   runAction: RunAction;
 }) {
+  const { t } = useTranslation();
   const [createOpen, setCreateOpen] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
 
   return (
     <div className="page-stack">
       <Panel
-        title="Subscription Rules"
+        title={t("subscriptions.rules")}
         icon={<ListFilter size={19} />}
         actions={
           <UiButton className="primary" disabled={busy} onClick={() => setCreateOpen(true)}>
             <Plus size={17} />
-            Create Subscription
+            {t("subscriptions.create")}
           </UiButton>
         }
       >
         <div className="list">
-          {subscriptions.length === 0 && <Empty label="No subscription rules yet" />}
+          {subscriptions.length === 0 && <Empty label={t("subscriptions.none")} />}
           {subscriptions.map((subscription) => (
             <article className="row-card subscription-card" key={subscription.id}>
               <div>
                 <strong>{subscription.title}</strong>
-                <span>{subscription.media?.title ?? subscription.rule?.providerId ?? "Rule-only subscription"}</span>
-                <small>{ruleSummary(subscription)}</small>
+                <span>{subscription.media?.title ?? subscription.rule?.providerId ?? t("subscriptions.ruleOnly")}</span>
+                <small>{ruleSummary(subscription, t)}</small>
               </div>
               <div className="row-actions">
-                <StatusPill ok={subscription.enabled}>{subscription.enabled ? "Enabled" : "Disabled"}</StatusPill>
-                <StatusPill ok={subscription.autoDownload}>{subscription.autoDownload ? "Auto" : "Manual"}</StatusPill>
-                {subscription.downloader ? <Pill>{subscription.downloader.name}</Pill> : <Pill>Default downloader</Pill>}
+                <StatusPill ok={subscription.enabled}>{subscription.enabled ? t("common.enabled") : t("common.disabled")}</StatusPill>
+                <StatusPill ok={subscription.autoDownload}>{subscription.autoDownload ? t("common.auto") : t("common.manual")}</StatusPill>
+                {subscription.downloader ? <Pill>{subscription.downloader.name}</Pill> : <Pill>{t("common.defaultDownloader")}</Pill>}
                 <UiButton className="secondary" disabled={busy} onClick={() => setEditingSubscription(subscription)}>
                   <Pencil size={16} />
-                  Edit
+                  {t("common.edit")}
                 </UiButton>
               </div>
             </article>
@@ -57,7 +59,7 @@ export function SubscriptionsPage({
         </div>
       </Panel>
       {createOpen && (
-        <Modal title="Create Subscription" onClose={() => setCreateOpen(false)}>
+        <Modal title={t("subscriptions.create")} onClose={() => setCreateOpen(false)}>
           <SubscriptionSearch
             downloaders={downloaders}
             onSubscribe={async (body) => {
@@ -71,7 +73,7 @@ export function SubscriptionsPage({
         </Modal>
       )}
       {editingSubscription && (
-        <Modal title="Edit Subscription" onClose={() => setEditingSubscription(null)}>
+        <Modal title={t("subscriptions.edit")} onClose={() => setEditingSubscription(null)}>
           <SubscriptionEditForm
             busy={busy}
             downloaders={downloaders}
@@ -111,6 +113,7 @@ function SubscriptionEditForm({
   onCancel: () => void;
   onSubmit: (patchBody: string, ruleBody: string) => Promise<ActionResult>;
 }) {
+  const { t } = useTranslation();
   const rule = subscription.rule;
   const [title, setTitle] = useState(subscription.title);
   const [downloaderId, setDownloaderId] = useState(subscription.downloader?.id ?? "");
@@ -182,43 +185,43 @@ function SubscriptionEditForm({
       }}
     >
       <FieldLabel>
-        Subscription title
+        {t("subscriptions.subscriptionTitle")}
         <FormInput value={title} onChange={(event) => setTitle(event.target.value)} required />
       </FieldLabel>
       <div className="form-grid">
         <div className="field">
-          <span>Downloader</span>
+          <span>{t("common.downloader")}</span>
           <SelectField
             value={downloaderId}
             onValueChange={setDownloaderId}
             options={[
-              { value: "", label: "Default downloader" },
+              { value: "", label: t("common.defaultDownloader") },
               ...downloaders.map((downloader) => ({ value: downloader.id, label: downloader.name }))
             ]}
           />
         </div>
         <div className="field">
-          <span>Media kind</span>
+          <span>{t("subscriptions.mediaKind")}</span>
           <SelectField
             value={mediaKind}
             onValueChange={(value) => setMediaKind(value as typeof mediaKind)}
             options={[
-              { value: "", label: "Any kind" },
-              { value: "MOVIE", label: "Movie" },
-              { value: "TV", label: "Series" },
-              { value: "UNKNOWN", label: "Unknown" }
+              { value: "", label: t("common.anyKind") },
+              { value: "MOVIE", label: t("common.movie") },
+              { value: "TV", label: t("common.series") },
+              { value: "UNKNOWN", label: t("common.unknown") }
             ]}
           />
         </div>
       </div>
       <div className="form-grid">
         <div className="field">
-          <span>Provider</span>
+          <span>{t("common.provider")}</span>
           <SelectField
             value={provider}
             onValueChange={(value) => setProvider(value as typeof provider)}
             options={[
-              { value: "", label: "Any provider" },
+              { value: "", label: t("common.anyProvider") },
               { value: "tmdb", label: "TMDB" },
               { value: "imdb", label: "IMDb" },
               { value: "douban", label: "Douban" }
@@ -226,7 +229,7 @@ function SubscriptionEditForm({
           />
         </div>
         <FieldLabel>
-          Provider ID
+          {t("common.providerId")}
           <FormInput value={providerId} onChange={(event) => setProviderId(event.target.value)} />
         </FieldLabel>
       </div>
@@ -242,88 +245,88 @@ function SubscriptionEditForm({
       </div>
       <div className="form-grid">
         <FieldLabel>
-          Title regex
+          {t("subscriptions.titleRegex")}
           <FormInput value={titleRegex} onChange={(event) => setTitleRegex(event.target.value)} />
         </FieldLabel>
         <FieldLabel>
-          Include regex
+          {t("common.includeRegex")}
           <FormInput value={includeRegex} onChange={(event) => setIncludeRegex(event.target.value)} />
         </FieldLabel>
       </div>
       <FieldLabel>
-        Exclude regex
+        {t("subscriptions.excludeRegex")}
         <FormInput value={excludeRegex} onChange={(event) => setExcludeRegex(event.target.value)} />
       </FieldLabel>
       <div className="form-grid">
         <FieldLabel>
-          Min resolution
+          {t("subscriptions.minResolution")}
           <FormInput min={1} type="number" value={minResolution} onChange={(event) => setMinResolution(event.target.value)} />
         </FieldLabel>
         <FieldLabel>
-          Max resolution
+          {t("subscriptions.maxResolution")}
           <FormInput min={1} type="number" value={maxResolution} onChange={(event) => setMaxResolution(event.target.value)} />
         </FieldLabel>
       </div>
       <div className="form-grid">
         <FieldLabel>
-          Sources
+          {t("subscriptions.sources")}
           <FormInput placeholder="WEB-DL, BluRay" value={sources} onChange={(event) => setSources(event.target.value)} />
         </FieldLabel>
         <FieldLabel>
-          Codecs
+          {t("common.codecs")}
           <FormInput placeholder="x264, x265" value={codecs} onChange={(event) => setCodecs(event.target.value)} />
         </FieldLabel>
       </div>
       <FieldLabel>
-        Audio
+        {t("common.audio")}
         <FormInput placeholder="Atmos, TrueHD" value={audio} onChange={(event) => setAudio(event.target.value)} />
       </FieldLabel>
       <div className="form-grid">
         <FieldLabel>
-          Include release groups
+          {t("subscriptions.includeReleaseGroups")}
           <FormInput value={releaseGroupsInclude} onChange={(event) => setReleaseGroupsInclude(event.target.value)} />
         </FieldLabel>
         <FieldLabel>
-          Exclude release groups
+          {t("subscriptions.excludeReleaseGroups")}
           <FormInput value={releaseGroupsExclude} onChange={(event) => setReleaseGroupsExclude(event.target.value)} />
         </FieldLabel>
       </div>
       <div className="form-grid">
         <FieldLabel>
-          Min size bytes
+          {t("subscriptions.minSizeBytes")}
           <FormInput min={1} type="number" value={minSizeBytes} onChange={(event) => setMinSizeBytes(event.target.value)} />
         </FieldLabel>
         <FieldLabel>
-          Max size bytes
+          {t("subscriptions.maxSizeBytes")}
           <FormInput min={1} type="number" value={maxSizeBytes} onChange={(event) => setMaxSizeBytes(event.target.value)} />
         </FieldLabel>
       </div>
       <div className="form-grid three">
         <FieldLabel>
-          Season
+          {t("subscriptions.season")}
           <FormInput min={1} type="number" value={season} onChange={(event) => setSeason(event.target.value)} />
         </FieldLabel>
         <FieldLabel>
-          Episode start
+          {t("subscriptions.episodeStart")}
           <FormInput min={1} type="number" value={episodeStart} onChange={(event) => setEpisodeStart(event.target.value)} />
         </FieldLabel>
         <FieldLabel>
-          Episode end
+          {t("subscriptions.episodeEnd")}
           <FormInput min={1} type="number" value={episodeEnd} onChange={(event) => setEpisodeEnd(event.target.value)} />
         </FieldLabel>
       </div>
       <div className="form-grid">
-        <CheckboxField className="checkbox-row" checked={autoDownload} onCheckedChange={setAutoDownload} label="Auto download" />
-        <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
+        <CheckboxField className="checkbox-row" checked={autoDownload} onCheckedChange={setAutoDownload} label={t("common.autoDownload")} />
+        <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label={t("common.enabled")} />
       </div>
       {submitError && <p className="modal-feedback error">{submitError}</p>}
       <div className="modal-actions">
         <UiButton className="secondary" onClick={onCancel} type="button">
-          Cancel
+          {t("common.cancel")}
         </UiButton>
         <UiButton className="primary" disabled={busy} type="submit">
           <Pencil size={17} />
-          Save Subscription
+          {t("subscriptions.saveSubscription")}
         </UiButton>
       </div>
     </form>
@@ -337,6 +340,7 @@ function SubscriptionSearch({
   downloaders: Downloader[];
   onSubscribe: (body: string) => void | ActionResult | Promise<void | ActionResult>;
 }) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"MOVIE" | "TV">("MOVIE");
   const [results, setResults] = useState<MediaSearchResult[]>([]);
@@ -358,12 +362,12 @@ function SubscriptionSearch({
           value={kind}
           onValueChange={(value) => setKind(value as "MOVIE" | "TV")}
           options={[
-            { value: "MOVIE", label: "Movie" },
-            { value: "TV", label: "Series" }
+            { value: "MOVIE", label: t("common.movie") },
+            { value: "TV", label: t("common.series") }
           ]}
         />
-        <FormInput placeholder="Search TMDB" value={query} onChange={(event) => setQuery(event.target.value)} required />
-        <FormInput placeholder="Include regex" value={includeRegex} onChange={(event) => setIncludeRegex(event.target.value)} />
+        <FormInput placeholder={t("subscriptions.searchTmdb")} value={query} onChange={(event) => setQuery(event.target.value)} required />
+        <FormInput placeholder={t("common.includeRegex")} value={includeRegex} onChange={(event) => setIncludeRegex(event.target.value)} />
         <SelectField
           value={String(minResolution)}
           onValueChange={(value) => setMinResolution(Number(value))}
@@ -377,11 +381,11 @@ function SubscriptionSearch({
           value={downloaderId}
           onValueChange={setDownloaderId}
           options={[
-            { value: "", label: "Default downloader" },
+            { value: "", label: t("common.defaultDownloader") },
             ...downloaders.map((downloader) => ({ value: downloader.id, label: downloader.name }))
           ]}
         />
-        <UiButton className="primary" type="submit"><Search size={17} />Search</UiButton>
+        <UiButton className="primary" type="submit"><Search size={17} />{t("common.search")}</UiButton>
       </form>
       <div className="result-grid">
         {results.map((result) => (
@@ -392,7 +396,7 @@ function SubscriptionSearch({
               <div className="poster-placeholder"><Film size={24} /></div>
             )}
             <strong>{result.title}</strong>
-            <span>{result.year ?? "Unknown"} · {Math.round(result.score * 100)}%</span>
+            <span>{result.year ?? t("common.unknown")} · {Math.round(result.score * 100)}%</span>
             <UiButton
               className="secondary"
               onClick={async () => {
@@ -415,7 +419,7 @@ function SubscriptionSearch({
                 if (subscribeResult && !subscribeResult.ok) setSubscribeError(subscribeResult.message);
               }}
             >
-              Subscribe
+              {t("subscriptions.subscribe")}
             </UiButton>
           </article>
         ))}

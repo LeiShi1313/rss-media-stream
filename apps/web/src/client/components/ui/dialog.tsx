@@ -1,6 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import clsx from "clsx";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { ReactNode } from "react";
 
 export function AppDialog({
@@ -16,7 +17,8 @@ export function AppDialog({
   className?: string;
   onClose: () => void;
 }) {
-  const descriptionText = description?.trim() || "No additional details";
+  const { t } = useTranslation();
+  const descriptionText = description?.trim() || t("common.noAdditionalDetails");
   return (
     <DialogPrimitive.Root open onOpenChange={(open) => {
       if (!open) onClose();
@@ -31,7 +33,7 @@ export function AppDialog({
                 {descriptionText}
               </DialogPrimitive.Description>
             </div>
-            <DialogPrimitive.Close className="icon-button" aria-label="Close" type="button">
+            <DialogPrimitive.Close className="icon-button" aria-label={t("common.close")} type="button">
               <X size={18} />
             </DialogPrimitive.Close>
           </header>
@@ -41,4 +43,3 @@ export function AppDialog({
     </DialogPrimitive.Root>
   );
 }
-

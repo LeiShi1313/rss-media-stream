@@ -1,21 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Globe2, KeyRound } from "lucide-react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { api, type TmdbSettings, type Workspace } from "../api.js";
 import { Pill, StatusPill } from "../components/common/feedback.js";
 import { Panel } from "../components/common/surfaces.js";
 import { FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
 import type { RunAction } from "../types.js";
-
-const languageOptions = [
-  { value: "en-US", label: "English (US)" },
-  { value: "zh-CN", label: "Chinese Simplified" },
-  { value: "zh-TW", label: "Chinese Traditional" },
-  { value: "ja-JP", label: "Japanese" },
-  { value: "ko-KR", label: "Korean" },
-  { value: "fr-FR", label: "French" },
-  { value: "de-DE", label: "German" },
-  { value: "es-ES", label: "Spanish" }
-];
+import { applyUiLanguage, normalizeUiLanguage } from "../i18n.js";
 
 export function SettingsPage({
   busy,
@@ -26,6 +18,12 @@ export function SettingsPage({
   runAction: RunAction;
   workspace: Workspace | null;
 }) {
+  const { t } = useTranslation();
+  const tmdbLanguageOptions = languageOptions(t);
+  const webLanguageOptions = [
+    { value: "en-US", label: t("settings.languages.enUS") },
+    { value: "zh-CN", label: t("settings.languages.zhCN") }
+  ];
   const [settings, setSettings] = useState<TmdbSettings | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [tmdbLanguage, setTmdbLanguage] = useState("en-US");
@@ -35,8 +33,8 @@ export function SettingsPage({
     const nextSettings = await api<TmdbSettings>("/api/settings");
     setSettings(nextSettings);
     setTmdbLanguage(nextSettings.tmdbLanguage ?? "en-US");
-    setWebLanguage(nextSettings.webLanguage ?? "en-US");
-    document.documentElement.lang = nextSettings.webLanguage ?? "en-US";
+    const nextWebLanguage = await applyUiLanguage(nextSettings.webLanguage);
+    setWebLanguage(nextWebLanguage);
   }
 
   useEffect(() => {
@@ -56,6 +54,7 @@ export function SettingsPage({
       })
     );
     if (result.ok) {
+      await applyUiLanguage(webLanguage);
       setApiKey("");
       await loadSettings();
     }
@@ -78,46 +77,46 @@ export function SettingsPage({
 
   return (
     <div className="page-stack">
-      <Panel title="TMDB integration" icon={<KeyRound size={19} />}>
+      <Panel title={t("settings.tmdbIntegration")} icon={<KeyRound size={19} />}>
         <div className="integration-panel">
           <div className="integration-status">
             <div>
-              <strong>{settings?.configured ? "TMDB is connected" : "TMDB is not connected"}</strong>
+              <strong>{settings?.configured ? t("settings.connected") : t("settings.notConnected")}</strong>
               <span>
                 {settings?.source === "workspace"
-                  ? "Using this workspace's encrypted TMDB credential"
+                  ? t("settings.workspaceCredential")
                   : settings?.source === "environment"
-                    ? "Using the server environment TMDB credential"
-                    : "Add a TMDB key or read access token to enable real media matching"}
+                    ? t("settings.environmentCredential")
+                    : t("settings.addCredential")}
               </span>
             </div>
             <StatusPill ok={Boolean(settings?.configured)}>
-              {settings?.configured ? "Configured" : "Missing"}
+              {settings?.configured ? t("common.configured") : t("common.missing")}
             </StatusPill>
           </div>
           <form className="settings-form" onSubmit={saveSettings}>
             <FieldLabel>
-              TMDB API key or read access token
+              {t("settings.credentialLabel")}
               <FormInput
                 autoComplete="off"
                 disabled={busy || ownerOnly}
                 onChange={(event) => setApiKey(event.target.value)}
-                placeholder={settings?.configured ? "Paste a new key to replace the current one" : "Paste TMDB key or read access token"}
+                placeholder={settings?.configured ? t("settings.replaceCredential") : t("settings.credentialPlaceholder")}
                 type="password"
                 value={apiKey}
               />
             </FieldLabel>
             <FieldLabel>
-              TMDB media language
-              <SelectField disabled={busy || ownerOnly} onValueChange={setTmdbLanguage} options={languageOptions} value={tmdbLanguage} />
+              {t("settings.tmdbLanguage")}
+              <SelectField disabled={busy || ownerOnly} onValueChange={setTmdbLanguage} options={tmdbLanguageOptions} value={tmdbLanguage} />
             </FieldLabel>
             <FieldLabel>
-              Web language
-              <SelectField disabled={busy || ownerOnly} onValueChange={setWebLanguage} options={languageOptions} value={webLanguage} />
+              {t("settings.webLanguage")}
+              <SelectField disabled={busy || ownerOnly} onValueChange={(value) => setWebLanguage(normalizeUiLanguage(value))} options={webLanguageOptions} value={webLanguage} />
             </FieldLabel>
             <div className="form-actions">
               <UiButton className="primary" disabled={busy || ownerOnly}>
-                Save settings
+                {t("settings.saveSettings")}
               </UiButton>
               <UiButton
                 className="secondary"
@@ -125,30 +124,43 @@ export function SettingsPage({
                 onClick={() => void removeTmdbKey()}
                 type="button"
               >
-                Remove TMDB key
+                {t("settings.removeKey")}
               </UiButton>
             </div>
           </form>
           <div className="integration-meta">
-            <Pill>{languageLabel(tmdbLanguage)} TMDB metadata</Pill>
-            <Pill>{languageLabel(webLanguage)} web UI</Pill>
-            {settings?.lastValidatedAt && <span>Validated {new Date(settings.lastValidatedAt).toLocaleString()}</span>}
+            <Pill>{languageLabel(tmdbLanguage, t)} {t("settings.metadata")}</Pill>
+            <Pill>{languageLabel(webLanguage, t)} {t("common.webUi")}</Pill>
+            {settings?.lastValidatedAt && <span>{t("common.validatedAt", { date: new Date(settings.lastValidatedAt).toLocaleString() })}</span>}
             {settings?.lastError && <span>{settings.lastError}</span>}
           </div>
         </div>
       </Panel>
-      <Panel title="Language behavior" icon={<Globe2 size={19} />}>
+      <Panel title={t("settings.languageBehavior")} icon={<Globe2 size={19} />}>
         <div className="settings-note">
-          <strong>TMDB media language changes future TMDB searches and cached metadata.</strong>
-          <span>Changing it clears this workspace's TMDB cache so new searches use the selected language.</span>
-          <strong>Web language is saved as the workspace UI preference.</strong>
-          <span>The document language updates immediately; translated copy can be layered onto this setting later.</span>
+          <strong>{t("settings.tmdbBehaviorTitle")}</strong>
+          <span>{t("settings.tmdbBehaviorBody")}</span>
+          <strong>{t("settings.webBehaviorTitle")}</strong>
+          <span>{t("settings.webBehaviorBody")}</span>
         </div>
       </Panel>
     </div>
   );
 }
 
-function languageLabel(value: string) {
-  return languageOptions.find((option) => option.value === value)?.label ?? value;
+function languageOptions(t: TFunction) {
+  return [
+    { value: "en-US", label: t("settings.languages.enUS") },
+    { value: "zh-CN", label: t("settings.languages.zhCN") },
+    { value: "zh-TW", label: t("settings.languages.zhTW") },
+    { value: "ja-JP", label: t("settings.languages.jaJP") },
+    { value: "ko-KR", label: t("settings.languages.koKR") },
+    { value: "fr-FR", label: t("settings.languages.frFR") },
+    { value: "de-DE", label: t("settings.languages.deDE") },
+    { value: "es-ES", label: t("settings.languages.esES") }
+  ];
+}
+
+function languageLabel(value: string, t: TFunction) {
+  return languageOptions(t).find((option) => option.value === value)?.label ?? value;
 }
