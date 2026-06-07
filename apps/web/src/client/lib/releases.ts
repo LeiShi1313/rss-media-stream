@@ -1,12 +1,24 @@
 import type { Item } from "../api.js";
 
+export type ReleaseIdentityState = "resolved" | "review" | "unresolved";
+
+export function releaseIdentityState(item: Item): ReleaseIdentityState {
+  if (item.mediaMatch?.status === "MATCHED") return "resolved";
+  if (item.mediaMatch?.status === "CANDIDATE") return "review";
+  return "unresolved";
+}
+
 export function releaseTitle(item: Item) {
-  return item.mediaMatch?.title ?? item.parsedRelease?.title ?? item.rawTitle;
+  return releaseIdentityState(item) === "resolved"
+    ? item.mediaMatch?.title ?? item.parsedRelease?.title ?? item.rawTitle
+    : item.parsedRelease?.title ?? item.rawTitle;
 }
 
 export function releaseStatus(item: Item): {
   label: string;
+  labelKey: string;
   detail: string;
+  detailKey: string;
   ok: boolean;
   group: "review" | "downloaded" | "failed";
 } {
@@ -14,28 +26,21 @@ export function releaseStatus(item: Item): {
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   )[0];
   if (latestJob?.status === "FAILED") {
-    return { label: "Failed", detail: latestJob.error ?? "Download error", ok: false, group: "failed" };
+    return { label: "Failed", labelKey: "release.status.failed", detail: latestJob.error ?? "Download error", detailKey: latestJob.error ? "" : "release.detail.downloadError", ok: false, group: "failed" };
   }
   if (latestJob && ["SENT", "COMPLETED"].includes(latestJob.status)) {
-    return { label: "Downloaded", detail: "Sent to downloader", ok: true, group: "downloaded" };
+    return { label: "Downloaded", labelKey: "release.status.downloaded", detail: "Sent to downloader", detailKey: "release.detail.sentToDownloader", ok: true, group: "downloaded" };
   }
   if (latestJob) {
-    return { label: latestJob.status, detail: "Download job active", ok: true, group: "review" };
+    return { label: latestJob.status, labelKey: `release.status.${latestJob.status.toLowerCase()}`, detail: "Download job active", detailKey: "release.detail.downloadJobActive", ok: true, group: "review" };
   }
-  if (item.mediaMatch) return { label: "Pending review", detail: "New match", ok: true, group: "review" };
-  return { label: "Unmatched", detail: "Needs matching", ok: false, group: "review" };
-}
-
-export function confidencePercent(value: number) {
-  return `${Math.round(value * 100)}%`;
-}
-
-export function confidenceBarWidth(value: number) {
-  return `${Math.min(100, Math.max(6, Math.round(value * 100)))}%`;
+  const identity = releaseIdentityState(item);
+  if (identity === "resolved") return { label: "Ready", labelKey: "release.status.ready", detail: "Ready to download", detailKey: "release.detail.readyToDownload", ok: true, group: "review" };
+  if (identity === "review") return { label: "Check title", labelKey: "release.status.checkTitle", detail: "Choose the right title", detailKey: "release.detail.chooseTitle", ok: false, group: "review" };
+  return { label: "Needs title", labelKey: "release.status.needsTitle", detail: "Choose a title", detailKey: "release.detail.chooseTitle", ok: false, group: "review" };
 }
 
 export function matchRate(matched: number, total: number) {
   if (total <= 0) return "0%";
   return `${Math.round((matched / total) * 100)}%`;
 }
-

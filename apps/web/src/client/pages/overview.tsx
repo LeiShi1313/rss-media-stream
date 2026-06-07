@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,13 +14,13 @@ import {
   Sparkles,
   XCircle
 } from "lucide-react";
-import { api, type Downloader, type Item, type Media, type MediaDetail, type TrendingMedia } from "../api.js";
+import { api, type Downloader, type Item, type Media, type MediaDetail, type MediaSearchResult, type TrendingMedia } from "../api.js";
 import type { RunAction } from "../types.js";
 import { AppDialog, FieldLabel, FormInput, SelectField, StatTile, UiButton } from "../components/ui/index.js";
 import { Empty, Pill, StatusPill } from "../components/common/feedback.js";
 import { ManualDownload } from "../components/common/manual-download.js";
 import { formatBytes, relativeTime, tmdbImage } from "../lib/format.js";
-import { confidencePercent, matchRate, releaseStatus, releaseTitle } from "../lib/releases.js";
+import { matchRate, releaseIdentityState, releaseStatus, releaseTitle } from "../lib/releases.js";
 
 type ShelfKey = "all" | "matched" | "downloading" | "attention";
 type ReleaseCategoryFilter = "" | "MOVIE" | "TV" | "OTHER";
@@ -48,7 +49,8 @@ export function OverviewPage({
   trendingMedia: TrendingMedia[];
   runAction: RunAction;
 }) {
-  const [selectedRelease, setSelectedRelease] = useState<Item | null>(null);
+  const { t } = useTranslation();
+  const [selectedReleaseId, setSelectedReleaseId] = useState<string | null>(null);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [selectedMediaDetail, setSelectedMediaDetail] = useState<MediaDetail | null>(null);
   const [query, setQuery] = useState("");
@@ -58,11 +60,11 @@ export function OverviewPage({
 
   const feedOptions = useMemo(
     () => [
-      { value: "", label: "All feeds" },
+      { value: "", label: t("overview.filters.allFeeds") },
       ...Array.from(new Map(items.flatMap((item) => item.feed ? [[item.feed.id, item.feed.name]] : [])).entries())
         .map(([value, label]) => ({ value, label }))
     ],
-    [items]
+    [items, t]
   );
 
   const filteredItems = useMemo(() => {
@@ -91,6 +93,10 @@ export function OverviewPage({
   }, [categoryFilter, feedFilter, items, query, statusFilter]);
 
   const shelves = useMemo(() => buildShelves(items), [items]);
+  const selectedRelease = useMemo(
+    () => items.find((item) => item.id === selectedReleaseId) ?? null,
+    [items, selectedReleaseId]
+  );
   const filteredReleaseItems = useMemo(
     () => [...filteredItems].sort((a, b) => new Date(b.firstSeenAt).getTime() - new Date(a.firstSeenAt).getTime()),
     [filteredItems]
@@ -120,11 +126,11 @@ export function OverviewPage({
   return (
     <div className="overview-cinema">
       <section className="cinema-status-strip">
-        <StatTile label="Feeds online" value={stats.feeds} detail={`${stats.totalItems} recent releases`} icon={<Rss size={19} />} />
-        <StatTile label="Downloaders" value={stats.downloaders} detail="enabled endpoints" icon={<HardDrive size={19} />} />
-        <StatTile label="Rules" value={stats.subscriptions} detail="active subscriptions" icon={<SlidersHorizontal size={19} />} />
-        <StatTile label="Match rate" value={matchRate(stats.matched, stats.totalItems)} detail={`${stats.matched} matched`} icon={<Sparkles size={19} />} tone="accent" />
-        <StatTile label="Attention" value={needsAttentionCount + stats.failedJobs} detail="failed or unmatched" icon={<AlertTriangle size={19} />} tone={needsAttentionCount + stats.failedJobs > 0 ? "danger" : "good"} />
+        <StatTile label={t("overview.stats.feedsOnline")} value={stats.feeds} detail={t("overview.stats.recentReleases", { count: stats.totalItems })} icon={<Rss size={19} />} />
+        <StatTile label={t("common.downloaders")} value={stats.downloaders} detail={t("overview.stats.downloadersDetail")} icon={<HardDrive size={19} />} />
+        <StatTile label={t("overview.stats.rules")} value={stats.subscriptions} detail={t("overview.stats.rulesDetail")} icon={<SlidersHorizontal size={19} />} />
+        <StatTile label={t("overview.stats.matchRate")} value={matchRate(stats.matched, stats.totalItems)} detail={t("overview.stats.matchedDetail", { count: stats.matched })} icon={<Sparkles size={19} />} tone="accent" />
+        <StatTile label={t("overview.stats.attention")} value={needsAttentionCount + stats.failedJobs} detail={t("overview.stats.attentionDetail")} icon={<AlertTriangle size={19} />} tone={needsAttentionCount + stats.failedJobs > 0 ? "danger" : "good"} />
       </section>
 
       <section className="cinema-controls">
@@ -132,34 +138,34 @@ export function OverviewPage({
           <FieldLabel className="search-control">
             <Search size={16} />
             <FormInput
-              placeholder="Search title, feed, group, quality"
+              placeholder={t("overview.filters.searchPlaceholder")}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </FieldLabel>
-          <SelectField value={feedFilter} onValueChange={setFeedFilter} options={feedOptions} placeholder="Feed" />
+          <SelectField value={feedFilter} onValueChange={setFeedFilter} options={feedOptions} placeholder={t("common.feed")} />
           <SelectField
             value={categoryFilter}
             onValueChange={(value) => setCategoryFilter(value as ReleaseCategoryFilter)}
             options={[
-              { value: "", label: "Any category" },
-              { value: "MOVIE", label: "Movies" },
-              { value: "TV", label: "TV" },
-              { value: "OTHER", label: "Other releases" }
+              { value: "", label: t("common.anyCategory") },
+              { value: "MOVIE", label: t("common.movies") },
+              { value: "TV", label: t("common.tv") },
+              { value: "OTHER", label: t("overview.filters.otherReleases") }
             ]}
-            placeholder="Category"
+            placeholder={t("common.category")}
           />
           <SelectField
             value={statusFilter}
             onValueChange={(value) => setStatusFilter(value as ReleaseStatusFilter)}
             options={[
-              { value: "", label: "Any status" },
-              { value: "matched", label: "Matched" },
-              { value: "unmatched", label: "Unmatched" },
-              { value: "downloading", label: "Downloading" },
-              { value: "attention", label: "Needs attention" }
+              { value: "", label: t("common.anyStatus") },
+              { value: "matched", label: t("overview.filters.matched") },
+              { value: "unmatched", label: t("overview.filters.unmatched") },
+              { value: "downloading", label: t("overview.filters.downloading") },
+              { value: "attention", label: t("overview.filters.attention") }
             ]}
-            placeholder="Status"
+            placeholder={t("common.status")}
           />
           <UiButton
             className="secondary"
@@ -172,7 +178,7 @@ export function OverviewPage({
             }}
             type="button"
           >
-            Clear
+            {t("common.clear")}
           </UiButton>
         </div>
       </section>
@@ -182,48 +188,48 @@ export function OverviewPage({
           {filtersActive ? (
             <PosterShelf
               cardVariant="parsed"
-              emptyLabel="No releases match the current filters"
+              emptyLabel={t("overview.shelves.filteredEmpty")}
               icon={<Search size={18} />}
               items={filteredReleaseItems}
               layout="grid"
               limit={60}
-              onInspect={setSelectedRelease}
-              title="Filtered releases"
+              onInspect={(item) => setSelectedReleaseId(item.id)}
+              title={t("overview.shelves.filtered")}
             />
           ) : (
             <>
               <PosterShelf
                 cardVariant="parsed"
-                emptyLabel="No newly added releases yet"
+                emptyLabel={t("overview.shelves.newlyAddedEmpty")}
                 icon={<Clock3 size={18} />}
                 items={shelves.newlyAdded}
-                onInspect={setSelectedRelease}
-                title="Newly added"
+                onInspect={(item) => setSelectedReleaseId(item.id)}
+                title={t("overview.shelves.newlyAdded")}
               />
               <TrendingMediaShelf
                 items={trendingMedia}
                 onInspect={(media) => setSelectedMediaId(media.id)}
               />
               <PosterShelf
-                emptyLabel="No high-confidence matches right now"
+                emptyLabel={t("overview.shelves.matchedEmpty")}
                 icon={<CheckCircle2 size={18} />}
                 items={shelves.matched}
-                onInspect={setSelectedRelease}
-                title="Recently matched"
+                onInspect={(item) => setSelectedReleaseId(item.id)}
+                title={t("overview.shelves.matched")}
               />
               <PosterShelf
-                emptyLabel="No active downloads right now"
+                emptyLabel={t("overview.shelves.downloadingEmpty")}
                 icon={<DownloadCloud size={18} />}
                 items={shelves.downloading}
-                onInspect={setSelectedRelease}
-                title="Downloading"
+                onInspect={(item) => setSelectedReleaseId(item.id)}
+                title={t("overview.shelves.downloading")}
               />
               <PosterShelf
-                emptyLabel="No releases need attention"
+                emptyLabel={t("overview.shelves.attentionEmpty")}
                 icon={<XCircle size={18} />}
                 items={shelves.attention}
-                onInspect={setSelectedRelease}
-                title="Needs attention"
+                onInspect={(item) => setSelectedReleaseId(item.id)}
+                title={t("overview.shelves.attention")}
               />
             </>
           )}
@@ -235,7 +241,7 @@ export function OverviewPage({
           busy={busy}
           downloaders={downloaders}
           item={selectedRelease}
-          onClose={() => setSelectedRelease(null)}
+          onClose={() => setSelectedReleaseId(null)}
           runAction={runAction}
         />
       )}
@@ -259,14 +265,15 @@ function TrendingMediaShelf({
   items: TrendingMedia[];
   onInspect: (media: Media) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <section className="poster-shelf">
       <header className="poster-shelf-head">
-        <h3><Sparkles size={18} />Trending titles</h3>
-        <span>last 7 days</span>
+        <h3><Sparkles size={18} />{t("overview.shelves.trending")}</h3>
+        <span>{t("overview.shelves.trendingWindow")}</span>
       </header>
       {items.length === 0 ? (
-        <Empty label="No matched title trends yet" />
+        <Empty label={t("overview.shelves.trendingEmpty")} />
       ) : (
         <div className="poster-rail">
           {items.map((entry) => (
@@ -279,10 +286,11 @@ function TrendingMediaShelf({
 }
 
 function TrendingMediaCard({ entry, onInspect }: { entry: TrendingMedia; onInspect: () => void }) {
+  const { t } = useTranslation();
   const posterUrl = entry.media.posterPath ? tmdbImage(entry.media.posterPath, "w342") : undefined;
   return (
     <button className="release-poster-card" onClick={onInspect} type="button">
-      <span className="poster-badge">{entry.releaseCount} releases</span>
+      <span className="poster-badge">{t("common.releaseCount", { count: entry.releaseCount })}</span>
       <span className="poster-art">
         {posterUrl ? <img src={posterUrl} alt="" /> : <PosterFallback title={entry.media.title} />}
       </span>
@@ -313,11 +321,12 @@ function PosterShelf({
   onInspect: (item: Item) => void;
   title: string;
 }) {
+  const { t } = useTranslation();
   return (
     <section className="poster-shelf">
       <header className="poster-shelf-head">
         <h3>{icon}{title}</h3>
-        <span>{items.length} releases</span>
+        <span>{t("common.releaseCount", { count: items.length })}</span>
       </header>
       {items.length === 0 ? (
         <Empty label={emptyLabel} />
@@ -346,15 +355,17 @@ function ReleasePosterCard({
   onInspect: () => void;
   variant: "status" | "parsed";
 }) {
+  const { t } = useTranslation();
   const title = releaseTitle(item);
   const status = releaseStatus(item);
-  const posterUrl = item.mediaMatch?.posterPath ? tmdbImage(item.mediaMatch.posterPath, "w342") : undefined;
+  const resolvedMatch = releaseIdentityState(item) === "resolved" ? item.mediaMatch : undefined;
+  const posterUrl = resolvedMatch?.posterPath ? tmdbImage(resolvedMatch.posterPath, "w342") : undefined;
   const parsedTags = parsedReleaseTags(item);
 
   return (
     <button className="release-poster-card" onClick={onInspect} type="button">
       {variant === "status" && (
-        <span className={status.ok ? "poster-badge" : "poster-badge warn"}>{status.label}</span>
+        <span className={status.ok ? "poster-badge" : "poster-badge warn"}>{t(status.labelKey, { defaultValue: status.label })}</span>
       )}
       <span className="poster-art">
         {posterUrl ? <img src={posterUrl} alt="" /> : <PosterFallback title={title} />}
@@ -388,37 +399,83 @@ function ReleaseInspectorModal({
   onClose: () => void;
   runAction: RunAction;
 }) {
+  const { t } = useTranslation();
+  const identity = releaseIdentityState(item);
   const title = releaseTitle(item);
   const status = releaseStatus(item);
-  const backdropUrl = item.mediaMatch?.backdropPath ? tmdbImage(item.mediaMatch.backdropPath, "w342") : undefined;
-  const posterUrl = item.mediaMatch?.posterPath ? tmdbImage(item.mediaMatch.posterPath, "w342") : undefined;
+  const unknown = t("common.unknown");
+  const resolvedMatch = identity === "resolved" ? item.mediaMatch : undefined;
+  const backdropUrl = resolvedMatch?.backdropPath ? tmdbImage(resolvedMatch.backdropPath, "w342") : undefined;
+  const posterUrl = resolvedMatch?.posterPath ? tmdbImage(resolvedMatch.posterPath, "w342") : undefined;
   const parsedFacts = [
-    ["Kind", item.parsedRelease?.kind ?? item.mediaMatch?.kind ?? "Unknown"],
-    ["Quality", item.parsedRelease?.quality ?? "Unknown"],
-    ["Source", item.parsedRelease?.source ?? "Unknown"],
-    ["Codec", item.parsedRelease?.codec ?? "Unknown"],
-    ["Audio", item.parsedRelease?.audio ?? "Unknown"],
-    ["Group", item.parsedRelease?.releaseGroup ?? "Unknown"],
-    ["Episode", episodeLabel(item)],
-    ["Size", item.sizeBytes ? formatBytes(item.sizeBytes) : "Unknown"]
+    [t("common.kind"), item.parsedRelease?.kind ?? resolvedMatch?.kind ?? unknown],
+    [t("common.quality"), item.parsedRelease?.quality ?? unknown],
+    [t("common.source"), item.parsedRelease?.source ?? unknown],
+    [t("common.codecs"), item.parsedRelease?.codec ?? unknown],
+    [t("common.audio"), item.parsedRelease?.audio ?? unknown],
+    [t("common.group"), item.parsedRelease?.releaseGroup ?? unknown],
+    [t("common.episode"), episodeLabel(item, unknown)],
+    [t("common.size"), item.sizeBytes ? formatBytes(item.sizeBytes, unknown) : unknown]
   ] as const;
+  const [correctionOpen, setCorrectionOpen] = useState(identity !== "resolved");
+  const [titleSearchQuery, setTitleSearchQuery] = useState(item.parsedRelease?.title ?? title);
+  const [titleSearchKind, setTitleSearchKind] = useState<"MOVIE" | "TV">(
+    item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE"
+  );
+  const [titleSearchResults, setTitleSearchResults] = useState<MediaSearchResult[]>([]);
+  const [titleSearchBusy, setTitleSearchBusy] = useState(false);
+  const [titleSearchError, setTitleSearchError] = useState("");
   const [manualTmdbId, setManualTmdbId] = useState("");
   const [manualTmdbKind, setManualTmdbKind] = useState<"MOVIE" | "TV">(
     item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE"
   );
 
+  useEffect(() => {
+    setCorrectionOpen(identity !== "resolved");
+    setTitleSearchQuery(item.parsedRelease?.title ?? title);
+    setTitleSearchKind(item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE");
+    setTitleSearchResults([]);
+    setTitleSearchError("");
+    setManualTmdbId("");
+    setManualTmdbKind(item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE");
+  }, [identity, item.id, item.parsedRelease?.kind, item.parsedRelease?.title, title]);
+
+  async function searchTitles(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const q = titleSearchQuery.trim();
+    if (!q) return;
+    setTitleSearchBusy(true);
+    setTitleSearchError("");
+    try {
+      const params = new URLSearchParams({ q, kind: titleSearchKind });
+      if (item.parsedRelease?.year) params.set("year", String(item.parsedRelease.year));
+      setTitleSearchResults(await api<MediaSearchResult[]>(`/api/media/search?${params}`));
+    } catch (error) {
+      setTitleSearchError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTitleSearchBusy(false);
+    }
+  }
+
+  function chooseTmdbTitle(tmdbId: string, kind: "MOVIE" | "TV") {
+    void runAction(() =>
+      api(`/api/items/${item.id}/match/tmdb`, {
+        method: "POST",
+        body: JSON.stringify({ tmdbId, kind })
+      })
+    ).then((result) => {
+      if (result.ok) {
+        setCorrectionOpen(false);
+        setManualTmdbId("");
+      }
+    });
+  }
+
   function submitManualTmdbMatch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const tmdbId = manualTmdbId.trim();
     if (!tmdbId) return;
-    void runAction(() =>
-      api(`/api/items/${item.id}/match/tmdb`, {
-        method: "POST",
-        body: JSON.stringify({ tmdbId, kind: manualTmdbKind })
-      })
-    ).then((result) => {
-      if (result.ok) setManualTmdbId("");
-    });
+    chooseTmdbTitle(tmdbId, manualTmdbKind);
   }
 
   return (
@@ -437,29 +494,40 @@ function ReleaseInspectorModal({
         </div>
         <div className="release-sheet-summary">
           <div className="release-sheet-kicker">
-            <StatusPill ok={status.ok}>{status.label}</StatusPill>
-            <span>{item.feed?.name ?? "Feed"}</span>
+            <StatusPill ok={status.ok}>{t(status.labelKey, { defaultValue: status.label })}</StatusPill>
+            <span>{item.feed?.name ?? t("common.feed")}</span>
             <span>{relativeTime(item.firstSeenAt)}</span>
           </div>
           <div className="release-sheet-title">
             <h3>{title}</h3>
             <div className="token-row">
-              {item.mediaMatch?.year && <Pill>{item.mediaMatch.year}</Pill>}
-              {item.mediaMatch?.kind && <Pill>{item.mediaMatch.kind}</Pill>}
-              {item.mediaMatch?.score !== undefined && <Pill>{confidencePercent(item.mediaMatch.score)} match</Pill>}
+              {resolvedMatch?.year && <Pill>{resolvedMatch.year}</Pill>}
+              {resolvedMatch?.kind && <Pill>{resolvedMatch.kind}</Pill>}
+              {identity !== "resolved" && item.parsedRelease?.year && <Pill>{item.parsedRelease.year}</Pill>}
+              {identity !== "resolved" && item.parsedRelease?.kind && item.parsedRelease.kind !== "UNKNOWN" && <Pill>{item.parsedRelease.kind}</Pill>}
             </div>
           </div>
-          <p>{item.mediaMatch?.overview ?? "No TMDB overview is available for this release yet."}</p>
+          <p>{resolvedMatch?.overview ?? t(identity === "resolved" ? "overview.inspector.noOverview" : "overview.inspector.chooseTitleLead")}</p>
           <div className="release-sheet-actions">
-            <UiButton
-              className="secondary glass"
-              disabled={busy}
-              onClick={() => runAction(() => api(`/api/items/${item.id}/match`, { method: "POST" }))}
-            >
-              <Film size={17} />
-              Match
-            </UiButton>
+            {identity === "resolved" ? (
+              <UiButton className="secondary glass" disabled={busy} onClick={() => setCorrectionOpen((open) => !open)}>
+                <Search size={17} />
+                {t("overview.inspector.wrongTitle")}
+              </UiButton>
+            ) : (
+              <UiButton className="secondary glass" disabled={busy} onClick={() => setCorrectionOpen(true)}>
+                <Search size={17} />
+                {t("overview.inspector.chooseTitle")}
+              </UiButton>
+            )}
+            {item.sourceUrl && (
+              <a className="secondary glass source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">
+                <ExternalLink size={17} />
+                {t("common.source")}
+              </a>
+            )}
             <ManualDownload
+              buttonLabel={identity === "resolved" ? undefined : t("overview.inspector.downloadAnyway")}
               disabled={busy || downloaders.length === 0}
               downloaders={downloaders}
               onDownload={(downloaderId) =>
@@ -475,13 +543,96 @@ function ReleaseInspectorModal({
         </div>
       </section>
 
+      {correctionOpen && (
+        <section className="release-title-correction release-sheet-panel">
+          <header>
+            <div>
+              <span>{t("overview.inspector.titleCorrection")}</span>
+              <h4>{t(identity === "resolved" ? "overview.inspector.wrongTitle" : "overview.inspector.chooseTitle")}</h4>
+            </div>
+            <small>{t("overview.inspector.chooseTitleLead")}</small>
+          </header>
+          <form className="title-search-form" onSubmit={searchTitles}>
+            <SelectField
+              disabled={busy || titleSearchBusy}
+              onValueChange={(value) => setTitleSearchKind(value === "TV" ? "TV" : "MOVIE")}
+              options={[
+                { value: "MOVIE", label: t("common.movie") },
+                { value: "TV", label: t("common.tv") }
+              ]}
+              value={titleSearchKind}
+            />
+            <FormInput
+              disabled={busy || titleSearchBusy}
+              onChange={(event) => setTitleSearchQuery(event.target.value)}
+              value={titleSearchQuery}
+            />
+            <UiButton className="secondary glass" disabled={busy || titleSearchBusy || !titleSearchQuery.trim()}>
+              <Search size={17} />
+              {titleSearchBusy ? t("common.loading") : t("common.search")}
+            </UiButton>
+          </form>
+          {titleSearchError && <p className="modal-feedback error">{titleSearchError}</p>}
+          {titleSearchResults.length > 0 && (
+            <div className="title-result-grid">
+              {titleSearchResults.map((result) => (
+                <article className="title-result" key={`${result.provider}-${result.providerId}`}>
+                  {result.posterPath ? (
+                    <img src={tmdbImage(result.posterPath, "w185")} alt={result.title} />
+                  ) : (
+                    <PosterFallback title={result.title} />
+                  )}
+                  <div>
+                    <strong>{result.title}</strong>
+                    <span>{[result.year, result.kind].filter(Boolean).join(" · ") || t("common.unknown")}</span>
+                  </div>
+                  <UiButton
+                    className="secondary glass"
+                    disabled={busy}
+                    onClick={() => chooseTmdbTitle(result.providerId, result.kind === "TV" ? "TV" : "MOVIE")}
+                  >
+                    {t("common.select")}
+                  </UiButton>
+                </article>
+              ))}
+            </div>
+          )}
+          <details className="release-id-fallback">
+            <summary>{t("overview.inspector.pasteTmdbId")}</summary>
+            <form className="manual-tmdb-form" onSubmit={submitManualTmdbMatch}>
+              <SelectField
+                disabled={busy}
+                onValueChange={(value) => setManualTmdbKind(value === "TV" ? "TV" : "MOVIE")}
+                options={[
+                  { value: "MOVIE", label: t("common.movie") },
+                  { value: "TV", label: t("common.tv") }
+                ]}
+                placeholder={t("common.kind")}
+                value={manualTmdbKind}
+              />
+              <FormInput
+                disabled={busy}
+                inputMode="numeric"
+                onChange={(event) => setManualTmdbId(event.target.value)}
+                pattern="[0-9]*"
+                placeholder={t("overview.inspector.tmdbId")}
+                value={manualTmdbId}
+              />
+              <UiButton className="secondary glass" disabled={busy || !manualTmdbId.trim()}>
+                {t("common.useId")}
+              </UiButton>
+            </form>
+          </details>
+        </section>
+      )}
+
       <section className="release-sheet-panel">
         <header>
           <div>
-            <span>Parsed release</span>
+            <span>{t("overview.inspector.parsedRelease")}</span>
             <h4>{item.parsedRelease?.title ?? title}</h4>
           </div>
-          <small>{status.detail}</small>
+          <small>{status.detailKey ? t(status.detailKey, { defaultValue: status.detail }) : status.detail}</small>
         </header>
         <div className="release-fact-grid">
           {parsedFacts.map(([label, value]) => (
@@ -495,58 +646,26 @@ function ReleaseInspectorModal({
 
       <details className="release-detail-disclosure release-sheet-details">
         <summary>
-          <span>Advanced details</span>
-          <small>source, raw RSS, and manual match tools</small>
+          <span>{t("common.advancedDetails")}</span>
+          <small>{t("overview.inspector.sourceTools")}</small>
         </summary>
-        <div className="release-detail-tools">
-          {item.sourceUrl && (
-            <a className="secondary glass source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">
-              <ExternalLink size={17} />
-              Source
-            </a>
-          )}
-          <form className="manual-tmdb-form" onSubmit={submitManualTmdbMatch}>
-            <SelectField
-              disabled={busy}
-              onValueChange={(value) => setManualTmdbKind(value === "TV" ? "TV" : "MOVIE")}
-              options={[
-                { value: "MOVIE", label: "Movie" },
-                { value: "TV", label: "TV" }
-              ]}
-              placeholder="Kind"
-              value={manualTmdbKind}
-            />
-            <FormInput
-              disabled={busy}
-              inputMode="numeric"
-              onChange={(event) => setManualTmdbId(event.target.value)}
-              pattern="[0-9]*"
-              placeholder="TMDB ID"
-              value={manualTmdbId}
-            />
-            <UiButton className="secondary glass" disabled={busy || !manualTmdbId.trim()}>
-              Use ID
-            </UiButton>
-          </form>
-        </div>
         <section className="release-advanced-grid">
           <div>
-            <h4>Match detail</h4>
-            <ReleaseInlineFact label="Provider" value={item.mediaMatch?.provider ?? "Not matched"} />
-            <ReleaseInlineFact label="Provider ID" value={item.mediaMatch?.providerId ?? "Not matched"} />
-            <ReleaseInlineFact label="Confidence" value={confidencePercent(item.mediaMatch?.score ?? item.parseConfidence ?? 0)} />
-            <ReleaseInlineFact label="Reason" value={item.mediaMatch?.reason ?? "No match reason provided"} />
+            <h4>{t("overview.inspector.identityDetail")}</h4>
+            <ReleaseInlineFact label={t("common.provider")} value={resolvedMatch?.provider ?? t("common.missing")} />
+            <ReleaseInlineFact label={t("common.providerId")} value={resolvedMatch?.providerId ?? t("common.missing")} />
+            <ReleaseInlineFact label={t("overview.inspector.reason")} value={item.mediaMatch?.reason ?? t("overview.inspector.noMatchReason")} />
           </div>
           <div>
-            <h4>Source and target</h4>
-            <ReleaseInlineFact label="Feed" value={item.feed?.name ?? "Feed"} />
-            <ReleaseInlineFact label="First seen" value={new Date(item.firstSeenAt).toLocaleString()} />
-            <ReleaseInlineFact label="Downloader" value={downloaders.find((downloader) => downloader.isDefault)?.name ?? downloaders[0]?.name ?? "No downloader"} />
-            <ReleaseInlineFact label="Job status" value={status.detail} />
+            <h4>{t("overview.inspector.sourceAndTarget")}</h4>
+            <ReleaseInlineFact label={t("common.feed")} value={item.feed?.name ?? t("common.feed")} />
+            <ReleaseInlineFact label={t("overview.inspector.firstSeen")} value={new Date(item.firstSeenAt).toLocaleString()} />
+            <ReleaseInlineFact label={t("common.downloader")} value={downloaders.find((downloader) => downloader.isDefault)?.name ?? downloaders[0]?.name ?? t("common.noDownloader")} />
+            <ReleaseInlineFact label={t("overview.inspector.jobStatus")} value={status.detailKey ? t(status.detailKey, { defaultValue: status.detail }) : status.detail} />
           </div>
         </section>
         <section className="rss-title-panel">
-          <span>Original RSS title</span>
+          <span>{t("overview.inspector.originalRssTitle")}</span>
           <p>{item.rawTitle}</p>
         </section>
       </details>
@@ -576,14 +695,15 @@ function MediaInspectorModal({
   onClose: () => void;
   runAction: RunAction;
 }) {
+  const { t } = useTranslation();
   const media = detail?.media;
-  const title = media?.title ?? "Loading media";
+  const title = media?.title ?? t("overview.inspector.loadingMedia");
   const backdropUrl = media?.backdropPath ? tmdbImage(media.backdropPath, "w342") : undefined;
   const posterUrl = media?.posterPath ? tmdbImage(media.posterPath, "w342") : undefined;
   const releases = detail?.releases ?? [];
 
   return (
-    <AppDialog className="release-dialog cinema-dialog" description="Grouped media releases" onClose={onClose} title={title}>
+    <AppDialog className="release-dialog cinema-dialog" description={t("overview.inspector.groupedReleases")} onClose={onClose} title={title}>
       <section
         className="release-dialog-hero"
         style={backdropUrl ? { backgroundImage: `linear-gradient(90deg, rgba(7,10,18,0.96), rgba(7,10,18,0.76), rgba(7,10,18,0.42)), url(${backdropUrl})` } : undefined}
@@ -595,23 +715,23 @@ function MediaInspectorModal({
           <div className="token-row">
             {media?.year && <Pill>{media.year}</Pill>}
             {media?.kind && <Pill>{media.kind}</Pill>}
-            <Pill>{releases.length} release versions</Pill>
+            <Pill>{t("common.releaseCount", { count: releases.length })}</Pill>
           </div>
-          <p>{media?.overview ?? "Loading media detail and release versions."}</p>
+          <p>{media?.overview ?? t("overview.inspector.loadingDetail")}</p>
         </div>
       </section>
       <section className="media-release-section">
         <header className="poster-shelf-head">
-          <h3><Film size={18} />Release versions</h3>
-          <span>{releases.length} releases</span>
+          <h3><Film size={18} />{t("overview.inspector.releaseVersions")}</h3>
+          <span>{t("common.releaseCount", { count: releases.length })}</span>
         </header>
         <div className="media-release-list">
-          {releases.length === 0 && <Empty label="No release versions loaded yet" />}
+          {releases.length === 0 && <Empty label={t("overview.inspector.noReleaseVersions")} />}
           {releases.map((release) => (
             <article className="media-release-row" key={release.id}>
               <div>
                 <strong>{releaseTitle(release)}</strong>
-                <span>{release.feed?.name ?? "Feed"} · {relativeTime(release.firstSeenAt)}</span>
+                <span>{release.feed?.name ?? t("common.feed")} · {relativeTime(release.firstSeenAt)}</span>
               </div>
               <div className="token-row">
                 {release.parsedRelease?.releaseGroup && <Pill>{release.parsedRelease.releaseGroup}</Pill>}
@@ -620,11 +740,11 @@ function MediaInspectorModal({
                 {release.parsedRelease?.codec && <Pill>{release.parsedRelease.codec}</Pill>}
                 {release.parsedRelease?.audio && <Pill>{release.parsedRelease.audio}</Pill>}
                 {release.sizeBytes && <Pill>{formatBytes(release.sizeBytes)}</Pill>}
-                <StatusPill ok={releaseStatus(release).ok}>{releaseStatus(release).label}</StatusPill>
+                <StatusPill ok={releaseStatus(release).ok}>{t(releaseStatus(release).labelKey, { defaultValue: releaseStatus(release).label })}</StatusPill>
               </div>
               <div className="media-release-actions">
                 {release.sourceUrl && (
-                  <a className="secondary source-link compact" href={release.sourceUrl} target="_blank" rel="noreferrer" title="Open source release">
+                  <a className="secondary source-link compact" href={release.sourceUrl} target="_blank" rel="noreferrer" title={t("overview.inspector.openSourceRelease")}>
                     <ExternalLink size={16} />
                   </a>
                 )}
@@ -688,16 +808,18 @@ function buildShelves(items: Item[]) {
 function itemBelongsToShelf(item: Item, shelf: ShelfKey) {
   const status = releaseStatus(item);
   const latestJob = latestDownloadJob(item);
+  const identity = releaseIdentityState(item);
   if (shelf === "all") return true;
-  if (shelf === "matched") return Boolean(item.mediaMatch);
+  if (shelf === "matched") return identity === "resolved";
   if (shelf === "downloading") return Boolean(latestJob && !["FAILED", "SENT", "COMPLETED"].includes(latestJob.status));
-  return status.group === "failed" || !item.mediaMatch;
+  return status.group === "failed" || identity !== "resolved";
 }
 
 function itemBelongsToStatus(item: Item, status: ReleaseStatusFilter) {
   if (!status) return true;
-  if (status === "matched") return Boolean(item.mediaMatch);
-  if (status === "unmatched") return !item.mediaMatch;
+  const identity = releaseIdentityState(item);
+  if (status === "matched") return identity === "resolved";
+  if (status === "unmatched") return identity !== "resolved";
   if (status === "downloading") return itemBelongsToShelf(item, "downloading");
   return itemBelongsToShelf(item, "attention");
 }
@@ -705,7 +827,7 @@ function itemBelongsToStatus(item: Item, status: ReleaseStatusFilter) {
 function releaseCategory(item: Item): "MOVIE" | "TV" | "OTHER" {
   const kind = item.parsedRelease?.kind && item.parsedRelease.kind !== "UNKNOWN"
     ? item.parsedRelease.kind
-    : item.mediaMatch?.kind;
+    : releaseIdentityState(item) === "resolved" ? item.mediaMatch?.kind : undefined;
   return kind === "MOVIE" || kind === "TV" ? kind : "OTHER";
 }
 
@@ -716,8 +838,9 @@ function latestDownloadJob(item: Item) {
 }
 
 function posterMetadata(item: Item) {
+  const resolvedMatch = releaseIdentityState(item) === "resolved" ? item.mediaMatch : undefined;
   const parts = [
-    item.mediaMatch?.year,
+    resolvedMatch?.year,
     episodeLabel(item),
     item.parsedRelease?.quality,
     item.parsedRelease?.source,
@@ -739,16 +862,16 @@ function parsedReleaseTags(item: Item) {
     parsed?.codec,
     parsed?.audio,
     parsed?.releaseGroup,
-    item.sizeBytes ? formatBytes(item.sizeBytes) : undefined,
-    parsed?.confidence !== undefined ? confidencePercent(parsed.confidence) : undefined
+    item.sizeBytes ? formatBytes(item.sizeBytes) : undefined
   ]
     .filter(Boolean)
     .map(String)
     .slice(0, 8);
 }
 
-function episodeLabel(item: Item) {
-  if (item.parsedRelease?.kind !== "TV") return item.mediaMatch?.kind ?? item.parsedRelease?.kind ?? "Unknown";
+function episodeLabel(item: Item, unknownLabel = "Unknown") {
+  const resolvedMatch = releaseIdentityState(item) === "resolved" ? item.mediaMatch : undefined;
+  if (item.parsedRelease?.kind !== "TV") return resolvedMatch?.kind ?? item.parsedRelease?.kind ?? unknownLabel;
   return `S${item.parsedRelease.season ?? "?"}E${item.parsedRelease.episode ?? "?"}`;
 }
 

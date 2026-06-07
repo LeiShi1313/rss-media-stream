@@ -102,6 +102,8 @@ export type Media = {
   subscriptionCount?: number;
 };
 
+export type MediaMatchStatus = "MATCHED" | "CANDIDATE" | "UNMATCHED" | "REJECTED";
+
 export type Item = {
   id: string;
   feed?: { id: string; name: string };
@@ -124,7 +126,7 @@ export type Item = {
     backdropPath?: string;
     overview?: string;
     score: number;
-    status: string;
+    status: MediaMatchStatus;
     reason?: string;
     matchedAt?: string;
     media?: Media;

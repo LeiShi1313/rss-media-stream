@@ -1,16 +1,18 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { Downloader, Item } from "../../api.js";
 import type { TimelinePoint } from "../../types.js";
 import { relativeTime } from "../../lib/format.js";
-import { releaseStatus } from "../../lib/releases.js";
+import { releaseIdentityState, releaseStatus } from "../../lib/releases.js";
 import { Empty, Pill, StatusPill } from "./feedback.js";
 
 export function StatusSummary({ items }: { items: Item[] }) {
+  const { t } = useTranslation();
   const summary = [
-    { label: "Matched", count: items.filter((item) => item.mediaMatch).length, tone: "good" },
-    { label: "Unmatched", count: items.filter((item) => !item.mediaMatch).length, tone: "neutral" },
-    { label: "Downloaded", count: items.filter((item) => releaseStatus(item).group === "downloaded").length, tone: "accent" },
-    { label: "Failed", count: items.filter((item) => releaseStatus(item).group === "failed").length, tone: "danger" }
+    { label: t("overview.filters.matched"), count: items.filter((item) => releaseIdentityState(item) === "resolved").length, tone: "good" },
+    { label: t("overview.filters.unmatched"), count: items.filter((item) => releaseIdentityState(item) !== "resolved").length, tone: "neutral" },
+    { label: t("release.status.downloaded"), count: items.filter((item) => releaseStatus(item).group === "downloaded").length, tone: "accent" },
+    { label: t("release.status.failed"), count: items.filter((item) => releaseStatus(item).group === "failed").length, tone: "danger" }
   ];
   const total = Math.max(items.length, 1);
 
@@ -62,7 +64,8 @@ export function DistributionBars({
 }
 
 export function EndpointStatusGrid({ downloaders }: { downloaders: Downloader[] }) {
-  if (downloaders.length === 0) return <Empty label="No downloader endpoints configured" />;
+  const { t } = useTranslation();
+  if (downloaders.length === 0) return <Empty label={t("downloaders.noEndpoints")} />;
 
   return (
     <div className="endpoint-grid">
@@ -73,10 +76,10 @@ export function EndpointStatusGrid({ downloaders }: { downloaders: Downloader[] 
             <span>{downloader.type}</span>
           </div>
           <div className="token-row">
-            {downloader.isDefault && <Pill>Default</Pill>}
-            <StatusPill ok={downloader.enabled}>{downloader.enabled ? "Enabled" : "Disabled"}</StatusPill>
+            {downloader.isDefault && <Pill>{t("downloaders.default")}</Pill>}
+            <StatusPill ok={downloader.enabled}>{downloader.enabled ? t("common.enabled") : t("common.disabled")}</StatusPill>
           </div>
-          <small>{downloader.jobCount ?? 0} jobs{downloader.category ? ` · ${downloader.category}` : ""}</small>
+          <small>{t("downloaders.jobs", { count: downloader.jobCount ?? 0 })}{downloader.category ? ` · ${downloader.category}` : ""}</small>
         </article>
       ))}
     </div>
@@ -84,10 +87,11 @@ export function EndpointStatusGrid({ downloaders }: { downloaders: Downloader[] 
 }
 
 export function TimelineBars({ timeline, compact = false }: { timeline: TimelinePoint[]; compact?: boolean }) {
+  const { t } = useTranslation();
   const maxCount = Math.max(1, ...timeline.map((point) => point.count));
   return (
     <div className={compact ? "timeline compact" : "timeline"}>
-      {timeline.length === 0 && <Empty label="No timeline data yet" />}
+      {timeline.length === 0 && <Empty label={t("activity.noTimeline")} />}
       {timeline.map((point) => (
         <div className="bar-row" key={point.time}>
           <span>{new Date(point.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
@@ -98,4 +102,3 @@ export function TimelineBars({ timeline, compact = false }: { timeline: Timeline
     </div>
   );
 }
-
