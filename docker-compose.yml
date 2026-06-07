@@ -19,6 +19,7 @@ services:
     depends_on:
       - frontend
       - api
+      - adminer
     ports:
       - "${APP_PORT:-8090}:80"
     environment:
@@ -29,9 +30,6 @@ services:
 
   frontend:
     <<: *app-base
-    depends_on:
-      setup:
-        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
       API_PROXY_TARGET: http://api:4000
@@ -48,8 +46,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      setup:
-        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://rss:media@postgres:5432/rss_media?schema=public
       API_HOST: 0.0.0.0
@@ -73,15 +69,25 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      setup:
-        condition: service_completed_successfully
       api:
         condition: service_healthy
     command: npm run dev:worker -w @rss-media/web
     restart: unless-stopped
 
-  setup:
+  schema:
     <<: *app-base
+    profiles:
+      - tools
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "npm run build -w @rss-media/shared && npm run prisma:generate && npm run prisma:push"
+    restart: "no"
+
+  reset-db:
+    <<: *app-base
+    profiles:
+      - reset
     depends_on:
       postgres:
         condition: service_healthy
@@ -101,6 +107,21 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      VIRTUAL_HOST: ${VIRTUAL_HOST:-localhost,127.0.0.1}
+      VIRTUAL_PATH: /adminer/
+      VIRTUAL_DEST: /
+      VIRTUAL_PORT: "8080"
+    expose:
+      - "8080"
     restart: unless-stopped
 
 volumes:

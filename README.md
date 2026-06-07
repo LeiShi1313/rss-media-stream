@@ -31,9 +31,26 @@ docker compose up --build
 
 The dashboard and API are both served through `nginxproxy/nginx-proxy` on
 `http://localhost:8090` by default. Compose runs Vite, the Fastify API, the
-worker, Postgres, and a one-shot setup task inside containers. The proxy routes
-`/` to the frontend dev server and `/api` plus `/events` to the API dev server.
+worker, Postgres, and Adminer. The proxy routes `/` to the frontend dev server,
+`/api` plus `/events` to the API dev server, and `/adminer/` to Adminer for
+database access.
 Override the host port with `APP_PORT=80 docker compose up --build`.
+
+Adminer is available at `http://localhost:8090/adminer/`. Use system
+`PostgreSQL`, server `postgres`, username `rss`, database `rss_media`, and the
+Postgres password from `docker-compose.yml` (`media` by default).
+
+Schema setup is explicit so normal Docker starts do not reset local data:
+
+```bash
+docker compose --profile tools run --rm schema
+```
+
+The destructive local reset is opt-in:
+
+```bash
+docker compose --profile reset run --rm reset-db
+```
 
 ## Workspace Commands
 
