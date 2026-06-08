@@ -530,6 +530,7 @@ function SubscriptionEditForm({
 function providerEntityTypeFor(provider: string, mediaType: string) {
   if (provider === "tmdb" && mediaType === "MOVIE") return "tmdb_movie";
   if (provider === "tmdb" && mediaType === "TV_SERIES") return "tmdb_tv";
+  if (provider === "tvdb" && mediaType === "MOVIE") return "tvdb_movie";
   if (provider === "tvdb" && mediaType === "TV_SERIES") return "tvdb_series";
   return undefined;
 }

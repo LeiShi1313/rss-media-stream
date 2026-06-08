@@ -1,20 +1,26 @@
 import { createHash } from "node:crypto";
 import { ParsedReleaseMatchStatus, type Prisma } from "@prisma/client";
 import { redactSecrets } from "@rss-media/shared/redact";
-import type { MediaProvider, MediaType, ProviderTitleResult } from "@rss-media/shared/types";
+import type { MediaProvider, MediaType, ParsedMediaType, ProviderTitleResult } from "@rss-media/shared/types";
 import type { AppConfig } from "../../config.js";
-import { conflict, notFound, badGateway } from "../../core/errors.js";
+import { AppError, conflict, notFound, badGateway } from "../../core/errors.js";
 import { prisma } from "../../db.js";
+import { getMetadataProviders, getMetadataProvider } from "../../integrations/providers/index.js";
 import {
-  getMetadataProviderCandidates,
-  getMetadataProvider
-} from "../../integrations/providers/index.js";
+  getBroadSearchTargets,
+  getMatchingProviderOrder,
+  getPresentationProviderOrder
+} from "../../integrations/providers/policy.js";
+import { resolveProviderRuntime } from "../../integrations/providers/runtime.js";
+import type { ProviderRuntimeContext } from "../../integrations/providers/types.js";
 import {
   LOW_CONFIDENCE_THRESHOLD,
   legacyKindFromMediaType,
+  providerOrderForMediaType,
   serializeMediaPresentation,
   serializeProviderTitleSearchResult,
-  serializeReleaseMatch
+  serializeReleaseMatch,
+  type PresentationOrders
 } from "./presentation.js";
 import type {
   localMediaSearchQuerySchema,
@@ -24,6 +30,12 @@ import type {
 import type { z } from "zod";
 
 type MediaSearchQuery = z.infer<typeof mediaSearchQuerySchema>;
+type SmartProviderTitleSearchInput = {
+  input: string;
+  mediaType?: ParsedMediaType;
+  providerEntityType?: string;
+  year?: number;
+};
 type LocalMediaSearchQuery = z.infer<typeof localMediaSearchQuerySchema>;
 type TrendingMediaQuery = z.infer<typeof trendingMediaQuerySchema>;
 type Transaction = Prisma.TransactionClient;
@@ -61,16 +73,75 @@ export async function searchExternalMedia(
   tenantId: string,
   query: MediaSearchQuery
 ) {
-  const results = await runProviderSearch(config, tenantId, query.provider, {
-    title: query.q,
-    mediaType: query.mediaType,
-    year: query.year
-  });
+  const results = query.provider
+    ? await runProviderSearch(config, tenantId, query.provider, {
+        title: query.q,
+        mediaType: query.mediaType,
+        year: query.year
+      })
+    : await searchProviderTargets(
+        config,
+        tenantId,
+        (await providerSearchTargets(tenantId, query.mediaType)).map((target) => ({
+          ...target,
+          title: query.q,
+          year: query.year
+        }))
+      );
 
-  return results.map(serializeProviderTitleSearchResult);
+  return dedupeProviderResults(results).map(serializeProviderTitleSearchResult);
 }
 
-export async function searchLocalMedia(_tenantId: string, query: LocalMediaSearchQuery) {
+export async function smartSearchExternalMedia(
+  config: AppConfig,
+  tenantId: string,
+  query: SmartProviderTitleSearchInput
+) {
+  const probes = getMetadataProviders().flatMap((provider) =>
+    provider.probe?.({
+      input: query.input,
+      mediaType: query.mediaType,
+      providerEntityType: query.providerEntityType,
+      year: query.year
+    }) ?? []
+  );
+
+  const exactProbes = probes.filter((probe) => probe.providerId && probe.providerEntityType && probe.mediaType);
+  if (exactProbes.length > 0) {
+    const results = await Promise.all(
+      exactProbes.map((probe) =>
+        runProviderDetailLookup(config, tenantId, probe.provider, {
+          providerEntityType: probe.providerEntityType!,
+          providerId: probe.providerId!,
+          mediaType: probe.mediaType!
+        })
+      )
+    );
+    return dedupeProviderResults(results).map(serializeProviderTitleSearchResult);
+  }
+
+  const hintedTargets = probes
+    .filter((probe) => probe.searchQuery && probe.mediaType)
+    .map((probe) => ({
+      provider: probe.provider,
+      title: probe.searchQuery!,
+      mediaType: probe.mediaType!,
+      year: query.year
+    }));
+
+  const targets = hintedTargets.length > 0
+    ? hintedTargets
+    : (await providerSearchTargets(tenantId, query.mediaType)).map((target) => ({
+        ...target,
+        title: query.input,
+        year: query.year
+      }));
+
+  const results = await searchProviderTargets(config, tenantId, targets);
+  return dedupeProviderResults(results).map(serializeProviderTitleSearchResult);
+}
+
+export async function searchLocalMedia(tenantId: string, query: LocalMediaSearchQuery) {
   const normalizedQuery = query.q ? normalizeTitle(query.q) : undefined;
   const media = await prisma.mediaTitle.findMany({
     where: {
@@ -93,12 +164,16 @@ export async function searchLocalMedia(_tenantId: string, query: LocalMediaSearc
     take: query.limit
   });
 
+  const presentationOrders = await preloadPresentationOrders(
+    tenantId,
+    query.mediaType ? [query.mediaType] : undefined
+  );
   return media.map((item) =>
     serializeMediaTitle({
       ...item,
       matchCount: item._count.releaseMatches,
       subscriptionCount: item._count.subscriptions
-    })
+    }, presentationOrders)
   );
 }
 
@@ -157,6 +232,7 @@ export async function listTrendingMedia(tenantId: string, query: TrendingMediaQu
     grouped.set(match.mediaTitleId, current);
   }
 
+  const presentationOrders = await preloadPresentationOrders(tenantId);
   return [...grouped.values()]
     .sort((a, b) => b.releaseCount - a.releaseCount || b.latestReleaseAt.getTime() - a.latestReleaseAt.getTime())
     .slice(0, query.limit)
@@ -165,7 +241,7 @@ export async function listTrendingMedia(tenantId: string, query: TrendingMediaQu
         ...entry.media,
         selectedProviderTitle: entry.selectedProviderTitle,
         matchCount: entry.releaseCount
-      }),
+      }, presentationOrders),
       releaseCount: entry.releaseCount,
       latestReleaseAt: entry.latestReleaseAt.toISOString(),
       feedCount: entry.feeds.size,
@@ -175,7 +251,7 @@ export async function listTrendingMedia(tenantId: string, query: TrendingMediaQu
     }));
 }
 
-export async function getMedia(_tenantId: string, mediaTitleId: string) {
+export async function getMedia(tenantId: string, mediaTitleId: string) {
   const media = await prisma.mediaTitle.findUnique({
     where: { id: mediaTitleId },
     include: {
@@ -187,15 +263,17 @@ export async function getMedia(_tenantId: string, mediaTitleId: string) {
   });
   if (!media) throw notFound("Media title");
 
+  const presentationOrders = await preloadPresentationOrders(tenantId, concreteMediaTypeList(media.mediaType));
   return serializeMediaTitle({
     ...media,
     matchCount: media._count.releaseMatches,
     subscriptionCount: media._count.subscriptions
-  });
+  }, presentationOrders);
 }
 
 export async function listMediaItems(tenantId: string, mediaTitleId: string) {
-  await assertMediaTitleExists(mediaTitleId);
+  const media = await assertMediaTitleExists(mediaTitleId);
+  const presentationOrders = await preloadPresentationOrders(tenantId, concreteMediaTypeList(media.mediaType));
 
   const items = await prisma.rssItem.findMany({
     where: {
@@ -215,7 +293,7 @@ export async function listMediaItems(tenantId: string, mediaTitleId: string) {
     include: itemRelations()
   });
 
-  return items.map(serializeItem);
+  return items.map((item) => serializeItem(item, presentationOrders));
 }
 
 export async function getMediaDetail(tenantId: string, mediaTitleId: string) {
@@ -328,16 +406,21 @@ async function selectProviderTitleCandidate(input: {
   let configured = 0;
   let missingReleaseYear = false;
   let providerFailed = false;
+  const providerOrder = await getMatchingProviderOrder(input.tenantId, input.mediaType);
+  if (providerOrder.length === 0) {
+    return { reason: "provider_disabled_by_policy" };
+  }
 
-  for (const provider of getMetadataProviderCandidates(input.mediaType)) {
-    if (!(await provider.isConfigured({ config: input.config, tenantId: input.tenantId }))) {
+  for (const providerId of providerOrder) {
+    const runtime = await resolveProviderRuntime(input.config, input.tenantId, providerId);
+    if (!runtime.enabled || !runtime.credential) {
       continue;
     }
     configured += 1;
 
     let result: ProviderTitleResult | undefined;
     try {
-      [result] = await runProviderSearch(input.config, input.tenantId, provider.id, {
+      [result] = await runProviderSearchWithRuntime(providerId, runtime, {
         title: input.title,
         mediaType: input.mediaType,
         year: input.year
@@ -847,17 +930,77 @@ async function runProviderSearch(
   input: { title: string; mediaType: MediaType; year?: number }
 ) {
   try {
-    return await getMetadataProvider(providerId).search(
-      {
-        title: input.title,
-        mediaType: input.mediaType,
-        year: input.year
-      },
-      { config, tenantId }
-    );
+    const runtime = await resolveProviderRuntime(config, tenantId, providerId);
+    if (!runtime.enabled || !runtime.credential) {
+      throw new Error(`${providerId.toUpperCase()} API key is not configured`);
+    }
+    return await runProviderSearchWithRuntime(providerId, runtime, input);
   } catch (error) {
     throw providerError(error);
   }
+}
+
+async function runProviderSearchWithRuntime(
+  providerId: MediaProvider,
+  runtime: ProviderRuntimeContext,
+  input: { title: string; mediaType: MediaType; year?: number }
+) {
+  return getMetadataProvider(providerId).search(
+    {
+      title: input.title,
+      mediaType: input.mediaType,
+      year: input.year
+    },
+    { runtime }
+  );
+}
+
+async function searchProviderTargets(
+  config: AppConfig,
+  tenantId: string,
+  targets: Array<{ provider: MediaProvider; title: string; mediaType: MediaType; year?: number }>
+) {
+  const results: ProviderTitleResult[] = [];
+  const errors: unknown[] = [];
+
+  for (const target of targets) {
+    try {
+      results.push(...await runProviderSearch(config, tenantId, target.provider, {
+        title: target.title,
+        mediaType: target.mediaType,
+        year: target.year
+      }));
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  if (results.length === 0 && errors.length === targets.length && errors.length > 0) {
+    throw providerError(errors[0]);
+  }
+
+  return results;
+}
+
+async function providerSearchTargets(tenantId: string, mediaType?: ParsedMediaType) {
+  if (mediaType && mediaType !== "UNKNOWN") {
+    return (await getMatchingProviderOrder(tenantId, mediaType)).map((provider) => ({
+      provider,
+      mediaType
+    }));
+  }
+
+  return getBroadSearchTargets(tenantId);
+}
+
+function dedupeProviderResults(results: ProviderTitleResult[]) {
+  const seen = new Set<string>();
+  return results.filter((result) => {
+    const key = `${result.provider}:${result.providerEntityType}:${result.providerId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function runProviderDetailLookup(
@@ -867,13 +1010,17 @@ async function runProviderDetailLookup(
   input: { providerEntityType: string; providerId: string; mediaType: MediaType }
 ) {
   try {
+    const runtime = await resolveProviderRuntime(config, tenantId, providerId);
+    if (!runtime.enabled || !runtime.credential) {
+      throw new Error(`${providerId.toUpperCase()} API key is not configured`);
+    }
     return await getMetadataProvider(providerId).fetchTitle(
       {
         providerEntityType: input.providerEntityType,
         providerId: input.providerId,
         mediaType: input.mediaType
       },
-      { config, tenantId }
+      { runtime }
     );
   } catch (error) {
     throw providerError(error);
@@ -881,6 +1028,7 @@ async function runProviderDetailLookup(
 }
 
 function providerError(error: unknown) {
+  if (error instanceof AppError) return error;
   const message = redactSecrets(error instanceof Error ? error.message : String(error));
   if (/api key is not configured/i.test(message)) {
     return conflict("PROVIDER_NOT_CONFIGURED", "Add the provider API key before matching media");
@@ -891,6 +1039,7 @@ function providerError(error: unknown) {
 function providerEntityTypeFor(provider: MediaProvider, mediaType: MediaType) {
   if (provider === "tmdb" && mediaType === "MOVIE") return "tmdb_movie";
   if (provider === "tmdb" && mediaType === "TV_SERIES") return "tmdb_tv";
+  if (provider === "tvdb" && mediaType === "MOVIE") return "tvdb_movie";
   if (provider === "tvdb" && mediaType === "TV_SERIES") return "tvdb_series";
   throw conflict("UNSUPPORTED_PROVIDER_ENTITY", `Provider ${provider} does not support ${mediaType} detail lookup yet`);
 }
@@ -898,9 +1047,10 @@ function providerEntityTypeFor(provider: MediaProvider, mediaType: MediaType) {
 async function assertMediaTitleExists(mediaTitleId: string) {
   const media = await prisma.mediaTitle.findUnique({
     where: { id: mediaTitleId },
-    select: { id: true }
+    select: { id: true, mediaType: true }
   });
   if (!media) throw notFound("Media title");
+  return media;
 }
 
 function assertMatchShape(input: {
@@ -922,11 +1072,30 @@ function assertMatchShape(input: {
   }
 }
 
-function serializeMediaTitle(media: any) {
+async function preloadPresentationOrders(
+  tenantId: string,
+  mediaTypes: Array<"MOVIE" | "TV_SERIES"> = ["MOVIE", "TV_SERIES"]
+): Promise<PresentationOrders> {
+  const unique = [...new Set(mediaTypes)];
+  return Object.fromEntries(
+    await Promise.all(unique.map(async (mediaType) => [
+      mediaType,
+      await getPresentationProviderOrder(tenantId, mediaType)
+    ]))
+  );
+}
+
+function concreteMediaTypeList(mediaType?: string | null): Array<"MOVIE" | "TV_SERIES"> | undefined {
+  return mediaType === "MOVIE" || mediaType === "TV_SERIES" ? [mediaType] : undefined;
+}
+
+function serializeMediaTitle(media: any, presentationOrders: PresentationOrders = {}) {
   const presentation = serializeMediaPresentation({
     mediaTitle: media,
     providerTitle: media.selectedProviderTitle,
     providerLinks: media.providerLinks
+  }, {
+    providerOrder: providerOrderForMediaType(presentationOrders, media.mediaType)
   });
 
   return {
@@ -951,7 +1120,7 @@ function serializeMediaTitle(media: any) {
   };
 }
 
-function serializeItem(item: any) {
+function serializeItem(item: any, presentationOrders: PresentationOrders = {}) {
   const activeMatch = item.parsedRelease?.matches?.[0];
   return {
     id: item.id,
@@ -968,6 +1137,11 @@ function serializeItem(item: any) {
       release: item.parsedRelease,
       rawTitle: item.rawTitle,
       downloadJobs: item.downloadJobs
+    }, {
+      providerOrder: providerOrderForMediaType(
+        presentationOrders,
+        activeMatch?.mediaType ?? activeMatch?.mediaTitle?.mediaType ?? item.parsedRelease?.mediaType
+      )
     }),
     downloadJobs: item.downloadJobs?.map((job: any) => ({
       id: job.id,

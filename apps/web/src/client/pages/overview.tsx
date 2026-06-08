@@ -421,28 +421,26 @@ function ReleaseInspectorModal({
   ] as const;
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [titleSearchQuery, setTitleSearchQuery] = useState(item.parsedRelease?.title ?? title);
-  const [titleSearchKind, setTitleSearchKind] = useState<"MOVIE" | "TV">(
-    item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE"
-  );
   const [titleSearchResults, setTitleSearchResults] = useState<MediaSearchResult[]>([]);
   const [titleSearchBusy, setTitleSearchBusy] = useState(false);
   const [titleSearchError, setTitleSearchError] = useState("");
-  const [manualProviderId, setManualProviderId] = useState("");
-  const [manualProviderKind, setManualProviderKind] = useState<"MOVIE" | "TV">(
-    item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE"
-  );
+  const [titleSearchSubmitted, setTitleSearchSubmitted] = useState(false);
+  const [titleSearchMediaType, setTitleSearchMediaType] = useState<"" | "MOVIE" | "TV_SERIES">("");
   const initializedItemId = useRef(item.id);
+
+  const inferredSearchMediaType =
+    mediaTypeFromKind(item.parsedRelease?.kind) ?? (presentation?.mediaType !== "UNKNOWN" ? presentation?.mediaType : undefined);
+  const effectiveSearchMediaType = titleSearchMediaType || inferredSearchMediaType;
 
   useEffect(() => {
     if (initializedItemId.current === item.id) return;
     initializedItemId.current = item.id;
     setCorrectionOpen(false);
     setTitleSearchQuery(item.parsedRelease?.title ?? title);
-    setTitleSearchKind(item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE");
     setTitleSearchResults([]);
     setTitleSearchError("");
-    setManualProviderId("");
-    setManualProviderKind(item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE");
+    setTitleSearchSubmitted(false);
+    setTitleSearchMediaType("");
   }, [enrichmentPending, identity, item.id, item.parsedRelease?.kind, item.parsedRelease?.title, title]);
 
   async function searchTitles(event: FormEvent<HTMLFormElement>) {
@@ -451,10 +449,17 @@ function ReleaseInspectorModal({
     if (!q) return;
     setTitleSearchBusy(true);
     setTitleSearchError("");
+    setTitleSearchSubmitted(true);
     try {
-      const params = new URLSearchParams({ q, kind: titleSearchKind });
-      if (item.parsedRelease?.year) params.set("year", String(item.parsedRelease.year));
-      setTitleSearchResults(await api<MediaSearchResult[]>(`/api/provider-titles/search?${params}`));
+      const response = await api<{ results: MediaSearchResult[] }>("/api/provider-titles/search", {
+        method: "POST",
+        body: JSON.stringify({
+          input: q,
+          mediaType: effectiveSearchMediaType,
+          year: item.parsedRelease?.year ?? presentation?.releaseYear ?? undefined
+        })
+      });
+      setTitleSearchResults(response.results);
     } catch (error) {
       setTitleSearchError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -466,10 +471,9 @@ function ReleaseInspectorModal({
     provider: string;
     providerEntityType?: string;
     providerId: string;
-    kind: "MOVIE" | "TV";
+    mediaType: "MOVIE" | "TV_SERIES";
   }) {
-    const { provider, providerEntityType, providerId, kind } = input;
-    const mediaType = kind === "TV" ? "TV_SERIES" : "MOVIE";
+    const { provider, providerEntityType, providerId, mediaType } = input;
     void runAction(() =>
       api(`/api/items/${item.id}/match/manual`, {
         method: "POST",
@@ -478,20 +482,7 @@ function ReleaseInspectorModal({
     ).then((result) => {
       if (result.ok) {
         setCorrectionOpen(false);
-        setManualProviderId("");
       }
-    });
-  }
-
-  function submitManualProviderMatch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const providerId = manualProviderId.trim();
-    if (!providerId) return;
-    chooseProviderTitle({
-      provider: defaultProviderForKind(manualProviderKind),
-      providerEntityType: defaultProviderEntityTypeForKind(manualProviderKind),
-      providerId,
-      kind: manualProviderKind
     });
   }
 
@@ -570,18 +561,14 @@ function ReleaseInspectorModal({
             <small>{t("overview.inspector.chooseTitleLead")}</small>
           </header>
           <form className="title-search-form" onSubmit={searchTitles}>
-            <SelectField
-              disabled={busy || titleSearchBusy}
-              onValueChange={(value) => setTitleSearchKind(value === "TV" ? "TV" : "MOVIE")}
-              options={[
-                { value: "MOVIE", label: t("common.movie") },
-                { value: "TV", label: t("common.tv") }
-              ]}
-              value={titleSearchKind}
-            />
             <FormInput
               disabled={busy || titleSearchBusy}
-              onChange={(event) => setTitleSearchQuery(event.target.value)}
+              onChange={(event) => {
+                setTitleSearchQuery(event.target.value);
+                setTitleSearchSubmitted(false);
+                setTitleSearchResults([]);
+              }}
+              placeholder={t("overview.inspector.smartSearchPlaceholder")}
               value={titleSearchQuery}
             />
             <UiButton className="secondary glass" disabled={busy || titleSearchBusy || !titleSearchQuery.trim()}>
@@ -590,6 +577,22 @@ function ReleaseInspectorModal({
             </UiButton>
           </form>
           {titleSearchError && <p className="modal-feedback error">{titleSearchError}</p>}
+          {titleSearchSubmitted && !titleSearchBusy && !titleSearchError && titleSearchResults.length === 0 && /^\d+$/.test(titleSearchQuery.trim()) && (
+            <p className="modal-feedback">{t("overview.inspector.providerLinkHint")}</p>
+          )}
+          <details className="release-id-fallback">
+            <summary>{t("overview.inspector.searchOptions")}</summary>
+            <SelectField
+              disabled={busy || titleSearchBusy}
+              onValueChange={(value) => setTitleSearchMediaType(value as "" | "MOVIE" | "TV_SERIES")}
+              options={[
+                { value: "", label: inferredSearchMediaType ? t("overview.inspector.useParsedType") : t("common.anyKind") },
+                { value: "MOVIE", label: t("common.movie") },
+                { value: "TV_SERIES", label: t("common.tv") }
+              ]}
+              value={titleSearchMediaType}
+            />
+          </details>
           {titleSearchResults.length > 0 && (
             <div className="title-result-grid">
               {titleSearchResults.map((result) => (
@@ -601,50 +604,38 @@ function ReleaseInspectorModal({
                   )}
                   <div>
                     <strong>{result.title}</strong>
-                    <span>{[result.year, result.kind, result.attributionText].filter(Boolean).join(" · ") || t("common.unknown")}</span>
+                    <span>{[providerLabel(result.provider), legacyKindFromMediaType(result.mediaType), result.year].filter(Boolean).join(" · ") || t("common.unknown")}</span>
                   </div>
-                  <UiButton
-                    className="secondary glass"
-                    disabled={busy}
-                    onClick={() => chooseProviderTitle({
-                      provider: result.provider,
-                      providerEntityType: result.providerEntityType,
-                      providerId: result.providerId,
-                      kind: result.kind === "TV" ? "TV" : "MOVIE"
-                    })}
-                  >
-                    {t("common.select")}
-                  </UiButton>
+                  <div className="title-result-actions">
+                    {result.externalUrl && (
+                      <a
+                        className="secondary glass compact"
+                        href={result.externalUrl}
+                        onClick={(event) => event.stopPropagation()}
+                        rel="noreferrer"
+                        target="_blank"
+                        title={t("common.source")}
+                      >
+                        <ExternalLink size={16} />
+                      </a>
+                    )}
+                    <UiButton
+                      className="secondary glass"
+                      disabled={busy}
+                      onClick={() => chooseProviderTitle({
+                        provider: result.provider,
+                        providerEntityType: result.providerEntityType,
+                        providerId: result.providerId,
+                        mediaType: result.mediaType
+                      })}
+                    >
+                      {t("common.select")}
+                    </UiButton>
+                  </div>
                 </article>
               ))}
             </div>
           )}
-          <details className="release-id-fallback">
-            <summary>{t("overview.inspector.pasteProviderId")}</summary>
-            <form className="manual-provider-form" onSubmit={submitManualProviderMatch}>
-              <SelectField
-                disabled={busy}
-                onValueChange={(value) => setManualProviderKind(value === "TV" ? "TV" : "MOVIE")}
-                options={[
-                  { value: "MOVIE", label: t("common.movie") },
-                  { value: "TV", label: t("common.tv") }
-                ]}
-                placeholder={t("common.kind")}
-                value={manualProviderKind}
-              />
-              <FormInput
-                disabled={busy}
-                inputMode="numeric"
-                onChange={(event) => setManualProviderId(event.target.value)}
-                pattern="[0-9]*"
-                placeholder={t("common.providerId")}
-                value={manualProviderId}
-              />
-              <UiButton className="secondary glass" disabled={busy || !manualProviderId.trim()}>
-                {t("common.useId")}
-              </UiButton>
-            </form>
-          </details>
         </section>
       )}
 
@@ -691,14 +682,6 @@ function ReleaseInspectorModal({
       </details>
     </AppDialog>
   );
-}
-
-function defaultProviderForKind(kind: "MOVIE" | "TV") {
-  return kind === "TV" ? "tvdb" : "tmdb";
-}
-
-function defaultProviderEntityTypeForKind(kind: "MOVIE" | "TV") {
-  return kind === "TV" ? "tvdb_series" : "tmdb_movie";
 }
 
 function ReleaseInlineFact({ label, value }: { label: string; value: string }) {
@@ -906,6 +889,16 @@ function episodeLabel(item: Item, unknownLabel = "Unknown") {
 function legacyKindFromMediaType(mediaType?: "MOVIE" | "TV_SERIES" | "UNKNOWN") {
   if (!mediaType) return undefined;
   return mediaType === "TV_SERIES" ? "TV" : mediaType;
+}
+
+function mediaTypeFromKind(kind?: "MOVIE" | "TV" | "UNKNOWN") {
+  if (kind === "TV") return "TV_SERIES";
+  if (kind === "MOVIE") return "MOVIE";
+  return undefined;
+}
+
+function providerLabel(provider?: string) {
+  return provider ? provider.toUpperCase() : undefined;
 }
 
 function initials(value: string) {

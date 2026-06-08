@@ -12,7 +12,8 @@ import {
   manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem,
   searchLocalMedia,
-  searchExternalMedia
+  searchExternalMedia,
+  smartSearchExternalMedia
 } from "./media.service.js";
 import {
   itemParamsSchema,
@@ -20,6 +21,7 @@ import {
   manualProviderMatchSchema,
   mediaParamsSchema,
   mediaSearchQuerySchema,
+  smartProviderTitleSearchSchema,
   trendingMediaQuerySchema
 } from "./media.schemas.js";
 
@@ -48,6 +50,16 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
     async (request) => {
       const query = parseQuery(mediaSearchQuerySchema, request);
       return searchExternalMedia(config, request.tenantId!, query);
+    }
+  );
+
+  app.post(
+    "/api/provider-titles/search",
+    { preHandler: requireTenantRole("MEMBER") },
+    async (request) => {
+      const query = parseBody(smartProviderTitleSearchSchema, request);
+      const results = await smartSearchExternalMedia(config, request.tenantId!, query);
+      return { results };
     }
   );
 

@@ -2,7 +2,13 @@ import { ParsedReleaseMatchStatus, type Prisma } from "@prisma/client";
 import { prisma } from "../../db.js";
 import { notFound } from "../../core/errors.js";
 import { decryptAead } from "../../secrets.js";
-import { serializeReleaseMatch, type ReleaseMatchDto } from "../media/presentation.js";
+import { getPresentationProviderOrder } from "../../integrations/providers/policy.js";
+import {
+  providerOrderForMediaType,
+  serializeReleaseMatch,
+  type PresentationOrders,
+  type ReleaseMatchDto
+} from "../media/presentation.js";
 import type { ItemQueryInput } from "./items.schemas.js";
 
 const itemRelations = {
@@ -116,7 +122,8 @@ export async function listItems(
     include: itemRelations
   });
 
-  return items.map(serializeItem);
+  const presentationOrders = await preloadPresentationOrders(tenantId);
+  return items.map((item) => serializeItem(item, presentationOrders));
 }
 
 export async function getItem(
@@ -129,7 +136,8 @@ export async function getItem(
   });
 
   if (!item) throw notFound("Item");
-  return serializeItem(item);
+  const presentationOrders = await preloadPresentationOrders(tenantId);
+  return serializeItem(item, presentationOrders);
 }
 
 export async function assertItemInTenant(tenantId: string, itemId: string) {
@@ -142,7 +150,7 @@ export async function assertItemInTenant(tenantId: string, itemId: string) {
   return item;
 }
 
-export function serializeItem(item: ItemWithRelations): ItemResponse {
+export function serializeItem(item: ItemWithRelations, presentationOrders: PresentationOrders = {}): ItemResponse {
   const release = item.parsedRelease;
   const activeMatch = release?.matches[0];
   return {
@@ -165,6 +173,11 @@ export function serializeItem(item: ItemWithRelations): ItemResponse {
       release,
       rawTitle: item.rawTitle,
       downloadJobs: item.downloadJobs
+    }, {
+      providerOrder: providerOrderForMediaType(
+        presentationOrders,
+        activeMatch?.mediaType ?? activeMatch?.mediaTitle?.mediaType ?? release?.mediaType
+      )
     }),
     downloadJobs: item.downloadJobs.map((job: any) => ({
       id: job.id,
@@ -172,6 +185,13 @@ export function serializeItem(item: ItemWithRelations): ItemResponse {
       clientHash: job.clientHash,
       createdAt: job.createdAt.toISOString()
     }))
+  };
+}
+
+async function preloadPresentationOrders(tenantId: string): Promise<PresentationOrders> {
+  return {
+    MOVIE: await getPresentationProviderOrder(tenantId, "MOVIE"),
+    TV_SERIES: await getPresentationProviderOrder(tenantId, "TV_SERIES")
   };
 }
 

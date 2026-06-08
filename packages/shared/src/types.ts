@@ -41,6 +41,7 @@ export type ProviderTitleResult = {
   ratingType?: RatingType;
   matchConfidence?: number;
   matchReason?: string;
+  externalUrl?: string;
 };
 
 export type TmdbTitleResult = ProviderTitleResult & {

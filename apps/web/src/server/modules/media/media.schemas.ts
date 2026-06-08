@@ -7,7 +7,7 @@ export const providerEntityTypeSchema = z.string().trim().min(1).max(80);
 
 const providerEntityTypeFor = (provider: "tmdb" | "tvdb", mediaType: "MOVIE" | "TV_SERIES") => {
   if (provider === "tmdb") return mediaType === "MOVIE" ? "tmdb_movie" : "tmdb_tv";
-  return mediaType === "TV_SERIES" ? "tvdb_series" : undefined;
+  return mediaType === "MOVIE" ? "tvdb_movie" : "tvdb_series";
 };
 
 const mediaTypeFromRequest = z.preprocess(
@@ -27,8 +27,20 @@ export const mediaSearchQuerySchema = z.object({
   year: z.coerce.number().int().min(1900).max(2100).optional()
 }).transform((query) => ({
   ...query,
-  provider: query.provider ?? (query.mediaType === "TV_SERIES" ? "tvdb" : "tmdb"),
   kind: query.mediaType === "TV_SERIES" ? "TV" : query.mediaType
+}));
+
+export const smartProviderTitleSearchSchema = z.object({
+  input: z.string().trim().min(1).max(500),
+  mediaType: searchableMediaTypeFromRequest.optional(),
+  kind: searchableMediaTypeFromRequest.optional(),
+  providerEntityType: providerEntityTypeSchema.optional(),
+  year: z.coerce.number().int().min(1900).max(2100).optional()
+}).transform((input) => ({
+  input: input.input,
+  mediaType: input.mediaType ?? input.kind,
+  providerEntityType: input.providerEntityType,
+  year: input.year
 }));
 
 export const localMediaSearchQuerySchema = z.object({

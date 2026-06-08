@@ -1,7 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { requireTenantRole } from "../../core/permissions.js";
 import { prisma } from "../../db.js";
-import { serializeMediaPresentation, legacyKindFromMediaType } from "../media/presentation.js";
+import { getPresentationProviderOrder } from "../../integrations/providers/policy.js";
+import {
+  providerOrderForMediaType,
+  serializeMediaPresentation,
+  legacyKindFromMediaType,
+  type PresentationOrders
+} from "../media/presentation.js";
 
 export function registerDashboardRoutes(app: FastifyInstance) {
   app.get(
@@ -52,6 +58,7 @@ export function registerDashboardRoutes(app: FastifyInstance) {
         string,
         { title: string; count: number; posterUrl?: string | null; latest: Date }
       >();
+      const presentationOrders = await preloadPresentationOrders(request.tenantId!);
       for (const item of items) {
         const match = item.parsedRelease?.matches[0];
         const presentation = serializeMediaPresentation({
@@ -59,6 +66,11 @@ export function registerDashboardRoutes(app: FastifyInstance) {
           providerTitle: match?.providerTitle,
           release: item.parsedRelease,
           rawTitle: item.rawTitle
+        }, {
+          providerOrder: providerOrderForMediaType(
+            presentationOrders,
+            match?.mediaType ?? match?.mediaTitle?.mediaType ?? item.parsedRelease?.mediaType
+          )
         });
         const title = presentation.title;
         const current = heat.get(title) ?? {
@@ -99,6 +111,7 @@ export function registerDashboardRoutes(app: FastifyInstance) {
           parsedRelease: { include: { item: true } }
         }
       });
+      const presentationOrders = await preloadPresentationOrders(request.tenantId!);
       return matches
         .map((match) => {
           const presentation = serializeMediaPresentation({
@@ -106,6 +119,11 @@ export function registerDashboardRoutes(app: FastifyInstance) {
             providerTitle: match.providerTitle,
             release: match.parsedRelease,
             rawTitle: match.parsedRelease.item.rawTitle
+          }, {
+            providerOrder: providerOrderForMediaType(
+              presentationOrders,
+              match.mediaType ?? match.mediaTitle?.mediaType ?? match.parsedRelease?.mediaType
+            )
           });
           if (!presentation.posterUrl) return null;
           return {
@@ -121,4 +139,11 @@ export function registerDashboardRoutes(app: FastifyInstance) {
         .filter(Boolean);
     }
   );
+}
+
+async function preloadPresentationOrders(tenantId: string): Promise<PresentationOrders> {
+  return {
+    MOVIE: await getPresentationProviderOrder(tenantId, "MOVIE"),
+    TV_SERIES: await getPresentationProviderOrder(tenantId, "TV_SERIES")
+  };
 }

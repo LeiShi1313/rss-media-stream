@@ -11,7 +11,7 @@ import {
   listSubscriptionHistory,
   listSubscriptions,
   requireOwnSubscriptionOrAdmin,
-  serializeSubscription,
+  serializeSubscriptionForTenant,
   updateSubscription,
   updateSubscriptionRule
 } from "./subscriptions.service.js";
@@ -67,7 +67,7 @@ export async function registerSubscriptionRoutes(
     async (request) => {
       const { id } = parseParams(subscriptionParamsSchema, request);
       const subscription = await requireOwnSubscriptionOrAdmin(request, id);
-      return serializeSubscription(subscription);
+      return serializeSubscriptionForTenant(request.tenantId!, subscription);
     }
   );
 

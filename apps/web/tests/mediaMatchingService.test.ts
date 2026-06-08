@@ -32,20 +32,43 @@ const mocks = vi.hoisted(() => {
     }
   };
 
-  const provider = {
-    id: "tmdb",
-    isConfigured: vi.fn(),
-    search: vi.fn(),
-    fetchTitle: vi.fn()
+	  const provider = {
+	    id: "tmdb",
+	    search: vi.fn(),
+	    fetchTitle: vi.fn(),
+	    probe: vi.fn()
+	  };
+	  const tvdbProvider = {
+	    id: "tvdb",
+	    search: vi.fn(),
+	    fetchTitle: vi.fn(),
+	    probe: vi.fn()
+	  };
+  type MockRuntime = {
+    tenantId: string;
+    provider: "tmdb" | "tvdb";
+    enabled: boolean;
+    credential?: { source: string; secrets: { apiKey: string } };
+    metadataLanguage: string;
   };
-  const tvdbProvider = {
-    id: "tvdb",
-    isConfigured: vi.fn(),
-    search: vi.fn(),
-    fetchTitle: vi.fn()
+  const runtime: Record<"tmdb" | "tvdb", MockRuntime> = {
+    tmdb: {
+      tenantId: "tenant-1",
+      provider: "tmdb",
+      enabled: true,
+      credential: { source: "workspace", secrets: { apiKey: "tmdb-key" } },
+      metadataLanguage: "en-US"
+    },
+    tvdb: {
+      tenantId: "tenant-1",
+      provider: "tvdb",
+      enabled: true,
+      credential: { source: "workspace", secrets: { apiKey: "tvdb-key" } },
+      metadataLanguage: "en-US"
+    }
   };
 
-  return { prisma, provider, tvdbProvider };
+	  return { prisma, provider, tvdbProvider, runtime };
 });
 
 vi.mock("../src/server/db.js", () => ({
@@ -53,20 +76,38 @@ vi.mock("../src/server/db.js", () => ({
 }));
 
 vi.mock("../src/server/integrations/providers/index.js", () => ({
-  getDefaultMetadataProvider: vi.fn(() => mocks.provider),
-  getMetadataProviderCandidates: vi.fn((mediaType: string) =>
-    mediaType === "TV_SERIES"
-      ? [mocks.tvdbProvider, mocks.provider]
-      : [mocks.provider]
-  ),
+  getMetadataProviders: vi.fn(() => [mocks.tvdbProvider, mocks.provider]),
   getMetadataProvider: vi.fn((providerId: string) =>
     providerId === "tvdb" ? mocks.tvdbProvider : mocks.provider
   )
 }));
 
+vi.mock("../src/server/integrations/providers/policy.js", () => ({
+  getMatchingProviderOrder: vi.fn((_tenantId: string, mediaType: string) =>
+    mediaType === "TV_SERIES" ? ["tvdb", "tmdb"] : ["tmdb", "tvdb"]
+  ),
+  getBroadSearchTargets: vi.fn(() => [
+    { provider: "tmdb", mediaType: "MOVIE" },
+    { provider: "tvdb", mediaType: "MOVIE" },
+    { provider: "tvdb", mediaType: "TV_SERIES" },
+    { provider: "tmdb", mediaType: "TV_SERIES" }
+  ]),
+  getPresentationProviderOrder: vi.fn((_tenantId: string, mediaType: string) =>
+    mediaType === "TV_SERIES" ? ["tvdb", "tmdb"] : ["tmdb", "tvdb"]
+  )
+}));
+
+vi.mock("../src/server/integrations/providers/runtime.js", () => ({
+  resolveProviderRuntime: vi.fn((_config: AppConfig, _tenantId: string, providerId: "tmdb" | "tvdb") =>
+    mocks.runtime[providerId]
+  )
+}));
+
 const {
   manuallyMatchParsedReleaseWithProvider,
-  matchParsedReleaseForItem
+  matchParsedReleaseForItem,
+  searchExternalMedia,
+  smartSearchExternalMedia
 } = await import("../src/server/modules/media/media.service.js");
 const {
   serializeMediaPresentation,
@@ -84,9 +125,303 @@ const config = {
   nodeEnv: "test"
 } satisfies AppConfig;
 
+beforeEach(() => {
+  mocks.runtime.tmdb = {
+    tenantId: "tenant-1",
+    provider: "tmdb",
+    enabled: true,
+    credential: { source: "workspace", secrets: { apiKey: "tmdb-key" } },
+    metadataLanguage: "en-US"
+  };
+  mocks.runtime.tvdb = {
+    tenantId: "tenant-1",
+    provider: "tvdb",
+    enabled: true,
+    credential: { source: "workspace", secrets: { apiKey: "tvdb-key" } },
+    metadataLanguage: "en-US"
+  };
+});
+
+describe("smartSearchExternalMedia", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.provider.probe.mockReturnValue([]);
+    mocks.tvdbProvider.probe.mockReturnValue([]);
+    mocks.provider.search.mockResolvedValue([]);
+    mocks.tvdbProvider.search.mockResolvedValue([]);
+  });
+
+  it("uses media type context to exact-fetch short TMDB IDs", async () => {
+    mocks.provider.probe.mockReturnValue([{
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      mediaType: "MOVIE"
+    }]);
+    mocks.provider.fetchTitle.mockResolvedValue(providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999
+    }));
+
+    const results = await smartSearchExternalMedia(config, "tenant-1", {
+      input: "tmdb:603",
+      mediaType: "MOVIE"
+    });
+
+    expect(mocks.provider.probe).toHaveBeenCalledWith(expect.objectContaining({
+      input: "tmdb:603",
+      mediaType: "MOVIE"
+    }));
+    expect(mocks.provider.fetchTitle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerEntityType: "tmdb_movie",
+        providerId: "603",
+        mediaType: "MOVIE"
+      }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+    expect(mocks.provider.search).not.toHaveBeenCalled();
+    expect(results[0]).toMatchObject({
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      title: "The Matrix"
+    });
+  });
+
+  it("uses tenant provider policy order when GET search omits an explicit provider", async () => {
+    mocks.tvdbProvider.search.mockResolvedValue([providerResult({
+      provider: "tvdb",
+      providerEntityType: "tvdb_series",
+      providerId: "200",
+      mediaType: "TV_SERIES",
+      title: "Possible Series",
+      normalizedTitle: "possible series",
+      releaseYear: 2026
+    })]);
+    mocks.provider.search.mockResolvedValue([providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_tv",
+      providerId: "300",
+      mediaType: "TV_SERIES",
+      title: "Possible Series",
+      normalizedTitle: "possible series",
+      releaseYear: 2026
+    })]);
+
+    const results = await searchExternalMedia(config, "tenant-1", {
+      q: "Possible Series",
+      mediaType: "TV_SERIES",
+      kind: "TV"
+    });
+
+    expect(mocks.tvdbProvider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ mediaType: "TV_SERIES" }),
+      expect.anything()
+    );
+    expect(mocks.provider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ mediaType: "TV_SERIES" }),
+      expect.anything()
+    );
+    expect(
+      mocks.tvdbProvider.search.mock.invocationCallOrder[0]
+    ).toBeLessThan(mocks.provider.search.mock.invocationCallOrder[0]);
+    expect(results.map((result) => result.provider)).toEqual(["tvdb", "tmdb"]);
+  });
+
+  it("exact-fetches explicit TVDB movie IDs", async () => {
+    mocks.tvdbProvider.probe.mockReturnValue([{
+      provider: "tvdb",
+      providerEntityType: "tvdb_movie",
+      providerId: "169",
+      mediaType: "MOVIE"
+    }]);
+    mocks.tvdbProvider.fetchTitle.mockResolvedValue(providerResult({
+      provider: "tvdb",
+      providerEntityType: "tvdb_movie",
+      providerId: "169",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999
+    }));
+
+    const results = await smartSearchExternalMedia(config, "tenant-1", {
+      input: "tvdb:movie:169"
+    });
+
+    expect(mocks.tvdbProvider.fetchTitle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerEntityType: "tvdb_movie",
+        providerId: "169",
+        mediaType: "MOVIE"
+      }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+    expect(mocks.tvdbProvider.search).not.toHaveBeenCalled();
+    expect(results[0]).toMatchObject({
+      provider: "tvdb",
+      providerEntityType: "tvdb_movie",
+      providerId: "169",
+      title: "The Matrix"
+    });
+  });
+
+  it("uses movie context to exact-fetch bare TVDB IDs", async () => {
+    mocks.tvdbProvider.probe.mockReturnValue([{
+      provider: "tvdb",
+      providerEntityType: "tvdb_movie",
+      providerId: "169",
+      mediaType: "MOVIE"
+    }]);
+    mocks.tvdbProvider.fetchTitle.mockResolvedValue(providerResult({
+      provider: "tvdb",
+      providerEntityType: "tvdb_movie",
+      providerId: "169",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999
+    }));
+
+    await smartSearchExternalMedia(config, "tenant-1", {
+      input: "tvdb:169",
+      mediaType: "MOVIE"
+    });
+
+    expect(mocks.tvdbProvider.probe).toHaveBeenCalledWith(expect.objectContaining({
+      input: "tvdb:169",
+      mediaType: "MOVIE"
+    }));
+    expect(mocks.tvdbProvider.fetchTitle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerEntityType: "tvdb_movie",
+        providerId: "169",
+        mediaType: "MOVIE"
+      }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+  });
+
+  it("does not exact-fetch bare TVDB IDs without context", async () => {
+    await smartSearchExternalMedia(config, "tenant-1", {
+      input: "tvdb:169"
+    });
+
+    expect(mocks.tvdbProvider.fetchTitle).not.toHaveBeenCalled();
+    expect(mocks.tvdbProvider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "tvdb:169", mediaType: "MOVIE" }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+    expect(mocks.tvdbProvider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "tvdb:169", mediaType: "TV_SERIES" }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+  });
+
+  it("keeps provider_not_configured when every broad search target lacks credentials", async () => {
+    mocks.runtime.tmdb = { ...mocks.runtime.tmdb, credential: undefined };
+    mocks.runtime.tvdb = { ...mocks.runtime.tvdb, credential: undefined };
+
+    await expect(smartSearchExternalMedia(config, "tenant-1", {
+      input: "Unknown Title"
+    })).rejects.toMatchObject({
+      code: "PROVIDER_NOT_CONFIGURED"
+    });
+  });
+
+  it("uses TVDB movie URL slug probes as search hints", async () => {
+    mocks.tvdbProvider.probe.mockReturnValue([{
+      provider: "tvdb",
+      mediaType: "MOVIE",
+      searchQuery: "the matrix"
+    }]);
+
+    await smartSearchExternalMedia(config, "tenant-1", {
+      input: "https://thetvdb.com/movies/the-matrix"
+    });
+
+    expect(mocks.tvdbProvider.fetchTitle).not.toHaveBeenCalled();
+    expect(mocks.tvdbProvider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "the matrix", mediaType: "MOVIE" }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+    expect(mocks.provider.search).not.toHaveBeenCalled();
+  });
+
+  it("does not exact-fetch ambiguous short TMDB IDs without context", async () => {
+    await smartSearchExternalMedia(config, "tenant-1", {
+      input: "tmdb:603"
+    });
+
+    expect(mocks.provider.fetchTitle).not.toHaveBeenCalled();
+    expect(mocks.tvdbProvider.fetchTitle).not.toHaveBeenCalled();
+    expect(mocks.provider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "tmdb:603", mediaType: "MOVIE" }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+    expect(mocks.tvdbProvider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "tmdb:603", mediaType: "MOVIE" }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+    expect(mocks.provider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "tmdb:603", mediaType: "TV_SERIES" }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+  });
+
+  it("passes provider entity type context to provider probes", async () => {
+    await smartSearchExternalMedia(config, "tenant-1", {
+      input: "tmdb:603",
+      providerEntityType: "tmdb_tv"
+    });
+
+    expect(mocks.provider.probe).toHaveBeenCalledWith(expect.objectContaining({
+      input: "tmdb:603",
+      providerEntityType: "tmdb_tv"
+    }));
+  });
+
+  it("serializes provider external URLs in search results", async () => {
+    mocks.provider.search.mockResolvedValue([providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      externalUrl: "https://www.themoviedb.org/movie/603"
+    })]);
+
+    const results = await searchExternalMedia(config, "tenant-1", {
+      q: "The Matrix",
+      mediaType: "MOVIE",
+      kind: "MOVIE"
+    });
+
+    expect(results[0]).toMatchObject({
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      externalUrl: "https://www.themoviedb.org/movie/603"
+    });
+    expect("attributionUrl" in results[0]).toBe(false);
+  });
+});
+
 describe("matchParsedReleaseForItem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.provider.search.mockResolvedValue([]);
+    mocks.tvdbProvider.search.mockResolvedValue([]);
+    mocks.provider.fetchTitle.mockReset();
+    mocks.tvdbProvider.fetchTitle.mockReset();
     mocks.prisma.parsedReleaseMatch.findFirst.mockResolvedValue(null);
     mocks.prisma.parsedReleaseMatch.findMany.mockResolvedValue([]);
     mocks.prisma.parsedReleaseMatch.updateMany.mockResolvedValue({ count: 0 });
@@ -110,7 +445,8 @@ describe("matchParsedReleaseForItem", () => {
 
   it("creates provider_not_configured when the default provider is unavailable", async () => {
     mockItemRelease({ mediaType: "MOVIE" });
-    mocks.provider.isConfigured.mockResolvedValue(false);
+    mocks.runtime.tmdb = { ...mocks.runtime.tmdb, credential: undefined };
+    mocks.runtime.tvdb = { ...mocks.runtime.tvdb, credential: undefined };
     mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({ id: "match-1", status: "UNMATCHED" });
 
     await matchParsedReleaseForItem({ tenantId: "tenant-1", itemId: "item-1", config });
@@ -124,9 +460,85 @@ describe("matchParsedReleaseForItem", () => {
     expect(mocks.provider.search).not.toHaveBeenCalled();
   });
 
+  it("falls back to TVDB for movies when TMDB has no result", async () => {
+    mockItemRelease({ mediaType: "MOVIE" });
+    mocks.provider.search.mockResolvedValue([]);
+    mocks.tvdbProvider.search.mockResolvedValue([{
+      provider: "tvdb",
+      providerEntityType: "tvdb_movie",
+      providerId: "169",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      payload: { posterPath: "https://artworks.thetvdb.com/movie.jpg" },
+      matchConfidence: 0.9
+    }]);
+    mocks.prisma.providerTitle.upsert.mockResolvedValue({
+      id: "provider-title-tvdb-movie",
+      provider: "tvdb",
+      providerEntityType: "tvdb_movie",
+      providerId: "169",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999
+    });
+    mocks.prisma.mediaTitleProviderLink.findUnique.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-tvdb-movie",
+      mediaType: "MOVIE",
+      canonicalTitle: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999
+    });
+    mocks.prisma.mediaTitle.findUnique.mockResolvedValue({ id: "media-title-tvdb-movie", mediaType: "MOVIE" });
+    mocks.prisma.providerTitle.findUnique.mockResolvedValue({ id: "provider-title-tvdb-movie", mediaType: "MOVIE" });
+    mocks.prisma.mediaTitleProviderLink.upsert.mockResolvedValue({ id: "link-tvdb-movie" });
+    mocks.prisma.mediaTitleProviderLink.findFirst.mockResolvedValue({ id: "link-tvdb-movie" });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({ id: "match-tvdb-movie", status: "MATCHED" });
+
+    await matchParsedReleaseForItem({ tenantId: "tenant-1", itemId: "item-1", config });
+
+    expect(mocks.provider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ mediaType: "MOVIE" }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+    expect(mocks.tvdbProvider.search).toHaveBeenCalledWith(
+      expect.objectContaining({ mediaType: "MOVIE" }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+    expect(
+      mocks.provider.search.mock.invocationCallOrder[0]
+    ).toBeLessThan(mocks.tvdbProvider.search.mock.invocationCallOrder[0]);
+    expect(mocks.prisma.parsedReleaseMatch.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "MATCHED",
+        providerTitleId: "provider-title-tvdb-movie"
+      })
+    }));
+  });
+
+  it("creates provider_disabled_by_policy when no matching provider is enabled", async () => {
+    mockItemRelease({ mediaType: "MOVIE" });
+    const policy = await import("../src/server/integrations/providers/policy.js");
+    vi.mocked(policy.getMatchingProviderOrder).mockResolvedValueOnce([]);
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({ id: "match-1", status: "UNMATCHED" });
+
+    await matchParsedReleaseForItem({ tenantId: "tenant-1", itemId: "item-1", config });
+
+    expect(mocks.prisma.parsedReleaseMatch.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "UNMATCHED",
+        reason: "provider_disabled_by_policy"
+      })
+    }));
+    expect(mocks.provider.search).not.toHaveBeenCalled();
+  });
+
   it("creates no_result when provider search returns nothing", async () => {
     mockItemRelease({ mediaType: "MOVIE" });
-    mocks.provider.isConfigured.mockResolvedValue(true);
     mocks.provider.search.mockResolvedValue([]);
     mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({ id: "match-1", status: "UNMATCHED" });
 
@@ -142,8 +554,7 @@ describe("matchParsedReleaseForItem", () => {
 
   it("falls back to TMDB for TV when TVDB is not configured", async () => {
     mockItemRelease({ mediaType: "TV_SERIES" });
-    mocks.tvdbProvider.isConfigured.mockResolvedValue(false);
-    mocks.provider.isConfigured.mockResolvedValue(true);
+    mocks.runtime.tvdb = { ...mocks.runtime.tvdb, credential: undefined };
     mocks.provider.search.mockResolvedValue([{
       provider: "tmdb",
       providerEntityType: "tmdb_tv",
@@ -185,7 +596,7 @@ describe("matchParsedReleaseForItem", () => {
     expect(mocks.tvdbProvider.search).not.toHaveBeenCalled();
     expect(mocks.provider.search).toHaveBeenCalledWith(
       expect.objectContaining({ mediaType: "TV_SERIES" }),
-      expect.objectContaining({ tenantId: "tenant-1" })
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
     );
     expect(mocks.prisma.parsedReleaseMatch.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -197,9 +608,7 @@ describe("matchParsedReleaseForItem", () => {
 
   it("falls back to TMDB for TV when TVDB has no result", async () => {
     mockItemRelease({ mediaType: "TV_SERIES" });
-    mocks.tvdbProvider.isConfigured.mockResolvedValue(true);
     mocks.tvdbProvider.search.mockResolvedValue([]);
-    mocks.provider.isConfigured.mockResolvedValue(true);
     mocks.provider.search.mockResolvedValue([{
       provider: "tmdb",
       providerEntityType: "tmdb_tv",
@@ -250,9 +659,7 @@ describe("matchParsedReleaseForItem", () => {
 
   it("falls back to TMDB for TV when TVDB search fails", async () => {
     mockItemRelease({ mediaType: "TV_SERIES" });
-    mocks.tvdbProvider.isConfigured.mockResolvedValue(true);
     mocks.tvdbProvider.search.mockRejectedValue(new Error("TVDB unavailable"));
-    mocks.provider.isConfigured.mockResolvedValue(true);
     mocks.provider.search.mockResolvedValue([{
       provider: "tmdb",
       providerEntityType: "tmdb_tv",
@@ -303,9 +710,7 @@ describe("matchParsedReleaseForItem", () => {
 
   it("writes an explicit unmatched decision when every configured provider search fails", async () => {
     mockItemRelease({ mediaType: "TV_SERIES" });
-    mocks.tvdbProvider.isConfigured.mockResolvedValue(true);
     mocks.tvdbProvider.search.mockRejectedValue(new Error("TVDB unavailable"));
-    mocks.provider.isConfigured.mockResolvedValue(true);
     mocks.provider.search.mockRejectedValue(new Error("TMDB unavailable"));
     mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({ id: "match-1", status: "UNMATCHED" });
 
@@ -321,7 +726,6 @@ describe("matchParsedReleaseForItem", () => {
 
   it("does not auto-create canonical media when provider result has no release year", async () => {
     mockItemRelease({ mediaType: "MOVIE" });
-    mocks.provider.isConfigured.mockResolvedValue(true);
     mocks.provider.search.mockResolvedValue([{
       provider: "tmdb",
       providerEntityType: "tmdb_movie",
@@ -349,7 +753,6 @@ describe("matchParsedReleaseForItem", () => {
 
   it("creates a matched low-confidence decision for any provider result", async () => {
     mockItemRelease({ mediaType: "MOVIE" });
-    mocks.provider.isConfigured.mockResolvedValue(true);
     mocks.provider.search.mockResolvedValue([{
       provider: "tmdb",
       providerEntityType: "tmdb_movie",
@@ -404,7 +807,6 @@ describe("matchParsedReleaseForItem", () => {
 
   it("does not persist a matched decision when the parsed release snapshot is stale", async () => {
     mockItemRelease({ mediaType: "MOVIE" });
-    mocks.provider.isConfigured.mockResolvedValue(true);
     mocks.provider.search.mockResolvedValue([{
       provider: "tmdb",
       providerEntityType: "tmdb_movie",
@@ -451,7 +853,6 @@ describe("matchParsedReleaseForItem", () => {
 
   it("does not persist an unmatched decision when the parsed release snapshot is stale", async () => {
     mockItemRelease({ mediaType: "MOVIE" });
-    mocks.provider.isConfigured.mockResolvedValue(true);
     mocks.provider.search.mockResolvedValue([]);
     mocks.prisma.parsedRelease.findUnique.mockResolvedValue({
       id: "release-1",
@@ -573,6 +974,62 @@ describe("matchParsedReleaseForItem", () => {
       mocks.prisma.parsedReleaseMatch.create.mock.invocationCallOrder[0]
     ).toBeLessThan(mocks.prisma.parsedReleaseMatch.updateMany.mock.invocationCallOrder[1]);
   });
+
+  it("defaults omitted TVDB movie provider entity type at service level", async () => {
+    mockItemRelease({ mediaType: "MOVIE" });
+    mocks.tvdbProvider.fetchTitle.mockResolvedValue({
+      provider: "tvdb",
+      providerEntityType: "tvdb_movie",
+      providerId: "169",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      payload: { posterPath: "https://artworks.thetvdb.com/movie.jpg" }
+    });
+    mocks.prisma.providerTitle.upsert.mockResolvedValue({
+      id: "provider-title-tvdb-manual",
+      provider: "tvdb",
+      providerEntityType: "tvdb_movie",
+      providerId: "169",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999
+    });
+    mocks.prisma.mediaTitleProviderLink.findUnique.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-tvdb-manual",
+      mediaType: "MOVIE",
+      canonicalTitle: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999
+    });
+    mocks.prisma.mediaTitle.findUnique.mockResolvedValue({ id: "media-title-tvdb-manual", mediaType: "MOVIE" });
+    mocks.prisma.providerTitle.findUnique.mockResolvedValue({ id: "provider-title-tvdb-manual", mediaType: "MOVIE" });
+    mocks.prisma.mediaTitleProviderLink.upsert.mockResolvedValue({ id: "link-tvdb-manual" });
+    mocks.prisma.mediaTitleProviderLink.findFirst.mockResolvedValue({ id: "link-tvdb-manual" });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({ id: "match-tvdb-manual", status: "MATCHED" });
+
+    await manuallyMatchParsedReleaseWithProvider({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config,
+      provider: "tvdb",
+      providerId: "169",
+      mediaType: "MOVIE"
+    });
+
+    expect(mocks.tvdbProvider.fetchTitle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerEntityType: "tvdb_movie",
+        providerId: "169",
+        mediaType: "MOVIE"
+      }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+  });
 });
 
 describe("media presentation provider selection", () => {
@@ -603,6 +1060,34 @@ describe("media presentation provider selection", () => {
     })).toBe(selected);
   });
 
+  it("does not use the active match provider when policy order excludes it", () => {
+    const selected = providerTitle({
+      id: "tvdb-selected",
+      provider: "tvdb",
+      providerEntityType: "tvdb_series",
+      providerId: "200",
+      mediaType: "TV_SERIES",
+      title: "Selected Series",
+      fetchedAt: new Date("2026-06-01T10:00:00Z")
+    });
+    const allowedLinked = providerTitle({
+      id: "tmdb-linked",
+      provider: "tmdb",
+      providerEntityType: "tmdb_tv",
+      providerId: "300",
+      mediaType: "TV_SERIES",
+      title: "Allowed Series",
+      fetchedAt: new Date("2026-06-02T10:00:00Z")
+    });
+
+    expect(selectPresentationProviderTitle({
+      mediaTitle: { id: "media-1", mediaType: "TV_SERIES" },
+      selectedProviderTitle: selected,
+      providerLinks: [{ providerTitle: allowedLinked }],
+      providerOrder: ["tmdb"]
+    })).toBe(allowedLinked);
+  });
+
   it("prefers media-type default provider over provider link order", () => {
     const presentation = serializeMediaPresentation({
       mediaTitle: {
@@ -630,7 +1115,7 @@ describe("media presentation provider selection", () => {
               providerEntityType: "tmdb_movie",
               providerId: "100",
               mediaType: "MOVIE",
-              title: "Canonical Movie",
+              title: "本地化电影名",
               fetchedAt: new Date("2026-06-01T10:00:00Z")
             })
           }
@@ -643,6 +1128,7 @@ describe("media presentation provider selection", () => {
       providerEntityType: "tmdb_movie",
       providerId: "100"
     });
+    expect(presentation.title).toBe("本地化电影名");
   });
 
   it("uses newest non-expired payload before stable provider identity tie-breakers", () => {
@@ -731,6 +1217,15 @@ function providerTitle(input: any) {
     originalTitle: null,
     releaseYear: 2026,
     payload: {},
+    ...input
+  };
+}
+
+function providerResult(input: any) {
+  return {
+    originalTitle: input.title,
+    payload: {},
+    matchConfidence: 1,
     ...input
   };
 }

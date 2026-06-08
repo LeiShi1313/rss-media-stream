@@ -26,6 +26,21 @@ export type RatingDto = ProviderRefDto & {
   type: "user_score" | "critic_score" | "popularity";
 };
 
+export type PresentationOptions = {
+  providerOrder?: string[];
+};
+
+export type PresentationOrders = Partial<Record<"MOVIE" | "TV_SERIES", string[]>>;
+
+export function providerOrderForMediaType(
+  orders: PresentationOrders,
+  mediaType?: string | null
+) {
+  return mediaType === "MOVIE" || mediaType === "TV_SERIES"
+    ? orders[mediaType]
+    : undefined;
+}
+
 export type ReleaseMatchDto = {
   id?: string;
   status: "MATCHED" | "UNMATCHED" | "REJECTED";
@@ -51,8 +66,6 @@ export type AttentionReason =
   | "failed_download";
 
 export const LOW_CONFIDENCE_THRESHOLD = 0.88;
-const PROVIDER_PRIORITY = ["tmdb", "tvdb", "imdb", "trakt", "douban", "wikidata", "musicbrainz"];
-
 export function serializeProviderRef(providerTitle: any): ProviderRefDto | undefined {
   if (!providerTitle?.provider || !providerTitle.providerEntityType || !providerTitle.providerId) {
     return undefined;
@@ -70,18 +83,19 @@ export function serializeMediaPresentation(input: {
   providerLinks?: Array<{ providerTitle?: any }>;
   release?: any;
   rawTitle?: string;
-}): MediaPresentationDto {
+}, options: PresentationOptions = {}): MediaPresentationDto {
   const mediaTitle = input.mediaTitle;
   const release = input.release;
   const providerTitle = selectPresentationProviderTitle({
     mediaTitle,
     selectedProviderTitle: input.providerTitle,
     providerLinks: input.providerLinks ?? mediaTitle?.providerLinks,
-    release
+    release,
+    providerOrder: options.providerOrder
   });
   const payload = providerPayload(providerTitle?.payload);
   const mediaType = mediaTitle?.mediaType ?? providerTitle?.mediaType ?? release?.mediaType ?? "UNKNOWN";
-  const title = mediaTitle?.canonicalTitle ?? providerTitle?.title ?? release?.title ?? input.rawTitle ?? "Unknown";
+  const title = providerTitle?.title ?? mediaTitle?.canonicalTitle ?? release?.title ?? input.rawTitle ?? "Unknown";
   const source = serializeProviderRef(providerTitle);
   const posterUrl = providerImageUrl(providerTitle?.provider, payload.posterPath, "w342");
   const backdropUrl = providerImageUrl(providerTitle?.provider, payload.backdropPath, "w342");
@@ -106,6 +120,7 @@ export function selectPresentationProviderTitle(input: {
   selectedProviderTitle?: any;
   providerLinks?: Array<{ providerTitle?: any; updatedAt?: unknown; createdAt?: unknown }>;
   release?: any;
+  providerOrder?: string[];
 }) {
   const mediaType = input.mediaTitle?.mediaType ?? input.selectedProviderTitle?.mediaType ?? input.release?.mediaType;
   const choices: Array<{
@@ -122,7 +137,13 @@ export function selectPresentationProviderTitle(input: {
     addProviderChoice(choices, seen, link.providerTitle, false, link);
   }
 
-  return choices.sort((a, b) => compareProviderChoices(a, b, mediaType))[0]?.providerTitle;
+  const filtered = input.providerOrder
+    ? choices.filter((choice) =>
+        input.providerOrder!.includes(choice.providerTitle?.provider)
+      )
+    : choices;
+
+  return filtered.sort((a, b) => compareProviderChoices(a, b, mediaType, input.providerOrder))[0]?.providerTitle;
 }
 
 export function serializeReleaseMatch(input: {
@@ -130,7 +151,7 @@ export function serializeReleaseMatch(input: {
   release?: any;
   rawTitle?: string;
   downloadJobs?: Array<{ status?: string | null }>;
-}): ReleaseMatchDto | undefined {
+}, options: PresentationOptions = {}): ReleaseMatchDto | undefined {
   const { match, release, rawTitle } = input;
   if (!match) return undefined;
 
@@ -139,7 +160,7 @@ export function serializeReleaseMatch(input: {
     providerTitle: match.providerTitle,
     release,
     rawTitle
-  });
+  }, options);
   const attentionReasons = releaseAttentionReasons(match, presentation, input.downloadJobs);
 
   return {
@@ -172,6 +193,7 @@ export function serializeProviderTitleSearchResult(result: {
   ratingVoteCount?: number;
   ratingType?: string;
   matchConfidence?: number;
+  externalUrl?: string;
 }) {
   const presentation = serializeMediaPresentation({
     providerTitle: result
@@ -187,7 +209,7 @@ export function serializeProviderTitleSearchResult(result: {
     year: result.releaseYear,
     score: result.matchConfidence ?? 0,
     attributionText: result.provider.toUpperCase(),
-    attributionUrl: undefined,
+    externalUrl: result.externalUrl,
     presentation,
     posterUrl: presentation.posterUrl,
     hasCover: presentation.hasCover
@@ -261,7 +283,8 @@ function compareProviderChoices(
     linkUpdatedAt?: unknown;
     linkCreatedAt?: unknown;
   },
-  mediaType?: string | null
+  mediaType?: string | null,
+  providerOrder?: string[]
 ) {
   if (a.selected !== b.selected) return a.selected ? -1 : 1;
 
@@ -269,13 +292,8 @@ function compareProviderChoices(
   const bMediaTypeMatch = providerMatchesMediaType(b.providerTitle, mediaType);
   if (aMediaTypeMatch !== bMediaTypeMatch) return aMediaTypeMatch ? -1 : 1;
 
-  const defaultProvider = defaultProviderForMediaType(mediaType);
-  const aDefault = a.providerTitle.provider === defaultProvider;
-  const bDefault = b.providerTitle.provider === defaultProvider;
-  if (aDefault !== bDefault) return aDefault ? -1 : 1;
-
-  const providerPriorityDelta =
-    providerPriority(a.providerTitle.provider) - providerPriority(b.providerTitle.provider);
+  const providerPriorityDelta = providerPriority(a.providerTitle.provider, providerOrder) -
+    providerPriority(b.providerTitle.provider, providerOrder);
   if (providerPriorityDelta !== 0) return providerPriorityDelta;
 
   const now = Date.now();
@@ -294,15 +312,9 @@ function providerMatchesMediaType(providerTitle: any, mediaType?: string | null)
   return providerTitle.mediaType === mediaType;
 }
 
-function defaultProviderForMediaType(mediaType?: string | null) {
-  if (mediaType === "MOVIE") return "tmdb";
-  if (mediaType === "TV_SERIES") return "tvdb";
-  return undefined;
-}
-
-function providerPriority(provider?: string | null) {
-  const index = PROVIDER_PRIORITY.indexOf(provider ?? "");
-  return index === -1 ? PROVIDER_PRIORITY.length : index;
+function providerPriority(provider?: string | null, providerOrder?: string[]) {
+  const index = providerOrder?.indexOf(provider ?? "") ?? -1;
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
 function providerPayloadFresh(providerTitle: any, now: number) {

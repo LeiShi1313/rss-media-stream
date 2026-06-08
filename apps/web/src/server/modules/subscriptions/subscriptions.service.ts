@@ -14,8 +14,13 @@ import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { forbidden, notFound } from "../../core/errors.js";
 import { isAdminRole } from "../../core/permissions.js";
+import { getPresentationProviderOrder } from "../../integrations/providers/policy.js";
 import { createDownloadJob, sendDownloadJob } from "../jobs/jobs.service.js";
-import { serializeMediaPresentation } from "../media/presentation.js";
+import {
+  providerOrderForMediaType,
+  serializeMediaPresentation,
+  type PresentationOrders
+} from "../media/presentation.js";
 import type {
   matchHistoryQuerySchema,
   subscriptionCreateSchema,
@@ -89,7 +94,8 @@ export async function listSubscriptions(input: {
     orderBy: { createdAt: "desc" }
   });
 
-  return subscriptions.map(serializeSubscription);
+  const presentationOrders = await preloadPresentationOrders(input.tenantId);
+  return subscriptions.map((subscription: any) => serializeSubscription(subscription, presentationOrders));
 }
 
 export async function createSubscriptionWithRule(args: {
@@ -97,7 +103,7 @@ export async function createSubscriptionWithRule(args: {
   userId: string;
   input: SubscriptionCreateInput;
 }) {
-  return prisma.$transaction(async (tx) => {
+  const subscription = await prisma.$transaction(async (tx) => {
     await validateSubscriptionReferences(tx, {
       tenantId: args.tenantId,
       mediaTitleId: args.input.mediaTitleId ?? args.input.mediaId,
@@ -137,8 +143,9 @@ export async function createSubscriptionWithRule(args: {
       include: subscriptionInclude
     });
 
-    return serializeSubscription(subscription);
+    return subscription;
   });
+  return serializeSubscription(subscription, await preloadPresentationOrders(args.tenantId));
 }
 
 export async function updateSubscription(input: {
@@ -146,7 +153,7 @@ export async function updateSubscription(input: {
   id: string;
   patch: SubscriptionPatchInput;
 }) {
-  return prisma.$transaction(async (tx) => {
+  const subscription = await prisma.$transaction(async (tx) => {
     await validateSubscriptionReferences(tx, {
       tenantId: input.tenantId,
       mediaTitleId: input.patch.mediaTitleId ?? input.patch.mediaId,
@@ -174,8 +181,9 @@ export async function updateSubscription(input: {
       include: subscriptionInclude
     });
 
-    return serializeSubscription(subscription);
+    return subscription;
   });
+  return serializeSubscription(subscription, await preloadPresentationOrders(input.tenantId));
 }
 
 export async function deleteSubscription(tenantId: string, id: string) {
@@ -213,7 +221,7 @@ export async function updateSubscriptionRule(input: {
     include: subscriptionInclude
   });
   if (!subscription) throw notFound("Subscription");
-  return serializeSubscription(subscription);
+  return serializeSubscription(subscription, await preloadPresentationOrders(input.tenantId));
 }
 
 export async function listSubscriptionHistory(input: {
@@ -584,11 +592,17 @@ function candidateFromItem(item: any): CandidateInput {
   };
 }
 
-export function serializeSubscription(subscription: any) {
+export async function serializeSubscriptionForTenant(tenantId: string, subscription: any) {
+  return serializeSubscription(subscription, await preloadPresentationOrders(tenantId));
+}
+
+export function serializeSubscription(subscription: any, presentationOrders: PresentationOrders = {}) {
   const mediaPresentation = subscription.mediaTitle
     ? serializeMediaPresentation({
         mediaTitle: subscription.mediaTitle,
         providerLinks: subscription.mediaTitle.providerLinks
+      }, {
+        providerOrder: providerOrderForMediaType(presentationOrders, subscription.mediaTitle.mediaType)
       })
     : undefined;
   return {
@@ -622,6 +636,13 @@ export function serializeSubscription(subscription: any) {
     rule: subscription.rule ? serializeRule(subscription.rule, subscription.mediaTitleId) : undefined,
     createdAt: subscription.createdAt,
     updatedAt: subscription.updatedAt
+  };
+}
+
+async function preloadPresentationOrders(tenantId: string): Promise<PresentationOrders> {
+  return {
+    MOVIE: await getPresentationProviderOrder(tenantId, "MOVIE"),
+    TV_SERIES: await getPresentationProviderOrder(tenantId, "TV_SERIES")
   };
 }
 
