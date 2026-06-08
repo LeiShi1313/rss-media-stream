@@ -1108,8 +1108,16 @@ small {
 
 .title-search-form {
   display: grid;
-  grid-template-columns: 130px minmax(180px, 1fr) auto;
+  grid-template-columns: minmax(280px, 1fr) max-content;
+  align-items: center;
   gap: 9px;
+}
+
+.title-search-form button {
+  min-width: 0;
+  width: auto;
+  padding-inline: 13px;
+  white-space: nowrap;
 }
 
 .title-result-grid {
@@ -1153,8 +1161,20 @@ small {
   font-size: 0.82rem;
 }
 
-.title-result button {
+.title-result-actions {
   grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+}
+
+.title-result-actions button {
+  min-width: 0;
+}
+
+.title-result-actions .compact {
+  min-width: 40px;
+  padding-inline: 10px;
 }
 
 .candidate-review {
@@ -1589,8 +1609,82 @@ small {
   grid-template-columns: minmax(260px, 1.4fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr);
 }
 
+.settings-form-compact {
+  grid-template-columns: minmax(260px, 360px);
+}
+
 .settings-form .form-actions {
   grid-column: 1 / -1;
+}
+
+.provider-card-grid,
+.policy-editor {
+  display: grid;
+  gap: 14px;
+}
+
+.provider-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.provider-card,
+.policy-group {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 14px;
+}
+
+.provider-card .settings-form {
+  grid-template-columns: 1fr;
+}
+
+.toggle-row,
+.policy-row label {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 750;
+}
+
+.toggle-row input,
+.policy-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.policy-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.policy-heading strong {
+  color: var(--text);
+  font-weight: 850;
+}
+
+.policy-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.policy-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 1fr) minmax(116px, auto) 76px minmax(132px, auto) 76px;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.policy-row > strong {
+  color: var(--text);
 }
 
 .settings-note {
@@ -2630,6 +2724,10 @@ input::placeholder {
   .settings-form {
     grid-template-columns: 1fr;
   }
+
+  .policy-row {
+    grid-template-columns: 1fr 1fr 72px;
+  }
 }
 
 @media (max-width: 680px) {
@@ -2639,6 +2737,10 @@ input::placeholder {
 
   .poster-rail {
     grid-auto-columns: 142px;
+  }
+
+  .policy-row {
+    grid-template-columns: 1fr;
   }
 
   .release-dialog-hero {

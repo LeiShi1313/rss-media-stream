@@ -48,14 +48,61 @@ export type Workspace = {
   role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 };
 
-export type TmdbSettings = {
+export type ProviderCredentialSettings = {
   configured: boolean;
   source: "workspace" | "environment" | null;
   configuredAt?: string | null;
   lastValidatedAt?: string | null;
   lastError?: string | null;
-  tmdbLanguage?: string;
+};
+
+export type WorkspaceSettings = {
   webLanguage?: string;
+};
+
+export type ProviderAuthField = {
+  key: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+};
+
+export type ProviderSettings = {
+  id: "tmdb" | "tvdb";
+  label: string;
+  supportedMediaTypes: Array<"MOVIE" | "TV_SERIES">;
+  authFields: ProviderAuthField[];
+  supportsMetadataLanguage: boolean;
+  supportsRegion: boolean;
+  enabled: boolean;
+  configured: boolean;
+  credentialSource: "workspace" | "environment" | null;
+  configuredAt?: string | null;
+  lastValidatedAt?: string | null;
+  lastError?: string | null;
+  metadataLanguage?: string | null;
+  region?: string | null;
+};
+
+export type ProviderSettingsResponse = {
+  providers: ProviderSettings[];
+};
+
+export type MediaProviderPolicy = {
+  provider: "tmdb" | "tvdb";
+  label: string;
+  mediaType: "MOVIE" | "TV_SERIES";
+  enabledForMatching: boolean;
+  enabledForPresentation: boolean;
+  matchingPriority: number;
+  presentationPriority: number;
+};
+
+export type MediaProviderPoliciesResponse = {
+  mediaTypes: Array<{
+    mediaType: "MOVIE" | "TV_SERIES";
+    policies: MediaProviderPolicy[];
+  }>;
 };
 
 export type ProviderEntityType = string;
@@ -226,7 +273,7 @@ export type MediaSearchResult = {
   hasCover?: boolean;
   score: number;
   attributionText?: string;
-  attributionUrl?: string;
+  externalUrl?: string;
 };
 
 export type Subscription = {

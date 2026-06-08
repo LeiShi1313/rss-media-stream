@@ -10,10 +10,10 @@ import {
   type Feed,
   type Item,
   type Subscription,
-  type TmdbSettings,
   type TrendingMedia,
   type User,
   type Workspace,
+  type WorkspaceSettings,
   type WorkspaceMember
 } from "./api.js";
 import { FieldLabel, FormInput, UiButton } from "./ui.js";
@@ -386,7 +386,7 @@ function pageSummary(page: PageId, t: TFunction) {
 
 async function syncUiLanguageFromSettings() {
   try {
-    const settings = await api<TmdbSettings>("/api/settings");
+    const settings = await api<WorkspaceSettings>("/api/settings");
     await applyUiLanguage(settings.webLanguage);
   } catch {
     // Keep the locally detected language if settings are unavailable.

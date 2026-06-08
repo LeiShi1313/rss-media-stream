@@ -83,6 +83,8 @@ model Tenant {
   createdAt            DateTime                    @default(now())
   updatedAt            DateTime                    @updatedAt
   settings             TenantSettings?
+  providerConfigs      TenantProviderConfig[]
+  providerPolicies     TenantMediaProviderPolicy[]
   memberships          TenantMembership[]
   feeds                RssFeed[]
   items                RssItem[]
@@ -97,17 +99,48 @@ model Tenant {
 }
 
 model TenantSettings {
-  tenantId            String    @id
+  tenantId            String @id
   defaultDownloaderId String?
-  encryptedTmdbApiKey String?   @db.Text
-  tmdbConfiguredAt    DateTime?
-  tmdbLastValidatedAt DateTime?
-  tmdbLastError       String?
-  tmdbLanguage        String    @default("en-US")
-  webLanguage         String    @default("en-US")
-  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  webLanguage         String @default("en-US")
+  tenant              Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([defaultDownloaderId])
+}
+
+model TenantProviderConfig {
+  id                   String    @id @default(cuid())
+  tenantId             String
+  provider             String
+  enabled              Boolean   @default(true)
+  encryptedSecretsJson String?   @db.Text
+  configuredAt         DateTime?
+  lastValidatedAt      DateTime?
+  lastError            String?
+  metadataLanguage     String?
+  region               String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+}
+
+model TenantMediaProviderPolicy {
+  id                       String    @id @default(cuid())
+  tenantId                 String
+  mediaType                MediaType
+  provider                 String
+  enabledForMatching       Boolean   @default(true)
+  enabledForPresentation   Boolean   @default(true)
+  matchingPriority         Int
+  presentationPriority     Int
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  tenant                   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, mediaType, provider])
+  @@index([tenantId, mediaType])
 }
 
 model User {
