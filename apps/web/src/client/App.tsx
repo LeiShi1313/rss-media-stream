@@ -198,7 +198,7 @@ function Dashboard({
       loadSubscriptions(),
       api<DownloadJob[]>("/api/download-jobs"),
       api<WorkspaceMember[]>("/api/workspace/members"),
-      api<TrendingMedia[]>("/api/media/trending?windowDays=7&limit=18")
+      api<TrendingMedia[]>("/api/media-titles/trending?windowDays=7&limit=18")
     ]);
 
     applyResult(results[0], setFeeds);
@@ -228,7 +228,7 @@ function Dashboard({
   const stats = useMemo(
     () => ({
       totalItems: items.length,
-      matched: items.filter((item) => item.mediaMatch?.status === "MATCHED").length,
+      matched: items.filter((item) => item.match?.status === "MATCHED" && !item.match.attention.required).length,
       feeds: feeds.filter((feed) => feed.enabled).length,
       jobs: jobs.length,
       failedJobs: jobs.filter((job) => job.status === "FAILED").length,

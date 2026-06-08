@@ -58,6 +58,69 @@ export type TmdbSettings = {
   webLanguage?: string;
 };
 
+export type ProviderEntityType = string;
+export type MediaType = "MOVIE" | "TV_SERIES" | "UNKNOWN";
+export type MatchStatus = "MATCHED" | "UNMATCHED" | "REJECTED";
+export type MatchSource = "AUTO" | "MANUAL";
+
+export type ProviderRefDto = {
+  provider: string;
+  providerEntityType: string;
+  providerId: string;
+};
+
+export type RatingDto = ProviderRefDto & {
+  value: number;
+  scale: number;
+  normalized: number;
+  voteCount?: number;
+  type: "user_score" | "critic_score" | "popularity";
+};
+
+export type ProviderIdentityFilter = {
+  provider: string;
+  providerEntityType?: ProviderEntityType;
+  providerId: string;
+};
+
+export type ProviderRatingFilter = {
+  provider: string;
+  ratingType?: "user_score" | "critic_score" | "popularity";
+  comparison: "gte" | "lte" | "gt" | "lt" | "eq";
+  value: number;
+  scale?: number;
+  minVoteCount?: number;
+};
+
+export type MediaPresentationDto = {
+  mediaTitleId?: string;
+  mediaType: MediaType;
+  title: string;
+  originalTitle?: string | null;
+  releaseYear?: number | null;
+  overview?: string | null;
+  posterUrl?: string | null;
+  backdropUrl?: string | null;
+  displaySource?: ProviderRefDto;
+  rating?: RatingDto;
+  hasCover: boolean;
+};
+
+export type ReleaseMatchDto = {
+  id?: string;
+  status: MatchStatus;
+  source?: MatchSource;
+  confidence?: number | null;
+  reason?: string | null;
+  matchedAt?: string | null;
+  providerTitle?: ProviderRefDto;
+  presentation?: MediaPresentationDto;
+  attention: {
+    required: boolean;
+    reasons: Array<"low_confidence" | "unmatched" | "provider_not_configured" | "no_result" | "unknown_media_type" | "no_cover" | "failed_download">;
+  };
+};
+
 export type AuthResponse = {
   user: User;
   workspace?: Workspace;
@@ -84,25 +147,27 @@ export type ParsedRelease = {
 
 export type Media = {
   id: string;
+  mediaTitleId?: string;
   provider: string;
+  providerEntityType?: ProviderEntityType;
   providerId: string;
   kind: "MOVIE" | "TV" | "UNKNOWN";
+  mediaType?: MediaType;
   title: string;
-  originalTitle?: string;
+  originalTitle?: string | null;
   year?: number;
-  posterPath?: string;
-  backdropPath?: string;
-  overview?: string;
-  searchTitle?: string;
-  tmdbFetchedAt?: string;
-  metadataJson?: unknown;
+  releaseYear?: number | null;
+  posterUrl?: string | null;
+  backdropUrl?: string | null;
+  overview?: string | null;
+  displaySource?: ProviderRefDto;
+  rating?: RatingDto;
+  hasCover?: boolean;
   createdAt?: string;
   updatedAt?: string;
   matchCount?: number;
   subscriptionCount?: number;
 };
-
-export type MediaMatchStatus = "MATCHED" | "CANDIDATE" | "UNMATCHED" | "REJECTED";
 
 export type Item = {
   id: string;
@@ -113,25 +178,8 @@ export type Item = {
   sizeBytes?: string;
   parseConfidence?: number;
   parsedRelease?: ParsedRelease;
-  mediaMatch?: {
-    id: string;
-    mediaId?: string;
-    provider: string;
-    providerId: string;
-    kind: "MOVIE" | "TV" | "UNKNOWN";
-    title: string;
-    originalTitle?: string;
-    year?: number;
-    posterPath?: string;
-    backdropPath?: string;
-    overview?: string;
-    score: number;
-    status: MediaMatchStatus;
-    reason?: string;
-    matchedAt?: string;
-    media?: Media;
-    updatedAt?: string;
-  };
+  enrichmentState?: "MATCHED" | "UNMATCHED" | "PENDING" | "UNPARSED";
+  match?: ReleaseMatchDto;
   downloadJobs?: Array<{ id: string; status: string; error?: string; createdAt: string }>;
 };
 
@@ -165,13 +213,20 @@ export type Downloader = {
 };
 
 export type MediaSearchResult = {
-  provider: "tmdb" | "imdb" | "douban";
+  provider: string;
+  providerEntityType?: ProviderEntityType;
   providerId: string;
+  mediaType: Exclude<MediaType, "UNKNOWN">;
   kind: "MOVIE" | "TV" | "UNKNOWN";
   title: string;
+  originalTitle?: string;
   year?: number;
-  posterPath?: string;
+  posterUrl?: string | null;
+  presentation?: MediaPresentationDto;
+  hasCover?: boolean;
   score: number;
+  attributionText?: string;
+  attributionUrl?: string;
 };
 
 export type Subscription = {
@@ -181,11 +236,13 @@ export type Subscription = {
   media?: {
     id: string;
     provider: string;
+    providerEntityType?: ProviderEntityType;
     providerId: string;
     kind: "MOVIE" | "TV" | "UNKNOWN";
     title: string;
     year?: number;
-    posterPath?: string;
+    posterUrl?: string | null;
+    hasCover?: boolean;
   };
   downloader?: {
     id: string;
@@ -196,11 +253,11 @@ export type Subscription = {
   autoDownload: boolean;
   enabled: boolean;
   rule?: {
-    mediaKind?: "MOVIE" | "TV" | "UNKNOWN";
-    provider?: string;
-    providerId?: string;
-    imdbId?: string;
-    doubanId?: string;
+    mediaType?: MediaType;
+    mediaTitleId?: string;
+    selectedProvider?: ProviderIdentityFilter;
+    linkedProviders?: ProviderIdentityFilter[];
+    providerRatings?: ProviderRatingFilter[];
     titleRegex?: string;
     includeRegex?: string;
     excludeRegex?: string;

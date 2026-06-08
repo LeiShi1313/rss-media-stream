@@ -14,6 +14,7 @@ const en = {
     anyKind: "Any kind",
     anyProvider: "Any provider",
     anyStatus: "Any status",
+    anyType: "Any type",
     audio: "Audio",
     auto: "Auto",
     autoDownload: "Auto download",
@@ -161,10 +162,10 @@ const en = {
       attentionEmpty: "No releases need attention"
     },
     inspector: {
-      noOverview: "No TMDB overview is available for this release yet.",
+      noOverview: "No provider overview is available for this release yet.",
       parsedRelease: "Parsed release",
       sourceTools: "source, raw RSS, and identity metadata",
-      tmdbId: "TMDB ID",
+      providerId: "Provider ID",
       identityDetail: "Identity detail",
       noMatchReason: "No match reason provided",
       sourceAndTarget: "Source and target",
@@ -181,8 +182,13 @@ const en = {
       wrongTitle: "Wrong title?",
       chooseTitle: "Choose title",
       downloadAnyway: "Download anyway",
-      chooseTitleLead: "Search TMDB only when the title shown here is missing or wrong.",
-      pasteTmdbId: "Paste TMDB ID"
+      chooseTitleLead: "Search metadata only when the title shown here is missing or wrong.",
+      candidates: "Candidates",
+      noCandidates: "No candidates stored yet",
+      useThisMatch: "Use this match",
+      notThisTitle: "Not this title",
+      rejectedCandidate: "Rejected",
+      pasteProviderId: "Paste provider ID"
     }
   },
   release: {
@@ -194,16 +200,14 @@ const en = {
       skipped: "SKIPPED",
       completed: "COMPLETED",
       ready: "Ready",
+      manualOverride: "Manual match",
+      ambiguous: "Check match",
+      providerUnavailable: "Provider unavailable",
+      processing: "Processing",
+      rejected: "Rejected match",
       checkTitle: "Check title",
       needsTitle: "Needs title",
       unmatched: "Needs title"
-    },
-    detail: {
-      downloadError: "Download error",
-      sentToDownloader: "Sent to downloader",
-      downloadJobActive: "Download job active",
-      readyToDownload: "Ready to download",
-      chooseTitle: "Choose the right title"
     }
   },
   rss: {
@@ -257,7 +261,7 @@ const en = {
     none: "No subscription rules yet",
     ruleOnly: "Rule-only subscription",
     subscriptionTitle: "Subscription title",
-    mediaKind: "Media kind",
+    mediaKind: "Media type",
     titleRegex: "Title regex",
     excludeRegex: "Exclude regex",
     minResolution: "Min resolution",
@@ -271,12 +275,27 @@ const en = {
     episodeStart: "Episode start",
     episodeEnd: "Episode end",
     saveSubscription: "Save Subscription",
-    searchTmdb: "Search TMDB",
+    searchTmdb: "Search metadata",
+    searchMetadata: "Search metadata",
     subscribe: "Subscribe",
     anyRelease: "Any release",
     noRule: "No rule configured",
     includeRule: "include /{{value}}/",
-    excludeRule: "exclude /{{value}}/"
+    excludeRule: "exclude /{{value}}/",
+    selectedProvider: "Selected provider",
+    linkedProvider: "Linked provider",
+    removeLinkedProvider: "Remove linked provider",
+    providerEntityType: "Provider entity type",
+    ratingProvider: "Rating provider",
+    removeRatingFilter: "Remove rating filter",
+    ratingType: "Rating type",
+    comparison: "Comparison",
+    ratingValue: "Rating value",
+    ratingScale: "Rating scale",
+    minVotes: "Min votes",
+    userScore: "User score",
+    criticScore: "Critic score",
+    popularity: "Popularity"
   },
   activity: {
     hourlyIntake: "Hourly Intake",
@@ -311,10 +330,10 @@ const en = {
     webLanguage: "Web language",
     saveSettings: "Save settings",
     removeKey: "Remove TMDB key",
-    metadata: "TMDB metadata",
+    metadata: "Media metadata",
     languageBehavior: "Language behavior",
-    tmdbBehaviorTitle: "TMDB media language changes future TMDB searches and cached metadata.",
-    tmdbBehaviorBody: "Changing it clears this workspace's TMDB cache so new searches use the selected language.",
+    tmdbBehaviorTitle: "Metadata language changes future provider searches.",
+    tmdbBehaviorBody: "Existing metadata stays cached until it is refreshed; new provider data uses the selected language.",
     webBehaviorTitle: "Web language is saved as the workspace UI preference.",
     webBehaviorBody: "The interface changes immediately and is restored from the workspace preference after sign-in.",
     languages: {
@@ -338,6 +357,7 @@ const zh = {
     anyKind: "任意类型",
     anyProvider: "任意提供方",
     anyStatus: "任意状态",
+    anyType: "任意类型",
     audio: "音频",
     auto: "自动",
     autoDownload: "自动下载",
@@ -485,10 +505,10 @@ const zh = {
       attentionEmpty: "没有需要处理的发布"
     },
     inspector: {
-      noOverview: "该发布暂时没有 TMDB 简介。",
+      noOverview: "该发布暂时没有提供方简介。",
       parsedRelease: "解析后的发布",
       sourceTools: "来源、原始 RSS 和身份元数据",
-      tmdbId: "TMDB ID",
+      providerId: "提供方 ID",
       identityDetail: "身份详情",
       noMatchReason: "没有匹配原因",
       sourceAndTarget: "来源与目标",
@@ -505,8 +525,13 @@ const zh = {
       wrongTitle: "标题不对？",
       chooseTitle: "选择标题",
       downloadAnyway: "仍然下载",
-      chooseTitleLead: "只有当前标题缺失或不正确时才搜索 TMDB。",
-      pasteTmdbId: "粘贴 TMDB ID"
+      chooseTitleLead: "只有当前标题缺失或不正确时才搜索元数据。",
+      candidates: "候选项",
+      noCandidates: "还没有保存候选项",
+      useThisMatch: "使用此匹配",
+      notThisTitle: "不是这个标题",
+      rejectedCandidate: "已拒绝",
+      pasteProviderId: "粘贴提供方 ID"
     }
   },
   release: {
@@ -518,16 +543,14 @@ const zh = {
       skipped: "已跳过",
       completed: "已完成",
       ready: "可处理",
+      manualOverride: "手动匹配",
+      ambiguous: "检查匹配",
+      providerUnavailable: "提供方不可用",
+      processing: "处理中",
+      rejected: "已拒绝匹配",
       checkTitle: "检查标题",
       needsTitle: "需要标题",
       unmatched: "需要标题"
-    },
-    detail: {
-      downloadError: "下载错误",
-      sentToDownloader: "已发送到下载器",
-      downloadJobActive: "下载任务进行中",
-      readyToDownload: "可发送下载",
-      chooseTitle: "选择正确标题"
     }
   },
   rss: {
@@ -595,12 +618,27 @@ const zh = {
     episodeStart: "起始集",
     episodeEnd: "结束集",
     saveSubscription: "保存订阅",
-    searchTmdb: "搜索 TMDB",
+    searchTmdb: "搜索元数据",
+    searchMetadata: "搜索元数据",
     subscribe: "订阅",
     anyRelease: "任意发布",
     noRule: "未配置规则",
     includeRule: "包含 /{{value}}/",
-    excludeRule: "排除 /{{value}}/"
+    excludeRule: "排除 /{{value}}/",
+    selectedProvider: "选定提供方",
+    linkedProvider: "关联提供方",
+    removeLinkedProvider: "移除关联提供方",
+    providerEntityType: "提供方实体类型",
+    ratingProvider: "评分提供方",
+    removeRatingFilter: "移除评分筛选",
+    ratingType: "评分类型",
+    comparison: "比较",
+    ratingValue: "评分值",
+    ratingScale: "评分满分",
+    minVotes: "最低投票数",
+    userScore: "用户评分",
+    criticScore: "影评评分",
+    popularity: "热度"
   },
   activity: {
     hourlyIntake: "每小时采集",
@@ -635,10 +673,10 @@ const zh = {
     webLanguage: "网页语言",
     saveSettings: "保存设置",
     removeKey: "移除 TMDB key",
-    metadata: "TMDB 元数据",
+    metadata: "媒体元数据",
     languageBehavior: "语言行为",
-    tmdbBehaviorTitle: "TMDB 媒体语言会影响未来的 TMDB 搜索和缓存元数据。",
-    tmdbBehaviorBody: "修改后会清空此工作区的 TMDB 缓存，让新的搜索使用所选语言。",
+    tmdbBehaviorTitle: "元数据语言会影响未来的提供方搜索。",
+    tmdbBehaviorBody: "已有元数据会保留到刷新为止；新的提供方数据会使用所选语言。",
     webBehaviorTitle: "网页语言会保存为工作区界面偏好。",
     webBehaviorBody: "界面会立即切换，并在登录后从工作区偏好恢复。",
     languages: {

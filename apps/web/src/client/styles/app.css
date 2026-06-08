@@ -1099,7 +1099,7 @@ small {
   padding: 0;
 }
 
-.manual-tmdb-form {
+.manual-provider-form {
   display: grid;
   grid-template-columns: 120px minmax(120px, 1fr) auto;
   gap: 8px;
@@ -1129,6 +1129,10 @@ small {
   padding: 9px;
 }
 
+.title-result.rejected {
+  opacity: 0.62;
+}
+
 .title-result img,
 .title-result .poster-fallback {
   width: 54px;
@@ -1151,6 +1155,31 @@ small {
 
 .title-result button {
   grid-column: 1 / -1;
+}
+
+.candidate-review {
+  display: grid;
+  gap: 10px;
+}
+
+.candidate-review-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.candidate-review-header span,
+.candidate-state {
+  color: var(--subtle);
+  font-size: 0.82rem;
+}
+
+.candidate-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .release-id-fallback {
@@ -1297,6 +1326,50 @@ small {
 .modal-form {
   display: grid;
   gap: 12px;
+}
+
+.subscription-filter-section {
+  display: grid;
+  gap: 10px;
+}
+
+.subscription-filter-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.subscription-filter-row {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+
+.subscription-filter-row.linked {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+}
+
+.subscription-filter-row.rating {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.subscription-filter-row.rating .form-grid {
+  grid-column: 1 / 2;
+}
+
+.subscription-filter-row .icon-button {
+  grid-column: -2 / -1;
+  color: var(--danger);
 }
 
 .form-grid {
@@ -1644,10 +1717,17 @@ small {
   .search-form,
   .form-grid,
   .form-grid.three,
+  .subscription-filter-row.linked,
+  .subscription-filter-row.rating,
   .row-card,
   .metric-grid,
   .status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .subscription-filter-row .icon-button {
+    grid-column: 1;
+    justify-self: start;
   }
 
   .panel > header {
@@ -2612,7 +2692,8 @@ input::placeholder {
     justify-content: start;
   }
 
-  .manual-tmdb-form,
+  .candidate-actions,
+  .manual-provider-form,
   .title-search-form {
     grid-template-columns: 1fr;
     max-width: none;

@@ -2,10 +2,6 @@ import { formatDistanceToNow } from "date-fns";
 import { enUS, zhCN } from "date-fns/locale";
 import i18n from "../i18n.js";
 
-export function tmdbImage(path: string, size: "w185" | "w342") {
-  return `https://image.tmdb.org/t/p/${size}${path}`;
-}
-
 export function relativeTime(value: string | Date) {
   return formatDistanceToNow(new Date(value), {
     addSuffix: true,

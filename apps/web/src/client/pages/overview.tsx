@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -19,7 +19,7 @@ import type { RunAction } from "../types.js";
 import { AppDialog, FieldLabel, FormInput, SelectField, StatTile, UiButton } from "../components/ui/index.js";
 import { Empty, Pill, StatusPill } from "../components/common/feedback.js";
 import { ManualDownload } from "../components/common/manual-download.js";
-import { formatBytes, relativeTime, tmdbImage } from "../lib/format.js";
+import { formatBytes, relativeTime } from "../lib/format.js";
 import { matchRate, releaseIdentityState, releaseStatus, releaseTitle } from "../lib/releases.js";
 
 type ShelfKey = "all" | "matched" | "downloading" | "attention";
@@ -75,7 +75,7 @@ export function OverviewPage({
         [
           item.rawTitle,
           item.parsedRelease?.title,
-          item.mediaMatch?.title,
+          item.match?.presentation?.title,
           item.feed?.name,
           item.parsedRelease?.quality,
           item.parsedRelease?.source,
@@ -111,7 +111,7 @@ export function OverviewPage({
     }
     setSelectedMediaDetail(null);
     let cancelled = false;
-    api<MediaDetail>(`/api/media/${selectedMediaId}/detail`)
+    api<MediaDetail>(`/api/media-titles/${selectedMediaId}/detail`)
       .then((detail) => {
         if (!cancelled) setSelectedMediaDetail(detail);
       })
@@ -287,7 +287,7 @@ function TrendingMediaShelf({
 
 function TrendingMediaCard({ entry, onInspect }: { entry: TrendingMedia; onInspect: () => void }) {
   const { t } = useTranslation();
-  const posterUrl = entry.media.posterPath ? tmdbImage(entry.media.posterPath, "w342") : undefined;
+  const posterUrl = entry.media.posterUrl ?? undefined;
   return (
     <button className="release-poster-card" onClick={onInspect} type="button">
       <span className="poster-badge">{t("common.releaseCount", { count: entry.releaseCount })}</span>
@@ -358,8 +358,9 @@ function ReleasePosterCard({
   const { t } = useTranslation();
   const title = releaseTitle(item);
   const status = releaseStatus(item);
-  const resolvedMatch = releaseIdentityState(item) === "resolved" ? item.mediaMatch : undefined;
-  const posterUrl = resolvedMatch?.posterPath ? tmdbImage(resolvedMatch.posterPath, "w342") : undefined;
+  const enrichmentPending = item.enrichmentState === "PENDING";
+  const presentation = item.match?.presentation;
+  const posterUrl = presentation?.posterUrl ?? undefined;
   const parsedTags = parsedReleaseTags(item);
 
   return (
@@ -403,12 +404,13 @@ function ReleaseInspectorModal({
   const identity = releaseIdentityState(item);
   const title = releaseTitle(item);
   const status = releaseStatus(item);
+  const enrichmentPending = item.enrichmentState === "PENDING";
   const unknown = t("common.unknown");
-  const resolvedMatch = identity === "resolved" ? item.mediaMatch : undefined;
-  const backdropUrl = resolvedMatch?.backdropPath ? tmdbImage(resolvedMatch.backdropPath, "w342") : undefined;
-  const posterUrl = resolvedMatch?.posterPath ? tmdbImage(resolvedMatch.posterPath, "w342") : undefined;
+  const presentation = item.match?.presentation;
+  const backdropUrl = presentation?.backdropUrl ?? undefined;
+  const posterUrl = presentation?.posterUrl ?? undefined;
   const parsedFacts = [
-    [t("common.kind"), item.parsedRelease?.kind ?? resolvedMatch?.kind ?? unknown],
+    [t("common.kind"), item.parsedRelease?.kind ?? legacyKindFromMediaType(presentation?.mediaType) ?? unknown],
     [t("common.quality"), item.parsedRelease?.quality ?? unknown],
     [t("common.source"), item.parsedRelease?.source ?? unknown],
     [t("common.codecs"), item.parsedRelease?.codec ?? unknown],
@@ -417,7 +419,7 @@ function ReleaseInspectorModal({
     [t("common.episode"), episodeLabel(item, unknown)],
     [t("common.size"), item.sizeBytes ? formatBytes(item.sizeBytes, unknown) : unknown]
   ] as const;
-  const [correctionOpen, setCorrectionOpen] = useState(identity !== "resolved");
+  const [correctionOpen, setCorrectionOpen] = useState(false);
   const [titleSearchQuery, setTitleSearchQuery] = useState(item.parsedRelease?.title ?? title);
   const [titleSearchKind, setTitleSearchKind] = useState<"MOVIE" | "TV">(
     item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE"
@@ -425,20 +427,23 @@ function ReleaseInspectorModal({
   const [titleSearchResults, setTitleSearchResults] = useState<MediaSearchResult[]>([]);
   const [titleSearchBusy, setTitleSearchBusy] = useState(false);
   const [titleSearchError, setTitleSearchError] = useState("");
-  const [manualTmdbId, setManualTmdbId] = useState("");
-  const [manualTmdbKind, setManualTmdbKind] = useState<"MOVIE" | "TV">(
+  const [manualProviderId, setManualProviderId] = useState("");
+  const [manualProviderKind, setManualProviderKind] = useState<"MOVIE" | "TV">(
     item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE"
   );
+  const initializedItemId = useRef(item.id);
 
   useEffect(() => {
-    setCorrectionOpen(identity !== "resolved");
+    if (initializedItemId.current === item.id) return;
+    initializedItemId.current = item.id;
+    setCorrectionOpen(false);
     setTitleSearchQuery(item.parsedRelease?.title ?? title);
     setTitleSearchKind(item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE");
     setTitleSearchResults([]);
     setTitleSearchError("");
-    setManualTmdbId("");
-    setManualTmdbKind(item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE");
-  }, [identity, item.id, item.parsedRelease?.kind, item.parsedRelease?.title, title]);
+    setManualProviderId("");
+    setManualProviderKind(item.parsedRelease?.kind === "TV" ? "TV" : "MOVIE");
+  }, [enrichmentPending, identity, item.id, item.parsedRelease?.kind, item.parsedRelease?.title, title]);
 
   async function searchTitles(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -449,7 +454,7 @@ function ReleaseInspectorModal({
     try {
       const params = new URLSearchParams({ q, kind: titleSearchKind });
       if (item.parsedRelease?.year) params.set("year", String(item.parsedRelease.year));
-      setTitleSearchResults(await api<MediaSearchResult[]>(`/api/media/search?${params}`));
+      setTitleSearchResults(await api<MediaSearchResult[]>(`/api/provider-titles/search?${params}`));
     } catch (error) {
       setTitleSearchError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -457,25 +462,37 @@ function ReleaseInspectorModal({
     }
   }
 
-  function chooseTmdbTitle(tmdbId: string, kind: "MOVIE" | "TV") {
+  function chooseProviderTitle(input: {
+    provider: string;
+    providerEntityType?: string;
+    providerId: string;
+    kind: "MOVIE" | "TV";
+  }) {
+    const { provider, providerEntityType, providerId, kind } = input;
+    const mediaType = kind === "TV" ? "TV_SERIES" : "MOVIE";
     void runAction(() =>
-      api(`/api/items/${item.id}/match/tmdb`, {
+      api(`/api/items/${item.id}/match/manual`, {
         method: "POST",
-        body: JSON.stringify({ tmdbId, kind })
+        body: JSON.stringify({ provider, providerEntityType, providerId, mediaType })
       })
     ).then((result) => {
       if (result.ok) {
         setCorrectionOpen(false);
-        setManualTmdbId("");
+        setManualProviderId("");
       }
     });
   }
 
-  function submitManualTmdbMatch(event: FormEvent<HTMLFormElement>) {
+  function submitManualProviderMatch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const tmdbId = manualTmdbId.trim();
-    if (!tmdbId) return;
-    chooseTmdbTitle(tmdbId, manualTmdbKind);
+    const providerId = manualProviderId.trim();
+    if (!providerId) return;
+    chooseProviderTitle({
+      provider: defaultProviderForKind(manualProviderKind),
+      providerEntityType: defaultProviderEntityTypeForKind(manualProviderKind),
+      providerId,
+      kind: manualProviderKind
+    });
   }
 
   return (
@@ -501,25 +518,25 @@ function ReleaseInspectorModal({
           <div className="release-sheet-title">
             <h3>{title}</h3>
             <div className="token-row">
-              {resolvedMatch?.year && <Pill>{resolvedMatch.year}</Pill>}
-              {resolvedMatch?.kind && <Pill>{resolvedMatch.kind}</Pill>}
+              {presentation?.releaseYear && <Pill>{presentation.releaseYear}</Pill>}
+              {presentation?.mediaType && presentation.mediaType !== "UNKNOWN" && <Pill>{legacyKindFromMediaType(presentation.mediaType)}</Pill>}
               {identity !== "resolved" && item.parsedRelease?.year && <Pill>{item.parsedRelease.year}</Pill>}
               {identity !== "resolved" && item.parsedRelease?.kind && item.parsedRelease.kind !== "UNKNOWN" && <Pill>{item.parsedRelease.kind}</Pill>}
             </div>
           </div>
-          <p>{resolvedMatch?.overview ?? t(identity === "resolved" ? "overview.inspector.noOverview" : "overview.inspector.chooseTitleLead")}</p>
+          <p>{presentation?.overview ?? t(identity === "resolved" ? "overview.inspector.noOverview" : "overview.inspector.chooseTitleLead")}</p>
           <div className="release-sheet-actions">
-            {identity === "resolved" ? (
+            {!enrichmentPending && identity === "resolved" ? (
               <UiButton className="secondary glass" disabled={busy} onClick={() => setCorrectionOpen((open) => !open)}>
                 <Search size={17} />
                 {t("overview.inspector.wrongTitle")}
               </UiButton>
-            ) : (
+            ) : !enrichmentPending ? (
               <UiButton className="secondary glass" disabled={busy} onClick={() => setCorrectionOpen(true)}>
                 <Search size={17} />
                 {t("overview.inspector.chooseTitle")}
               </UiButton>
-            )}
+            ) : null}
             {item.sourceUrl && (
               <a className="secondary glass source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">
                 <ExternalLink size={17} />
@@ -576,20 +593,25 @@ function ReleaseInspectorModal({
           {titleSearchResults.length > 0 && (
             <div className="title-result-grid">
               {titleSearchResults.map((result) => (
-                <article className="title-result" key={`${result.provider}-${result.providerId}`}>
-                  {result.posterPath ? (
-                    <img src={tmdbImage(result.posterPath, "w185")} alt={result.title} />
+                <article className="title-result" key={`${result.provider}-${result.providerEntityType ?? result.kind}-${result.providerId}`}>
+                  {result.posterUrl ? (
+                    <img src={result.posterUrl} alt={result.title} />
                   ) : (
                     <PosterFallback title={result.title} />
                   )}
                   <div>
                     <strong>{result.title}</strong>
-                    <span>{[result.year, result.kind].filter(Boolean).join(" · ") || t("common.unknown")}</span>
+                    <span>{[result.year, result.kind, result.attributionText].filter(Boolean).join(" · ") || t("common.unknown")}</span>
                   </div>
                   <UiButton
                     className="secondary glass"
                     disabled={busy}
-                    onClick={() => chooseTmdbTitle(result.providerId, result.kind === "TV" ? "TV" : "MOVIE")}
+                    onClick={() => chooseProviderTitle({
+                      provider: result.provider,
+                      providerEntityType: result.providerEntityType,
+                      providerId: result.providerId,
+                      kind: result.kind === "TV" ? "TV" : "MOVIE"
+                    })}
                   >
                     {t("common.select")}
                   </UiButton>
@@ -598,27 +620,27 @@ function ReleaseInspectorModal({
             </div>
           )}
           <details className="release-id-fallback">
-            <summary>{t("overview.inspector.pasteTmdbId")}</summary>
-            <form className="manual-tmdb-form" onSubmit={submitManualTmdbMatch}>
+            <summary>{t("overview.inspector.pasteProviderId")}</summary>
+            <form className="manual-provider-form" onSubmit={submitManualProviderMatch}>
               <SelectField
                 disabled={busy}
-                onValueChange={(value) => setManualTmdbKind(value === "TV" ? "TV" : "MOVIE")}
+                onValueChange={(value) => setManualProviderKind(value === "TV" ? "TV" : "MOVIE")}
                 options={[
                   { value: "MOVIE", label: t("common.movie") },
                   { value: "TV", label: t("common.tv") }
                 ]}
                 placeholder={t("common.kind")}
-                value={manualTmdbKind}
+                value={manualProviderKind}
               />
               <FormInput
                 disabled={busy}
                 inputMode="numeric"
-                onChange={(event) => setManualTmdbId(event.target.value)}
+                onChange={(event) => setManualProviderId(event.target.value)}
                 pattern="[0-9]*"
-                placeholder={t("overview.inspector.tmdbId")}
-                value={manualTmdbId}
+                placeholder={t("common.providerId")}
+                value={manualProviderId}
               />
-              <UiButton className="secondary glass" disabled={busy || !manualTmdbId.trim()}>
+              <UiButton className="secondary glass" disabled={busy || !manualProviderId.trim()}>
                 {t("common.useId")}
               </UiButton>
             </form>
@@ -632,7 +654,6 @@ function ReleaseInspectorModal({
             <span>{t("overview.inspector.parsedRelease")}</span>
             <h4>{item.parsedRelease?.title ?? title}</h4>
           </div>
-          <small>{status.detailKey ? t(status.detailKey, { defaultValue: status.detail }) : status.detail}</small>
         </header>
         <div className="release-fact-grid">
           {parsedFacts.map(([label, value]) => (
@@ -652,16 +673,15 @@ function ReleaseInspectorModal({
         <section className="release-advanced-grid">
           <div>
             <h4>{t("overview.inspector.identityDetail")}</h4>
-            <ReleaseInlineFact label={t("common.provider")} value={resolvedMatch?.provider ?? t("common.missing")} />
-            <ReleaseInlineFact label={t("common.providerId")} value={resolvedMatch?.providerId ?? t("common.missing")} />
-            <ReleaseInlineFact label={t("overview.inspector.reason")} value={item.mediaMatch?.reason ?? t("overview.inspector.noMatchReason")} />
+            <ReleaseInlineFact label={t("common.provider")} value={item.match?.providerTitle?.provider ?? t("common.missing")} />
+            <ReleaseInlineFact label={t("common.providerId")} value={item.match?.providerTitle?.providerId ?? t("common.missing")} />
+            <ReleaseInlineFact label={t("overview.inspector.reason")} value={item.match?.reason ?? t("overview.inspector.noMatchReason")} />
           </div>
           <div>
             <h4>{t("overview.inspector.sourceAndTarget")}</h4>
             <ReleaseInlineFact label={t("common.feed")} value={item.feed?.name ?? t("common.feed")} />
             <ReleaseInlineFact label={t("overview.inspector.firstSeen")} value={new Date(item.firstSeenAt).toLocaleString()} />
             <ReleaseInlineFact label={t("common.downloader")} value={downloaders.find((downloader) => downloader.isDefault)?.name ?? downloaders[0]?.name ?? t("common.noDownloader")} />
-            <ReleaseInlineFact label={t("overview.inspector.jobStatus")} value={status.detailKey ? t(status.detailKey, { defaultValue: status.detail }) : status.detail} />
           </div>
         </section>
         <section className="rss-title-panel">
@@ -671,6 +691,14 @@ function ReleaseInspectorModal({
       </details>
     </AppDialog>
   );
+}
+
+function defaultProviderForKind(kind: "MOVIE" | "TV") {
+  return kind === "TV" ? "tvdb" : "tmdb";
+}
+
+function defaultProviderEntityTypeForKind(kind: "MOVIE" | "TV") {
+  return kind === "TV" ? "tvdb_series" : "tmdb_movie";
 }
 
 function ReleaseInlineFact({ label, value }: { label: string; value: string }) {
@@ -698,8 +726,8 @@ function MediaInspectorModal({
   const { t } = useTranslation();
   const media = detail?.media;
   const title = media?.title ?? t("overview.inspector.loadingMedia");
-  const backdropUrl = media?.backdropPath ? tmdbImage(media.backdropPath, "w342") : undefined;
-  const posterUrl = media?.posterPath ? tmdbImage(media.posterPath, "w342") : undefined;
+  const backdropUrl = media?.backdropUrl ?? undefined;
+  const posterUrl = media?.posterUrl ?? undefined;
   const releases = detail?.releases ?? [];
 
   return (
@@ -827,7 +855,7 @@ function itemBelongsToStatus(item: Item, status: ReleaseStatusFilter) {
 function releaseCategory(item: Item): "MOVIE" | "TV" | "OTHER" {
   const kind = item.parsedRelease?.kind && item.parsedRelease.kind !== "UNKNOWN"
     ? item.parsedRelease.kind
-    : releaseIdentityState(item) === "resolved" ? item.mediaMatch?.kind : undefined;
+    : legacyKindFromMediaType(item.match?.presentation?.mediaType);
   return kind === "MOVIE" || kind === "TV" ? kind : "OTHER";
 }
 
@@ -838,9 +866,9 @@ function latestDownloadJob(item: Item) {
 }
 
 function posterMetadata(item: Item) {
-  const resolvedMatch = releaseIdentityState(item) === "resolved" ? item.mediaMatch : undefined;
+  const presentation = item.match?.presentation;
   const parts = [
-    resolvedMatch?.year,
+    presentation?.releaseYear,
     episodeLabel(item),
     item.parsedRelease?.quality,
     item.parsedRelease?.source,
@@ -870,9 +898,14 @@ function parsedReleaseTags(item: Item) {
 }
 
 function episodeLabel(item: Item, unknownLabel = "Unknown") {
-  const resolvedMatch = releaseIdentityState(item) === "resolved" ? item.mediaMatch : undefined;
-  if (item.parsedRelease?.kind !== "TV") return resolvedMatch?.kind ?? item.parsedRelease?.kind ?? unknownLabel;
+  const presentationKind = legacyKindFromMediaType(item.match?.presentation?.mediaType);
+  if (item.parsedRelease?.kind !== "TV") return presentationKind ?? item.parsedRelease?.kind ?? unknownLabel;
   return `S${item.parsedRelease.season ?? "?"}E${item.parsedRelease.episode ?? "?"}`;
+}
+
+function legacyKindFromMediaType(mediaType?: "MOVIE" | "TV_SERIES" | "UNKNOWN") {
+  if (!mediaType) return undefined;
+  return mediaType === "TV_SERIES" ? "TV" : mediaType;
 }
 
 function initials(value: string) {
