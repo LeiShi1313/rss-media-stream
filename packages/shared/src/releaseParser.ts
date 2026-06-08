@@ -36,10 +36,10 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
 
   const rawName = titleStop >= 0 ? normalized.slice(0, titleStop) : normalized;
   const title = cleanTitle(rawName) || cleanTitle(normalized);
-  const kind = tv || seasonPack ? "TV" : yearMatch ? "MOVIE" : "UNKNOWN";
-  const confidence = scoreConfidence({
+  const mediaType = tv || seasonPack ? "TV_SERIES" : yearMatch ? "MOVIE" : "UNKNOWN";
+  const parseConfidence = scoreConfidence({
     title,
-    kind,
+    mediaType,
     hasYear: Boolean(yearMatch),
     hasQuality: Boolean(quality),
     hasTv: Boolean(tv || seasonPack)
@@ -48,7 +48,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   return {
     title,
     year: yearMatch ? Number(yearMatch[1]) : undefined,
-    kind,
+    mediaType,
     season: tv ? Number(tv[1]) : seasonPack ? Number(seasonPack[1]) : undefined,
     episode: tv ? Number(tv[2]) : undefined,
     episodeEnd: tv?.[3] ? Number(tv[3]) : undefined,
@@ -57,7 +57,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     codec,
     audio,
     releaseGroup,
-    confidence
+    parseConfidence
   };
 }
 
@@ -127,13 +127,13 @@ function firstDefinedIndex(...indexes: Array<number | undefined>): number {
 
 function scoreConfidence(input: {
   title: string;
-  kind: string;
+  mediaType: string;
   hasYear: boolean;
   hasQuality: boolean;
   hasTv: boolean;
 }): number {
   let score = input.title ? 0.35 : 0;
-  if (input.kind !== "UNKNOWN") score += 0.25;
+  if (input.mediaType !== "UNKNOWN") score += 0.25;
   if (input.hasYear) score += 0.15;
   if (input.hasQuality) score += 0.1;
   if (input.hasTv) score += 0.15;

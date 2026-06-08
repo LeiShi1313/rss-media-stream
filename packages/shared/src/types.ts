@@ -1,9 +1,15 @@
-export type MediaKind = "MOVIE" | "TV" | "UNKNOWN";
+export type MediaType = "MOVIE" | "TV_SERIES";
+export type ParsedMediaType = MediaType | "UNKNOWN";
+export type MediaProvider = "tmdb" | "tvdb" | "imdb" | "douban" | "wikidata" | "trakt" | "musicbrainz";
+export type ProviderEntityType = `${MediaProvider}_${string}`;
+export type RatingType = "user_score" | "critic_score" | "popularity";
+export type ProviderRatingType = RatingType;
+export type RatingComparison = "gte" | "lte" | "gt" | "lt" | "eq";
 
 export type ParsedRelease = {
   title: string;
   year?: number;
-  kind: MediaKind;
+  mediaType: ParsedMediaType;
   season?: number;
   episode?: number;
   episodeEnd?: number;
@@ -13,30 +19,41 @@ export type ParsedRelease = {
   codec?: string;
   audio?: string;
   releaseGroup?: string;
-  confidence: number;
+  parseConfidence: number;
 };
 
-export type TmdbMedia = {
-  provider: "tmdb";
+export type ProviderTitleResult = {
+  provider: MediaProvider;
+  providerEntityType: ProviderEntityType;
   providerId: string;
-  kind: Exclude<MediaKind, "UNKNOWN">;
+  mediaType: MediaType;
   title: string;
+  normalizedTitle: string;
   originalTitle?: string;
-  year?: number;
-  posterPath?: string;
-  backdropPath?: string;
-  overview?: string;
-  score: number;
-  metadataJson?: unknown;
-  raw?: unknown;
+  releaseYear?: number;
+  endYear?: number;
+  language?: string;
+  region?: string;
+  payload: unknown;
+  ratingValue?: number;
+  ratingScale?: number;
+  ratingVoteCount?: number;
+  ratingType?: RatingType;
+  matchConfidence?: number;
+  matchReason?: string;
+};
+
+export type TmdbTitleResult = ProviderTitleResult & {
+  provider: "tmdb";
+  providerEntityType: "tmdb_movie" | "tmdb_tv";
 };
 
 export type SubscriptionRuleInput = {
-  mediaKind?: MediaKind | null;
-  provider?: string | null;
-  providerId?: string | null;
-  imdbId?: string | null;
-  doubanId?: string | null;
+  mediaType?: ParsedMediaType | null;
+  mediaTitleId?: string | null;
+  selectedProvider?: ProviderIdentityFilter | null;
+  linkedProviders?: ProviderIdentityFilter[] | null;
+  providerRatings?: ProviderRatingFilter[] | null;
   titleRegex?: string | null;
   includeRegex?: string | null;
   excludeRegex?: string | null;
@@ -56,11 +73,11 @@ export type SubscriptionRuleInput = {
 };
 
 export type NormalizedSubscriptionRule = {
-  mediaKind?: MediaKind;
-  provider?: string;
-  providerId?: string;
-  imdbId?: string;
-  doubanId?: string;
+  mediaType?: ParsedMediaType;
+  mediaTitleId?: string;
+  selectedProvider?: ProviderIdentityFilter;
+  linkedProviders: ProviderIdentityFilter[];
+  providerRatings: ProviderRatingFilter[];
   titleRegex?: string;
   includeRegex?: string;
   excludeRegex?: string;
@@ -78,19 +95,50 @@ export type NormalizedSubscriptionRule = {
   episodeEnd?: number;
 };
 
+export type ProviderIdentityFilter = {
+  provider: string;
+  providerEntityType?: string | null;
+  providerId: string;
+};
+
+export type ProviderRatingFilter = {
+  provider: string;
+  ratingType?: ProviderRatingType | null;
+  comparison: RatingComparison;
+  value: number;
+  scale?: number | null;
+  minVoteCount?: number | null;
+};
+
+export type ProviderTitleRuleView = {
+  providerTitleId: string;
+  provider: string;
+  providerEntityType: string;
+  providerId: string;
+  mediaType: MediaType;
+  ratingValue?: number | null;
+  ratingScale?: number | null;
+  ratingVoteCount?: number | null;
+  ratingType?: ProviderRatingType | null;
+};
+
 export type CandidateInput = {
   rawTitle: string;
   sizeBytes?: bigint | number | string | null;
   release: ParsedRelease;
-  match?: {
-    mediaId?: string;
-    provider: string;
-    providerId: string;
-    imdbId?: string | null;
-    doubanId?: string | null;
-    kind: MediaKind;
-    score: number;
-    status: string;
+  activeMatch?: {
+    id: string;
+    status: "MATCHED" | "UNMATCHED" | "REJECTED";
+    source: "AUTO" | "MANUAL";
+    confidence: number;
+    mediaTitle: {
+      id: string;
+      mediaType: MediaType;
+      canonicalTitle: string;
+      releaseYear?: number | null;
+    };
+    selectedProviderTitle: ProviderTitleRuleView;
+    linkedProviderTitles: ProviderTitleRuleView[];
   } | null;
 };
 

@@ -14,7 +14,8 @@
     "worker": "npm run worker -w @rss-media/web",
     "test": "npm run build -w @rss-media/shared && npm run test -w @rss-media/shared && npm run test -w @rss-media/web",
     "prisma:generate": "prisma generate --schema apps/web/prisma/schema.prisma",
-    "prisma:push": "prisma db push --schema apps/web/prisma/schema.prisma"
+    "prisma:push": "prisma db push --schema apps/web/prisma/schema.prisma",
+    "prisma:reset": "prisma db push --force-reset --schema apps/web/prisma/schema.prisma"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

@@ -5,25 +5,19 @@ import { requireTenantRole } from "../../core/permissions.js";
 import { parseBody, parseParams, parseQuery } from "../../core/validation.js";
 import { evaluateAutoDownloadsForItem } from "../subscriptions/subscriptions.service.js";
 import {
-  acceptCandidate,
-  backfillMediaLibraryFields,
   getMediaDetail,
   getMedia,
-  importMedia,
-  listMatchCandidates,
   listMediaItems,
   listTrendingMedia,
-  matchItemWithTmdbId,
-  matchItemWithExternalMedia,
+  manuallyMatchParsedReleaseWithProvider,
+  matchParsedReleaseForItem,
   searchLocalMedia,
   searchExternalMedia
 } from "./media.service.js";
 import {
-  acceptCandidateParamsSchema,
   itemParamsSchema,
   localMediaSearchQuerySchema,
-  manualTmdbMatchSchema,
-  mediaImportSchema,
+  manualProviderMatchSchema,
   mediaParamsSchema,
   mediaSearchQuerySchema,
   trendingMediaQuerySchema
@@ -31,7 +25,7 @@ import {
 
 export async function registerMediaRoutes(app: FastifyInstance, config: AppConfig) {
   app.get(
-    "/api/media",
+    "/api/media-titles",
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const query = parseQuery(localMediaSearchQuerySchema, request);
@@ -40,7 +34,7 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
   );
 
   app.get(
-    "/api/media/trending",
+    "/api/media-titles/trending",
     { preHandler: requireTenantRole("VIEWER") },
     async (request) => {
       const query = parseQuery(trendingMediaQuerySchema, request);
@@ -48,54 +42,17 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
     }
   );
 
-  app.post(
-    "/api/media/backfill-library-model",
-    { preHandler: requireTenantRole("OWNER") },
-    async (request) => {
-      const result = await backfillMediaLibraryFields(request.tenantId!);
-      await audit(request, "media_library.backfill", "tenant", request.tenantId!, result);
-      return result;
-    }
-  );
-
   app.get(
-    "/api/media/search",
+    "/api/provider-titles/search",
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const query = parseQuery(mediaSearchQuerySchema, request);
-      const results = await searchExternalMedia(config, request.tenantId!, query);
-
-      return results.map((item) => ({
-        provider: item.provider,
-        providerId: item.providerId,
-        kind: item.kind,
-        title: item.title,
-        originalTitle: item.originalTitle,
-        year: item.year,
-        posterPath: item.posterPath,
-        score: item.score
-      }));
-    }
-  );
-
-  app.post(
-    "/api/media/import",
-    { preHandler: requireTenantRole("MEMBER") },
-    async (request) => {
-      const input = parseBody(mediaImportSchema, request);
-      const media = await importMedia(request.tenantId!, input);
-
-      await audit(request, "media.import", "media", media.id, {
-        provider: media.provider,
-        providerId: media.providerId
-      });
-
-      return media;
+      return searchExternalMedia(config, request.tenantId!, query);
     }
   );
 
   app.get(
-    "/api/media/:mediaId",
+    "/api/media-titles/:mediaId",
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const { mediaId } = parseParams(mediaParamsSchema, request);
@@ -104,7 +61,7 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
   );
 
   app.get(
-    "/api/media/:mediaId/detail",
+    "/api/media-titles/:mediaId/detail",
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const { mediaId } = parseParams(mediaParamsSchema, request);
@@ -113,7 +70,7 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
   );
 
   app.get(
-    "/api/media/:mediaId/items",
+    "/api/media-titles/:mediaId/items",
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const { mediaId } = parseParams(mediaParamsSchema, request);
@@ -126,7 +83,7 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
     { preHandler: requireTenantRole("ADMIN") },
     async (request) => {
       const { itemId } = parseParams(itemParamsSchema, request);
-      const match = await matchItemWithExternalMedia({
+      const match = await matchParsedReleaseForItem({
         tenantId: request.tenantId!,
         itemId,
         config
@@ -134,8 +91,9 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
 
       await audit(request, "media_match.run", "item", itemId, {
         status: match.status,
-        provider: match.provider,
-        providerId: match.providerId
+        providerTitleId: match.providerTitleId,
+        mediaTitleId: match.mediaTitleId,
+        reason: match.reason
       });
 
       await evaluateAutoDownloadsForItem({
@@ -144,36 +102,36 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
         config
       });
 
-      return match;
-    }
-  );
-
-  app.get(
-    "/api/items/:itemId/match/candidates",
-    { preHandler: requireTenantRole("MEMBER") },
-    async (request) => {
-      const { itemId } = parseParams(itemParamsSchema, request);
-      return listMatchCandidates(request.tenantId!, itemId);
+      return {
+        id: match.id,
+        status: match.status,
+        mediaTitleId: match.mediaTitleId,
+        providerTitleId: match.providerTitleId,
+        reason: match.reason
+      };
     }
   );
 
   app.post(
-    "/api/items/:itemId/match/tmdb",
+    "/api/items/:itemId/match/manual",
     { preHandler: requireTenantRole("ADMIN") },
     async (request) => {
       const { itemId } = parseParams(itemParamsSchema, request);
-      const input = parseBody(manualTmdbMatchSchema, request);
-      const media = await matchItemWithTmdbId({
+      const input = parseBody(manualProviderMatchSchema, request);
+      const match = await manuallyMatchParsedReleaseWithProvider({
         tenantId: request.tenantId!,
         itemId,
         config,
         ...input
       });
 
-      await audit(request, "media_match.manual_tmdb", "media", media.id, {
+      await audit(request, "media_match.manual_provider", "item", itemId, {
         itemId,
-        providerId: input.tmdbId,
-        kind: input.kind
+        provider: input.provider,
+        providerId: input.providerId,
+        providerTitleId: match.providerTitleId,
+        mediaTitleId: match.mediaTitleId,
+        mediaType: input.mediaType
       });
 
       await evaluateAutoDownloadsForItem({
@@ -182,32 +140,13 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
         config
       });
 
-      return media;
-    }
-  );
-
-  app.post(
-    "/api/items/:itemId/match/candidates/:candidateId/accept",
-    { preHandler: requireTenantRole("ADMIN") },
-    async (request) => {
-      const params = parseParams(acceptCandidateParamsSchema, request);
-      const media = await acceptCandidate({
-        tenantId: request.tenantId!,
-        itemId: params.itemId,
-        candidateId: params.candidateId
-      });
-
-      await audit(request, "media_match.accept", "media", media.id, {
-        itemId: params.itemId
-      });
-
-      await evaluateAutoDownloadsForItem({
-        tenantId: request.tenantId!,
-        itemId: params.itemId,
-        config
-      });
-
-      return media;
+      return {
+        id: match.id,
+        status: match.status,
+        mediaTitleId: match.mediaTitleId,
+        providerTitleId: match.providerTitleId,
+        reason: match.reason
+      };
     }
   );
 }

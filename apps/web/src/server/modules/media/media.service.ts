@@ -1,94 +1,102 @@
-import type { Prisma } from "@prisma/client";
+import { createHash } from "node:crypto";
+import { ParsedReleaseMatchStatus, type Prisma } from "@prisma/client";
 import { redactSecrets } from "@rss-media/shared/redact";
-import type { MediaKind, TmdbMedia } from "@rss-media/shared/types";
+import type { MediaProvider, MediaType, ProviderTitleResult } from "@rss-media/shared/types";
 import type { AppConfig } from "../../config.js";
+import { conflict, notFound, badGateway } from "../../core/errors.js";
 import { prisma } from "../../db.js";
-import { getTmdbMediaById, searchTmdb } from "../../tmdb.js";
-import { decryptAead } from "../../secrets.js";
-import { badGateway, badRequest, conflict, notFound } from "../../core/errors.js";
+import {
+  getMetadataProviderCandidates,
+  getMetadataProvider
+} from "../../integrations/providers/index.js";
+import {
+  LOW_CONFIDENCE_THRESHOLD,
+  legacyKindFromMediaType,
+  serializeMediaPresentation,
+  serializeProviderTitleSearchResult,
+  serializeReleaseMatch
+} from "./presentation.js";
 import type {
   localMediaSearchQuerySchema,
-  mediaImportSchema,
   mediaSearchQuerySchema,
   trendingMediaQuerySchema
 } from "./media.schemas.js";
 import type { z } from "zod";
 
-type MediaProvider = "tmdb" | "imdb" | "douban";
 type MediaSearchQuery = z.infer<typeof mediaSearchQuerySchema>;
 type LocalMediaSearchQuery = z.infer<typeof localMediaSearchQuerySchema>;
 type TrendingMediaQuery = z.infer<typeof trendingMediaQuerySchema>;
-type MediaImportInput = z.infer<typeof mediaImportSchema>;
 type Transaction = Prisma.TransactionClient;
+type ActiveParsedReleaseMatch = Prisma.ParsedReleaseMatchGetPayload<{
+  include: {
+    mediaTitle: {
+      include: { providerLinks: { include: { providerTitle: true } } };
+    };
+    providerTitle: true;
+  };
+}>;
+type ParsedReleaseSnapshot = Pick<
+  Prisma.ParsedReleaseGetPayload<{}>,
+  | "id"
+  | "tenantId"
+  | "title"
+  | "year"
+  | "mediaType"
+  | "season"
+  | "episode"
+  | "episodeEnd"
+  | "resolution"
+  | "quality"
+  | "source"
+  | "codec"
+  | "audio"
+  | "releaseGroup"
+  | "parseConfidence"
+>;
 
-export type ExternalMedia = {
-  provider: MediaProvider;
-  providerId: string;
-  kind: MediaKind;
-  title: string;
-  originalTitle?: string;
-  year?: number;
-  posterPath?: string;
-  backdropPath?: string;
-  overview?: string;
-  score: number;
-  metadataJson?: unknown;
-  raw?: unknown;
-};
-
-const matchedStatuses = ["MATCHED"] as const;
+const ACTIVE_STATUSES = ["MATCHED", "UNMATCHED"] as const;
 
 export async function searchExternalMedia(
   config: AppConfig,
   tenantId: string,
   query: MediaSearchQuery
-): Promise<ExternalMedia[]> {
-  if (query.provider !== "tmdb") {
-    throw badRequest(`Media provider ${query.provider} is not supported yet`);
-  }
-
-  const results = await runTmdbSearch(config, tenantId, {
-    query: query.q,
-    kind: query.kind,
+) {
+  const results = await runProviderSearch(config, tenantId, query.provider, {
+    title: query.q,
+    mediaType: query.mediaType,
     year: query.year
   });
 
-  return results.map(fromTmdbMedia);
+  return results.map(serializeProviderTitleSearchResult);
 }
 
-export async function searchLocalMedia(tenantId: string, query: LocalMediaSearchQuery) {
-  const normalizedQuery = normalizeSearchTitle(query.q ?? "");
-  const where: Prisma.MediaWhereInput = {
-    tenantId,
-    kind: query.kind,
-    OR: normalizedQuery
-      ? [
-          { searchTitle: { contains: normalizedQuery, mode: "insensitive" } },
-          { title: { contains: query.q, mode: "insensitive" } },
-          { originalTitle: { contains: query.q, mode: "insensitive" } },
-          { providerId: query.q }
-        ]
-      : undefined
-  };
-
-  const media = await db().media.findMany({
-    where,
-    orderBy: [{ updatedAt: "desc" }, { title: "asc" }],
-    take: query.limit,
+export async function searchLocalMedia(_tenantId: string, query: LocalMediaSearchQuery) {
+  const normalizedQuery = query.q ? normalizeTitle(query.q) : undefined;
+  const media = await prisma.mediaTitle.findMany({
+    where: {
+      mediaType: query.mediaType,
+      OR: normalizedQuery
+        ? [
+            { normalizedTitle: { contains: normalizedQuery, mode: "insensitive" } },
+            { canonicalTitle: { contains: query.q, mode: "insensitive" } },
+            { originalTitle: { contains: query.q, mode: "insensitive" } }
+          ]
+        : undefined
+    },
     include: {
-      _count: {
-        select: {
-          matches: { where: { status: { in: [...matchedStatuses] } } },
-          subscriptions: true
-        }
-      }
-    }
+      providerLinks: {
+        include: { providerTitle: true }
+      },
+      _count: { select: { releaseMatches: true, subscriptions: true } }
+    },
+    orderBy: [{ updatedAt: "desc" }, { canonicalTitle: "asc" }],
+    take: query.limit
   });
 
-  return media.map((item: any) =>
-    serializeMedia({
+  return media.map((item) =>
+    serializeMediaTitle({
       ...item,
-      matchCount: item._count.matches,
+      matchCount: item._count.releaseMatches,
       subscriptionCount: item._count.subscriptions
     })
   );
@@ -96,20 +104,30 @@ export async function searchLocalMedia(tenantId: string, query: LocalMediaSearch
 
 export async function listTrendingMedia(tenantId: string, query: TrendingMediaQuery) {
   const since = new Date(Date.now() - query.windowDays * 24 * 60 * 60 * 1000);
-  const matches = await db().mediaMatch.findMany({
+  const matches = await prisma.parsedReleaseMatch.findMany({
     where: {
       tenantId,
       status: "MATCHED",
-      mediaId: { not: null },
-      item: { firstSeenAt: { gte: since } }
+      invalidatedAt: null,
+      parsedRelease: { item: { firstSeenAt: { gte: since } } }
     },
     include: {
-      media: true,
-      item: {
-        select: {
-          firstSeenAt: true,
-          parsedRelease: true,
-          feed: { select: { id: true, name: true } }
+      mediaTitle: {
+        include: {
+          providerLinks: {
+            include: { providerTitle: true }
+          }
+        }
+      },
+      providerTitle: true,
+      parsedRelease: {
+        include: {
+          item: {
+            select: {
+              firstSeenAt: true,
+              feed: { select: { id: true, name: true } }
+            }
+          }
         }
       }
     },
@@ -118,30 +136,36 @@ export async function listTrendingMedia(tenantId: string, query: TrendingMediaQu
 
   const grouped = new Map<string, any>();
   for (const match of matches) {
-    if (!match.mediaId || !match.media) continue;
-    const current = grouped.get(match.mediaId) ?? {
-      media: match.media,
+    if (!match.mediaTitleId || !match.mediaTitle) continue;
+    const current = grouped.get(match.mediaTitleId) ?? {
+      media: match.mediaTitle,
+      selectedProviderTitle: match.providerTitle,
       releaseCount: 0,
-      latestReleaseAt: match.item.firstSeenAt,
+      latestReleaseAt: match.parsedRelease.item.firstSeenAt,
       feeds: new Map<string, string>(),
       qualities: new Set<string>(),
       releaseGroups: new Set<string>()
     };
     current.releaseCount += 1;
-    if (match.item.firstSeenAt > current.latestReleaseAt) {
-      current.latestReleaseAt = match.item.firstSeenAt;
+    if (match.parsedRelease.item.firstSeenAt > current.latestReleaseAt) {
+      current.latestReleaseAt = match.parsedRelease.item.firstSeenAt;
     }
-    if (match.item.feed) current.feeds.set(match.item.feed.id, match.item.feed.name);
-    if (match.item.parsedRelease?.quality) current.qualities.add(match.item.parsedRelease.quality);
-    if (match.item.parsedRelease?.releaseGroup) current.releaseGroups.add(match.item.parsedRelease.releaseGroup);
-    grouped.set(match.mediaId, current);
+    const feed = match.parsedRelease.item.feed;
+    if (feed) current.feeds.set(feed.id, feed.name);
+    if (match.parsedRelease.quality) current.qualities.add(match.parsedRelease.quality);
+    if (match.parsedRelease.releaseGroup) current.releaseGroups.add(match.parsedRelease.releaseGroup);
+    grouped.set(match.mediaTitleId, current);
   }
 
   return [...grouped.values()]
     .sort((a, b) => b.releaseCount - a.releaseCount || b.latestReleaseAt.getTime() - a.latestReleaseAt.getTime())
     .slice(0, query.limit)
     .map((entry) => ({
-      media: serializeMedia({ ...entry.media, matchCount: entry.releaseCount, subscriptionCount: undefined }),
+      media: serializeMediaTitle({
+        ...entry.media,
+        selectedProviderTitle: entry.selectedProviderTitle,
+        matchCount: entry.releaseCount
+      }),
       releaseCount: entry.releaseCount,
       latestReleaseAt: entry.latestReleaseAt.toISOString(),
       feedCount: entry.feeds.size,
@@ -151,56 +175,61 @@ export async function listTrendingMedia(tenantId: string, query: TrendingMediaQu
     }));
 }
 
-export async function importMedia(tenantId: string, input: MediaImportInput) {
-  return prisma.$transaction((tx) => upsertMediaFromExternal(tx, tenantId, input));
-}
-
-export async function getMedia(tenantId: string, mediaId: string) {
-  const media = await db().media.findFirst({
-    where: { id: mediaId, tenantId }
+export async function getMedia(_tenantId: string, mediaTitleId: string) {
+  const media = await prisma.mediaTitle.findUnique({
+    where: { id: mediaTitleId },
+    include: {
+      providerLinks: {
+        include: { providerTitle: true }
+      },
+      _count: { select: { releaseMatches: true, subscriptions: true } }
+    }
   });
-  if (!media) throw notFound("Media");
+  if (!media) throw notFound("Media title");
 
-  const [matchCount, subscriptionCount] = await Promise.all([
-    db().mediaMatch.count({ where: { tenantId, mediaId } }),
-    db().subscription.count({ where: { tenantId, mediaId } })
-  ]);
-
-  return serializeMedia({ ...media, matchCount, subscriptionCount });
+  return serializeMediaTitle({
+    ...media,
+    matchCount: media._count.releaseMatches,
+    subscriptionCount: media._count.subscriptions
+  });
 }
 
-export async function listMediaItems(tenantId: string, mediaId: string) {
-  await assertMediaInTenant(tenantId, mediaId);
+export async function listMediaItems(tenantId: string, mediaTitleId: string) {
+  await assertMediaTitleExists(mediaTitleId);
 
-  const items = await db().rssItem.findMany({
+  const items = await prisma.rssItem.findMany({
     where: {
       tenantId,
-      mediaMatch: { mediaId }
+      parsedRelease: {
+        matches: {
+          some: {
+            tenantId,
+            mediaTitleId,
+            status: "MATCHED",
+            invalidatedAt: null
+          }
+        }
+      }
     },
     orderBy: { firstSeenAt: "desc" },
-    include: {
-      feed: { select: { id: true, name: true } },
-      parsedRelease: true,
-      mediaMatch: { include: { media: true } },
-      downloadJobs: { orderBy: { createdAt: "desc" }, take: 3 }
-    }
+    include: itemRelations()
   });
 
   return items.map(serializeItem);
 }
 
-export async function getMediaDetail(tenantId: string, mediaId: string) {
-  const media = await getMedia(tenantId, mediaId);
-  const releases = await listMediaItems(tenantId, mediaId);
+export async function getMediaDetail(tenantId: string, mediaTitleId: string) {
+  const media = await getMedia(tenantId, mediaTitleId);
+  const releases = await listMediaItems(tenantId, mediaTitleId);
   return { media, releases };
 }
 
-export async function matchItemWithExternalMedia(input: {
+export async function matchParsedReleaseForItem(input: {
   tenantId: string;
   itemId: string;
   config: AppConfig;
 }) {
-  const item = await db().rssItem.findFirst({
+  const item = await prisma.rssItem.findFirst({
     where: { id: input.itemId, tenantId: input.tenantId },
     include: { parsedRelease: true }
   });
@@ -209,573 +238,836 @@ export async function matchItemWithExternalMedia(input: {
     throw conflict("ITEM_NOT_PARSED", "Item has not been parsed");
   }
 
-  const candidates = await searchExternalMedia(input.config, input.tenantId, {
-    provider: "tmdb",
-    q: item.parsedRelease.title,
-    kind: item.parsedRelease.kind,
-    year: item.parsedRelease.year ?? undefined
+  const release = item.parsedRelease;
+  const releaseSnapshot = snapshotParsedRelease(release);
+  if (release.mediaType === "UNKNOWN") {
+    return prisma.$transaction(async (tx) => {
+      await lockParsedReleaseMatchWrites(tx, {
+        tenantId: input.tenantId,
+        parsedReleaseId: releaseSnapshot.id
+      });
+      if (!(await parsedReleaseSnapshotStillCurrent(tx, releaseSnapshot))) {
+        throwStaleParsedReleaseSnapshot();
+      }
+
+      return createUnmatchedParsedReleaseMatch(tx, {
+        tenantId: input.tenantId,
+        parsedReleaseId: releaseSnapshot.id,
+        reason: "unknown_media_type"
+      });
+    });
+  }
+
+  const selected = await selectProviderTitleCandidate({
+    config: input.config,
+    tenantId: input.tenantId,
+    title: release.title,
+    mediaType: release.mediaType,
+    year: release.year ?? undefined
   });
 
-  return prisma.$transaction(async (tx) => {
-    await storeMatchCandidates(tx, input.tenantId, input.itemId, candidates);
-
-    const best = candidates[0];
-    if (!best) {
-      return upsertUnmatchedMediaMatch(tx, input.tenantId, input.itemId, {
-        title: item.parsedRelease.title
+  if (!selected.result) {
+    return prisma.$transaction(async (tx) => {
+      await lockParsedReleaseMatchWrites(tx, {
+        tenantId: input.tenantId,
+        parsedReleaseId: releaseSnapshot.id
       });
+      if (!(await parsedReleaseSnapshotStillCurrent(tx, releaseSnapshot))) {
+        throwStaleParsedReleaseSnapshot();
+      }
+
+      return createUnmatchedParsedReleaseMatch(tx, {
+        tenantId: input.tenantId,
+        parsedReleaseId: releaseSnapshot.id,
+        reason: selected.reason
+      });
+    });
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await lockParsedReleaseMatchWrites(tx, {
+      tenantId: input.tenantId,
+      parsedReleaseId: releaseSnapshot.id
+    });
+    if (!(await parsedReleaseSnapshotStillCurrent(tx, releaseSnapshot))) {
+      throwStaleParsedReleaseSnapshot();
     }
 
-    const status = best.score >= 0.88 ? "MATCHED" : "CANDIDATE";
-    const matchedAt = status === "MATCHED" ? new Date() : null;
-    const media =
-      status === "MATCHED"
-        ? await upsertMediaFromExternal(tx, input.tenantId, best)
-        : null;
+    const providerTitle = await upsertProviderTitle(tx, selected.result);
+    const mediaTitle = await upsertMediaTitleFromProviderTitle(tx, providerTitle);
+    const confidence = selected.result.matchConfidence ?? 0;
+    await confirmMediaTitleProviderLink(tx, {
+      mediaTitleId: mediaTitle.id,
+      providerTitleId: providerTitle.id,
+      confidence,
+      source: "SEARCH_MATCH"
+    });
 
-    return db(tx).mediaMatch.upsert({
-      where: {
-        itemId_tenantId: {
-          itemId: input.itemId,
-          tenantId: input.tenantId
-        }
-      },
-      create: {
-        tenantId: input.tenantId,
-        itemId: input.itemId,
-        mediaId: media?.id,
-        provider: best.provider,
-        providerId: best.providerId,
-        kind: best.kind,
-        title: best.title,
-        originalTitle: best.originalTitle,
-        year: best.year,
-        posterPath: best.posterPath,
-        backdropPath: best.backdropPath,
-        overview: best.overview,
-        score: best.score,
-        status,
-        matchedAt,
-        reason: status === "MATCHED" ? "automatic_match" : "candidate_below_threshold"
-      },
-      update: {
-        mediaId: media?.id,
-        provider: best.provider,
-        providerId: best.providerId,
-        kind: best.kind,
-        title: best.title,
-        originalTitle: best.originalTitle,
-        year: best.year,
-        posterPath: best.posterPath,
-        backdropPath: best.backdropPath,
-        overview: best.overview,
-        score: best.score,
-        status,
-        matchedAt,
-        reason: status === "MATCHED" ? "automatic_match" : "candidate_below_threshold"
-      }
+    return createMatchedParsedReleaseMatch(tx, {
+      tenantId: input.tenantId,
+      parsedReleaseId: releaseSnapshot.id,
+      mediaTitleId: mediaTitle.id,
+      providerTitleId: providerTitle.id,
+      mediaType: mediaTitle.mediaType,
+      source: "AUTO",
+      confidence,
+      reason: confidence < LOW_CONFIDENCE_THRESHOLD
+        ? "automatic_low_confidence_match"
+        : "automatic_match"
     });
   });
 }
 
-export async function matchItemWithTmdbId(input: {
+async function selectProviderTitleCandidate(input: {
+  config: AppConfig;
+  tenantId: string;
+  mediaType: MediaType;
+  title: string;
+  year?: number;
+}) {
+  let configured = 0;
+  let missingReleaseYear = false;
+  let providerFailed = false;
+
+  for (const provider of getMetadataProviderCandidates(input.mediaType)) {
+    if (!(await provider.isConfigured({ config: input.config, tenantId: input.tenantId }))) {
+      continue;
+    }
+    configured += 1;
+
+    let result: ProviderTitleResult | undefined;
+    try {
+      [result] = await runProviderSearch(input.config, input.tenantId, provider.id, {
+        title: input.title,
+        mediaType: input.mediaType,
+        year: input.year
+      });
+    } catch {
+      providerFailed = true;
+      continue;
+    }
+    if (!result) continue;
+    if (result.releaseYear == null) {
+      missingReleaseYear = true;
+      continue;
+    }
+    return { result };
+  }
+
+  return {
+    reason: configured === 0
+      ? "provider_not_configured"
+      : missingReleaseYear
+        ? "missing_release_year_for_auto_match"
+        : providerFailed
+          ? "no_result"
+        : "no_result"
+  };
+}
+
+function snapshotParsedRelease(release: ParsedReleaseSnapshot): ParsedReleaseSnapshot {
+  return {
+    id: release.id,
+    tenantId: release.tenantId,
+    title: release.title,
+    year: release.year,
+    mediaType: release.mediaType,
+    season: release.season,
+    episode: release.episode,
+    episodeEnd: release.episodeEnd,
+    resolution: release.resolution,
+    quality: release.quality,
+    source: release.source,
+    codec: release.codec,
+    audio: release.audio,
+    releaseGroup: release.releaseGroup,
+    parseConfidence: release.parseConfidence
+  };
+}
+
+async function parsedReleaseSnapshotStillCurrent(
+  tx: Transaction,
+  snapshot: ParsedReleaseSnapshot
+) {
+  const current = await db(tx).parsedRelease.findUnique({
+    where: { id_tenantId: { id: snapshot.id, tenantId: snapshot.tenantId } },
+    select: {
+      id: true,
+      tenantId: true,
+      title: true,
+      year: true,
+      mediaType: true,
+      season: true,
+      episode: true,
+      episodeEnd: true,
+      resolution: true,
+      quality: true,
+      source: true,
+      codec: true,
+      audio: true,
+      releaseGroup: true,
+      parseConfidence: true
+    }
+  });
+
+  return current != null && parsedReleaseSnapshotsMatch(snapshot, current);
+}
+
+function parsedReleaseSnapshotsMatch(
+  expected: ParsedReleaseSnapshot,
+  current: ParsedReleaseSnapshot
+) {
+  return [
+    expected.id === current.id,
+    expected.tenantId === current.tenantId,
+    expected.title === current.title,
+    expected.year === current.year,
+    expected.mediaType === current.mediaType,
+    expected.season === current.season,
+    expected.episode === current.episode,
+    expected.episodeEnd === current.episodeEnd,
+    expected.resolution === current.resolution,
+    expected.quality === current.quality,
+    expected.source === current.source,
+    expected.codec === current.codec,
+    expected.audio === current.audio,
+    expected.releaseGroup === current.releaseGroup,
+    expected.parseConfidence === current.parseConfidence
+  ].every(Boolean);
+}
+
+function throwStaleParsedReleaseSnapshot(): never {
+  throw conflict(
+    "PARSED_RELEASE_CHANGED",
+    "Parsed release changed while matching; retry matching with the current parse"
+  );
+}
+
+export async function manuallyMatchParsedReleaseWithProvider(input: {
   tenantId: string;
   itemId: string;
   config: AppConfig;
-  tmdbId: string;
-  kind: "MOVIE" | "TV";
+  provider: MediaProvider;
+  providerEntityType?: string;
+  providerId: string;
+  mediaType: MediaType;
 }) {
-  await assertItemInTenant(input.tenantId, input.itemId);
-  const media = fromTmdbMedia(
-    await runTmdbDetailLookup(input.config, input.tenantId, {
-      tmdbId: input.tmdbId,
-      kind: input.kind
-    })
-  );
-  media.score = 1;
-
-  return prisma.$transaction(async (tx) => {
-    const storedMedia = await upsertMediaFromExternal(tx, input.tenantId, media);
-    await db(tx).mediaMatch.upsert({
-      where: {
-        itemId_tenantId: {
-          itemId: input.itemId,
-          tenantId: input.tenantId
-        }
-      },
-      create: {
-        tenantId: input.tenantId,
-        itemId: input.itemId,
-        mediaId: storedMedia.id,
-        provider: storedMedia.provider,
-        providerId: storedMedia.providerId,
-        kind: storedMedia.kind,
-        title: storedMedia.title,
-        originalTitle: storedMedia.originalTitle,
-        year: storedMedia.year,
-        posterPath: storedMedia.posterPath,
-        backdropPath: storedMedia.backdropPath,
-        overview: storedMedia.overview,
-        score: 1,
-        status: "MATCHED",
-        matchedAt: new Date(),
-        reason: "manual_tmdb_id"
-      },
-      update: {
-        mediaId: storedMedia.id,
-        provider: storedMedia.provider,
-        providerId: storedMedia.providerId,
-        kind: storedMedia.kind,
-        title: storedMedia.title,
-        originalTitle: storedMedia.originalTitle,
-        year: storedMedia.year,
-        posterPath: storedMedia.posterPath,
-        backdropPath: storedMedia.backdropPath,
-        overview: storedMedia.overview,
-        score: 1,
-        status: "MATCHED",
-        matchedAt: new Date(),
-        reason: "manual_tmdb_id"
-      }
-    });
-
-    return storedMedia;
-  });
-}
-
-export async function listMatchCandidates(tenantId: string, itemId: string) {
-  await assertItemInTenant(tenantId, itemId);
-
-  return db().mediaMatchCandidate.findMany({
-    where: { tenantId, itemId },
-    orderBy: [{ chosenAt: "desc" }, { rank: "asc" }, { createdAt: "desc" }]
-  });
-}
-
-export async function acceptCandidate(input: {
-  tenantId: string;
-  itemId: string;
-  candidateId: string;
-}) {
-  return prisma.$transaction(async (tx) => {
-    const candidate = await db(tx).mediaMatchCandidate.findFirst({
-      where: {
-        id: input.candidateId,
-        itemId: input.itemId,
-        tenantId: input.tenantId
-      }
-    });
-    if (!candidate) throw notFound("Match candidate");
-
-    const media = await upsertMediaFromCandidate(tx, input.tenantId, candidate);
-
-    await db(tx).mediaMatch.upsert({
-      where: {
-        itemId_tenantId: {
-          itemId: input.itemId,
-          tenantId: input.tenantId
-        }
-      },
-      create: {
-        tenantId: input.tenantId,
-        itemId: input.itemId,
-        mediaId: media.id,
-        provider: media.provider,
-        providerId: media.providerId,
-        kind: media.kind,
-        title: media.title,
-        originalTitle: media.originalTitle,
-        year: media.year,
-        posterPath: media.posterPath,
-        backdropPath: media.backdropPath,
-        overview: media.overview,
-        score: candidate.score,
-        status: "MATCHED",
-        matchedAt: new Date(),
-        reason: "accepted_candidate"
-      },
-      update: {
-        mediaId: media.id,
-        provider: media.provider,
-        providerId: media.providerId,
-        kind: media.kind,
-        title: media.title,
-        originalTitle: media.originalTitle,
-        year: media.year,
-        posterPath: media.posterPath,
-        backdropPath: media.backdropPath,
-        overview: media.overview,
-        score: candidate.score,
-        status: "MATCHED",
-        matchedAt: new Date(),
-        reason: "accepted_candidate"
-      }
-    });
-
-    await db(tx).mediaMatchCandidate.update({
-      where: { id: candidate.id },
-      data: { chosenAt: new Date() }
-    });
-
-    return media;
-  });
-}
-
-export async function upsertMediaFromExternal(
-  tx: Transaction,
-  tenantId: string,
-  media: ExternalMedia
-) {
-  return db(tx).media.upsert({
-    where: {
-      tenantId_provider_providerId: {
-        tenantId,
-        provider: media.provider,
-        providerId: media.providerId
-      }
-    },
-    create: {
-      tenantId,
-      provider: media.provider,
-      providerId: media.providerId,
-      kind: media.kind,
-      title: media.title,
-      originalTitle: media.originalTitle,
-      year: media.year,
-      posterPath: media.posterPath,
-      backdropPath: media.backdropPath,
-      overview: media.overview,
-      searchTitle: normalizeSearchTitle(media.title),
-      tmdbFetchedAt: media.provider === "tmdb" ? new Date() : undefined,
-      metadataJson: media.metadataJson === undefined ? undefined : sanitizeProviderValue(media.metadataJson, 0)
-    },
-    update: {
-      kind: media.kind,
-      title: media.title,
-      originalTitle: media.originalTitle,
-      year: media.year,
-      posterPath: media.posterPath,
-      backdropPath: media.backdropPath,
-      overview: media.overview,
-      searchTitle: normalizeSearchTitle(media.title),
-      tmdbFetchedAt: media.provider === "tmdb" ? new Date() : undefined,
-      metadataJson: media.metadataJson === undefined ? undefined : sanitizeProviderValue(media.metadataJson, 0)
-    }
-  });
-}
-
-export async function storeMatchCandidates(
-  tx: Transaction,
-  tenantId: string,
-  itemId: string,
-  candidates: ExternalMedia[]
-) {
-  await db(tx).mediaMatchCandidate.deleteMany({
-    where: { tenantId, itemId, chosenAt: null }
-  });
-
-  if (candidates.length === 0) return { count: 0 };
-
-  return db(tx).mediaMatchCandidate.createMany({
-    data: candidates.map((candidate, index) => ({
-      tenantId,
-      itemId,
-      provider: candidate.provider,
-      providerId: candidate.providerId,
-      kind: candidate.kind,
-      title: candidate.title,
-      originalTitle: candidate.originalTitle,
-      year: candidate.year,
-      posterPath: candidate.posterPath,
-      backdropPath: candidate.backdropPath,
-      overview: candidate.overview,
-      score: candidate.score,
-      rank: index + 1,
-      rawExcerpt: redactProviderPayload(candidate.raw)
-    }))
-  });
-}
-
-export function redactProviderPayload(raw: unknown): unknown {
-  return sanitizeProviderValue(raw, 0);
-}
-
-function fromTmdbMedia(media: TmdbMedia): ExternalMedia {
-  return {
-    provider: media.provider,
-    providerId: media.providerId,
-    kind: media.kind,
-    title: media.title,
-    originalTitle: media.originalTitle,
-    year: media.year,
-    posterPath: media.posterPath,
-    backdropPath: media.backdropPath,
-    overview: media.overview,
-    score: media.score,
-    metadataJson: media.metadataJson,
-    raw: media.raw
-  };
-}
-
-export async function backfillMediaLibraryFields(tenantId?: string) {
-  const [mediaRows, matchRows] = await Promise.all([
-    prisma.media.findMany({
-      where: { tenantId, searchTitle: null },
-      select: { id: true, title: true }
-    }),
-    prisma.mediaMatch.findMany({
-      where: { tenantId, status: "MATCHED", matchedAt: null },
-      select: { id: true, updatedAt: true }
-    })
-  ]);
-
-  if (mediaRows.length > 0) {
-    await prisma.$transaction(
-      mediaRows.map((media) =>
-        prisma.media.update({
-          where: { id: media.id },
-          data: { searchTitle: normalizeSearchTitle(media.title) }
-        })
-      )
-    );
-  }
-
-  if (matchRows.length > 0) {
-    await prisma.$transaction(
-      matchRows.map((match) =>
-        prisma.mediaMatch.update({
-          where: { id: match.id },
-          data: { matchedAt: match.updatedAt }
-        })
-      )
-    );
-  }
-
-  return {
-    mediaSearchTitles: mediaRows.length,
-    matchedAt: matchRows.length
-  };
-}
-
-async function runTmdbSearch(config: AppConfig, tenantId: string, input: Parameters<typeof searchTmdb>[1]) {
-  try {
-    return await searchTmdb(config, input, tenantId);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === "TMDB API key is not configured") {
-      throw conflict("TMDB_NOT_CONFIGURED", "Add a TMDB API key in Workspace before matching media");
-    }
-    throw badGateway(message);
-  }
-}
-
-async function runTmdbDetailLookup(
-  config: AppConfig,
-  tenantId: string,
-  input: Parameters<typeof getTmdbMediaById>[2]
-) {
-  try {
-    return await getTmdbMediaById(config, tenantId, input);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === "TMDB API key is not configured") {
-      throw conflict("TMDB_NOT_CONFIGURED", "Add a TMDB API key in Settings before matching media");
-    }
-    throw badGateway(message);
-  }
-}
-
-async function upsertUnmatchedMediaMatch(
-  tx: Transaction,
-  tenantId: string,
-  itemId: string,
-  input: { title: string }
-) {
-  return db(tx).mediaMatch.upsert({
-    where: {
-      itemId_tenantId: {
-        itemId,
-        tenantId
-      }
-    },
-    create: {
-      tenantId,
-      itemId,
-      provider: "tmdb",
-      providerId: "unmatched",
-      kind: "UNKNOWN",
-      title: input.title,
-      score: 0,
-      status: "UNMATCHED",
-      matchedAt: null,
-      reason: "no_candidates"
-    },
-    update: {
-      mediaId: null,
-      provider: "tmdb",
-      providerId: "unmatched",
-      kind: "UNKNOWN",
-      title: input.title,
-      originalTitle: null,
-      year: null,
-      posterPath: null,
-      backdropPath: null,
-      overview: null,
-      score: 0,
-      status: "UNMATCHED",
-      matchedAt: null,
-      reason: "no_candidates"
-    }
-  });
-}
-
-async function upsertMediaFromCandidate(
-  tx: Transaction,
-  tenantId: string,
-  candidate: {
-    provider: MediaProvider;
-    providerId: string;
-    kind: MediaKind;
-    title: string;
-    originalTitle?: string | null;
-    year?: number | null;
-    posterPath?: string | null;
-    backdropPath?: string | null;
-    overview?: string | null;
-    score: number;
-  }
-) {
-  return upsertMediaFromExternal(tx, tenantId, {
-    provider: candidate.provider,
-    providerId: candidate.providerId,
-    kind: candidate.kind,
-    title: candidate.title,
-    originalTitle: candidate.originalTitle ?? undefined,
-    year: candidate.year ?? undefined,
-    posterPath: candidate.posterPath ?? undefined,
-    backdropPath: candidate.backdropPath ?? undefined,
-    overview: candidate.overview ?? undefined,
-    score: candidate.score
-  });
-}
-
-async function assertItemInTenant(tenantId: string, itemId: string) {
-  const item = await db().rssItem.findFirst({
-    where: { id: itemId, tenantId },
-    select: { id: true }
+  const item = await prisma.rssItem.findFirst({
+    where: { id: input.itemId, tenantId: input.tenantId },
+    include: { parsedRelease: true }
   });
   if (!item) throw notFound("Item");
+  if (!item.parsedRelease) {
+    throw conflict("ITEM_NOT_PARSED", "Item has not been parsed");
+  }
+
+  const providerEntityType = input.providerEntityType ?? providerEntityTypeFor(input.provider, input.mediaType);
+  const selected = await runProviderDetailLookup(input.config, input.tenantId, input.provider, {
+    providerEntityType,
+    providerId: input.providerId,
+    mediaType: input.mediaType
+  });
+
+  return prisma.$transaction(async (tx) => {
+    await lockParsedReleaseMatchWrites(tx, {
+      tenantId: input.tenantId,
+      parsedReleaseId: item.parsedRelease!.id
+    });
+    const oldActive = await findActiveParsedReleaseMatch(tx, {
+      tenantId: input.tenantId,
+      parsedReleaseId: item.parsedRelease!.id
+    });
+    const providerTitle = await upsertProviderTitle(tx, selected);
+    const mediaTitle = await upsertMediaTitleFromProviderTitle(tx, providerTitle);
+
+    await confirmMediaTitleProviderLink(tx, {
+      mediaTitleId: mediaTitle.id,
+      providerTitleId: providerTitle.id,
+      confidence: 1,
+      source: "MANUAL"
+    });
+
+    const replacedMatchIds = await rejectActiveMatchedParsedReleaseMatches(tx, {
+      tenantId: input.tenantId,
+      parsedReleaseId: item.parsedRelease!.id,
+      reason: "user_replaced_match"
+    });
+
+    if (oldActive?.status === "UNMATCHED") {
+      await invalidateActiveReleaseDecisions(tx, {
+        tenantId: input.tenantId,
+        parsedReleaseId: item.parsedRelease!.id,
+        staleReason: "manual_provider_identity"
+      });
+    }
+
+    const next = await createMatchedParsedReleaseMatch(tx, {
+      tenantId: input.tenantId,
+      parsedReleaseId: item.parsedRelease!.id,
+      mediaTitleId: mediaTitle.id,
+      providerTitleId: providerTitle.id,
+      mediaType: mediaTitle.mediaType,
+      source: "MANUAL",
+      confidence: 1,
+      reason: "manual_provider_identity",
+      replaceActive: false
+    });
+
+    if (replacedMatchIds.length > 0) {
+      await db(tx).parsedReleaseMatch.updateMany({
+        where: { id: { in: replacedMatchIds } },
+        data: { replacedByMatchId: next.id }
+      });
+    }
+
+    return next;
+  });
 }
 
-async function assertMediaInTenant(tenantId: string, mediaId: string) {
-  const media = await db().media.findFirst({
-    where: { id: mediaId, tenantId },
+export async function upsertProviderTitle(tx: Transaction, result: ProviderTitleResult) {
+  const payload = toPrismaJson(result.payload);
+  const payloadHash = hashJson(payload);
+
+  return db(tx).providerTitle.upsert({
+    where: {
+      provider_providerEntityType_providerId: {
+        provider: result.provider,
+        providerEntityType: result.providerEntityType,
+        providerId: result.providerId
+      }
+    },
+    create: {
+      provider: result.provider,
+      providerEntityType: result.providerEntityType,
+      providerId: result.providerId,
+      mediaType: result.mediaType,
+      title: result.title,
+      normalizedTitle: result.normalizedTitle || normalizeTitle(result.title),
+      originalTitle: result.originalTitle,
+      releaseYear: result.releaseYear,
+      endYear: result.endYear,
+      language: result.language,
+      region: result.region,
+      payload,
+      payloadHash,
+      ratingValue: result.ratingValue,
+      ratingScale: result.ratingScale,
+      ratingVoteCount: result.ratingVoteCount,
+      ratingType: providerRatingType(result.ratingType)
+    },
+    update: {
+      mediaType: result.mediaType,
+      title: result.title,
+      normalizedTitle: result.normalizedTitle || normalizeTitle(result.title),
+      originalTitle: result.originalTitle,
+      releaseYear: result.releaseYear,
+      endYear: result.endYear,
+      language: result.language,
+      region: result.region,
+      payload,
+      payloadHash,
+      ratingValue: result.ratingValue,
+      ratingScale: result.ratingScale,
+      ratingVoteCount: result.ratingVoteCount,
+      ratingType: providerRatingType(result.ratingType),
+      fetchedAt: new Date()
+    }
+  });
+}
+
+export async function upsertMediaTitleFromProviderTitle(
+  tx: Transaction,
+  providerTitle: Prisma.ProviderTitleGetPayload<{}>
+) {
+  const existingLink = await db(tx).mediaTitleProviderLink.findUnique({
+    where: { providerTitleId: providerTitle.id },
+    include: { mediaTitle: true }
+  });
+  if (existingLink?.mediaTitle) return existingLink.mediaTitle;
+
+  const normalizedTitle = providerTitle.normalizedTitle || normalizeTitle(providerTitle.title);
+  if (providerTitle.releaseYear != null) {
+    await lockKnownYearMediaTitleWrites(tx, {
+      mediaType: providerTitle.mediaType,
+      normalizedTitle,
+      releaseYear: providerTitle.releaseYear
+    });
+  }
+
+  const existing = await db(tx).mediaTitle.findFirst({
+    where: {
+      mediaType: providerTitle.mediaType,
+      normalizedTitle,
+      releaseYear: providerTitle.releaseYear ?? null
+    },
+    orderBy: { createdAt: "asc" }
+  });
+  if (existing) return existing;
+
+  return db(tx).mediaTitle.create({
+    data: {
+      mediaType: providerTitle.mediaType,
+      canonicalTitle: providerTitle.title,
+      normalizedTitle,
+      originalTitle: providerTitle.originalTitle,
+      releaseYear: providerTitle.releaseYear,
+      endYear: providerTitle.endYear
+    }
+  });
+}
+
+export async function confirmMediaTitleProviderLink(
+  tx: Transaction,
+  input: {
+    mediaTitleId: string;
+    providerTitleId: string;
+    confidence: number;
+    source: "MANUAL" | "PROVIDER_CROSSREF" | "SEARCH_MATCH" | "IMPORT";
+  }
+) {
+  const [mediaTitle, providerTitle] = await Promise.all([
+    db(tx).mediaTitle.findUnique({ where: { id: input.mediaTitleId } }),
+    db(tx).providerTitle.findUnique({ where: { id: input.providerTitleId } })
+  ]);
+  if (!mediaTitle || !providerTitle) throw notFound("Media/provider title");
+  if (mediaTitle.mediaType !== providerTitle.mediaType) {
+    throw conflict("MEDIA_TYPE_MISMATCH", "Provider title media type must match canonical title");
+  }
+
+  const existing = await db(tx).mediaTitleProviderLink.findUnique({
+    where: { providerTitleId: input.providerTitleId }
+  });
+  if (existing && existing.mediaTitleId !== input.mediaTitleId) {
+    throw conflict("PROVIDER_TITLE_ALREADY_LINKED", "Provider title is already linked to another media title");
+  }
+
+  return db(tx).mediaTitleProviderLink.upsert({
+    where: { providerTitleId: input.providerTitleId },
+    create: {
+      mediaTitleId: input.mediaTitleId,
+      providerTitleId: input.providerTitleId,
+      mediaType: mediaTitle.mediaType,
+      confidence: input.confidence,
+      source: input.source,
+      confirmedAt: new Date()
+    },
+    update: {
+      confidence: input.confidence,
+      source: input.source,
+      confirmedAt: new Date()
+    }
+  });
+}
+
+export async function findActiveParsedReleaseMatch(
+  tx: Transaction,
+  input: { tenantId: string; parsedReleaseId: string }
+): Promise<ActiveParsedReleaseMatch | null> {
+  return db(tx).parsedReleaseMatch.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      parsedReleaseId: input.parsedReleaseId,
+      status: { in: [...ACTIVE_STATUSES] },
+      invalidatedAt: null
+    },
+    include: {
+      mediaTitle: {
+        include: { providerLinks: { include: { providerTitle: true } } }
+      },
+      providerTitle: true
+    },
+    orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
+  });
+}
+
+export async function invalidateActiveReleaseDecisions(
+  tx: Transaction,
+  input: { tenantId: string; parsedReleaseId: string; staleReason: string }
+) {
+  return db(tx).parsedReleaseMatch.updateMany({
+    where: {
+      tenantId: input.tenantId,
+      parsedReleaseId: input.parsedReleaseId,
+      invalidatedAt: null,
+      status: { in: [...ACTIVE_STATUSES] }
+    },
+    data: {
+      invalidatedAt: new Date(),
+      staleReason: input.staleReason
+    }
+  });
+}
+
+async function rejectActiveMatchedParsedReleaseMatches(
+  tx: Transaction,
+  input: { tenantId: string; parsedReleaseId: string; reason: string }
+) {
+  await lockParsedReleaseMatchWrites(tx, input);
+
+  const activeMatches = await db(tx).parsedReleaseMatch.findMany({
+    where: {
+      tenantId: input.tenantId,
+      parsedReleaseId: input.parsedReleaseId,
+      status: "MATCHED",
+      invalidatedAt: null
+    },
     select: { id: true }
   });
-  if (!media) throw notFound("Media");
+  const ids = activeMatches.map((match: { id: string }) => match.id);
+  if (ids.length === 0) return ids;
+
+  await db(tx).parsedReleaseMatch.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      status: "REJECTED",
+      reason: input.reason,
+      rejectedAt: new Date()
+    }
+  });
+
+  return ids;
 }
 
-function serializeMedia(media: any) {
+export async function createUnmatchedParsedReleaseMatch(
+  tx: Transaction,
+  input: { tenantId: string; parsedReleaseId: string; reason: string }
+) {
+  assertMatchShape({ status: "UNMATCHED", reason: input.reason });
+  await lockParsedReleaseMatchWrites(tx, input);
+
+  const active = await findActiveParsedReleaseMatch(tx, input);
+  if (active?.status === "UNMATCHED" && active.reason === input.reason) return active;
+
+  await invalidateActiveReleaseDecisions(tx, {
+    ...input,
+    staleReason: input.reason
+  });
+
+  return db(tx).parsedReleaseMatch.create({
+    data: {
+      tenantId: input.tenantId,
+      parsedReleaseId: input.parsedReleaseId,
+      status: "UNMATCHED",
+      source: "AUTO",
+      reason: input.reason
+    },
+    include: { mediaTitle: true, providerTitle: true }
+  });
+}
+
+export async function createMatchedParsedReleaseMatch(
+  tx: Transaction,
+  input: {
+    tenantId: string;
+    parsedReleaseId: string;
+    mediaTitleId: string;
+    providerTitleId: string;
+    mediaType: MediaType;
+    source: "AUTO" | "MANUAL";
+    confidence: number;
+    reason: string;
+    replaceActive?: boolean;
+  }
+) {
+  assertMatchShape({ status: "MATCHED", ...input });
+  await lockParsedReleaseMatchWrites(tx, input);
+
+  if (input.replaceActive !== false) {
+    await invalidateActiveReleaseDecisions(tx, {
+      tenantId: input.tenantId,
+      parsedReleaseId: input.parsedReleaseId,
+      staleReason: input.reason
+    });
+  }
+
+  const link = await db(tx).mediaTitleProviderLink.findFirst({
+    where: {
+      mediaTitleId: input.mediaTitleId,
+      providerTitleId: input.providerTitleId,
+      mediaType: input.mediaType
+    }
+  });
+  if (!link) {
+    throw conflict("PROVIDER_TITLE_NOT_LINKED", "Matched provider title must be confirmed for the media title");
+  }
+
+  return db(tx).parsedReleaseMatch.create({
+    data: {
+      tenantId: input.tenantId,
+      parsedReleaseId: input.parsedReleaseId,
+      mediaTitleId: input.mediaTitleId,
+      providerTitleId: input.providerTitleId,
+      mediaType: input.mediaType,
+      status: "MATCHED",
+      source: input.source,
+      confidence: input.confidence,
+      reason: input.reason,
+      matchedAt: new Date()
+    },
+    include: { mediaTitle: true, providerTitle: true }
+  });
+}
+
+export async function invalidateMatchesForParsedRelease(input: {
+  tenantId: string;
+  parsedReleaseId: string;
+  staleReason: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    await lockParsedReleaseMatchWrites(tx, input);
+    return invalidateActiveReleaseDecisions(tx, input);
+  });
+}
+
+async function lockParsedReleaseMatchWrites(
+  tx: Transaction,
+  input: { tenantId: string; parsedReleaseId: string }
+) {
+  await lockTransactionKey(tx, `parsed-release-match:${input.tenantId}:${input.parsedReleaseId}`);
+}
+
+async function lockKnownYearMediaTitleWrites(
+  tx: Transaction,
+  input: { mediaType: string; normalizedTitle: string; releaseYear: number }
+) {
+  await lockTransactionKey(
+    tx,
+    `media-title:${input.mediaType}:${input.normalizedTitle}:${input.releaseYear}`
+  );
+}
+
+async function lockTransactionKey(tx: Transaction, key: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+}
+
+async function runProviderSearch(
+  config: AppConfig,
+  tenantId: string,
+  providerId: MediaProvider,
+  input: { title: string; mediaType: MediaType; year?: number }
+) {
+  try {
+    return await getMetadataProvider(providerId).search(
+      {
+        title: input.title,
+        mediaType: input.mediaType,
+        year: input.year
+      },
+      { config, tenantId }
+    );
+  } catch (error) {
+    throw providerError(error);
+  }
+}
+
+async function runProviderDetailLookup(
+  config: AppConfig,
+  tenantId: string,
+  providerId: MediaProvider,
+  input: { providerEntityType: string; providerId: string; mediaType: MediaType }
+) {
+  try {
+    return await getMetadataProvider(providerId).fetchTitle(
+      {
+        providerEntityType: input.providerEntityType,
+        providerId: input.providerId,
+        mediaType: input.mediaType
+      },
+      { config, tenantId }
+    );
+  } catch (error) {
+    throw providerError(error);
+  }
+}
+
+function providerError(error: unknown) {
+  const message = redactSecrets(error instanceof Error ? error.message : String(error));
+  if (/api key is not configured/i.test(message)) {
+    return conflict("PROVIDER_NOT_CONFIGURED", "Add the provider API key before matching media");
+  }
+  return badGateway(message);
+}
+
+function providerEntityTypeFor(provider: MediaProvider, mediaType: MediaType) {
+  if (provider === "tmdb" && mediaType === "MOVIE") return "tmdb_movie";
+  if (provider === "tmdb" && mediaType === "TV_SERIES") return "tmdb_tv";
+  if (provider === "tvdb" && mediaType === "TV_SERIES") return "tvdb_series";
+  throw conflict("UNSUPPORTED_PROVIDER_ENTITY", `Provider ${provider} does not support ${mediaType} detail lookup yet`);
+}
+
+async function assertMediaTitleExists(mediaTitleId: string) {
+  const media = await prisma.mediaTitle.findUnique({
+    where: { id: mediaTitleId },
+    select: { id: true }
+  });
+  if (!media) throw notFound("Media title");
+}
+
+function assertMatchShape(input: {
+  status: "MATCHED" | "UNMATCHED";
+  mediaTitleId?: string;
+  providerTitleId?: string;
+  confidence?: number;
+  reason?: string;
+}) {
+  if (input.status === "MATCHED") {
+    if (!input.mediaTitleId || !input.providerTitleId || input.confidence === undefined) {
+      throw conflict("INVALID_MATCH_SHAPE", "Matched release decisions require mediaTitleId, providerTitleId, and confidence");
+    }
+    return;
+  }
+
+  if (!input.reason || input.mediaTitleId || input.providerTitleId) {
+    throw conflict("INVALID_MATCH_SHAPE", "Unmatched release decisions require a reason and no title links");
+  }
+}
+
+function serializeMediaTitle(media: any) {
+  const presentation = serializeMediaPresentation({
+    mediaTitle: media,
+    providerTitle: media.selectedProviderTitle,
+    providerLinks: media.providerLinks
+  });
+
   return {
     id: media.id,
-    provider: media.provider,
-    providerId: media.providerId,
-    kind: media.kind,
-    title: media.title,
-    originalTitle: media.originalTitle,
-    year: media.year,
-    posterPath: media.posterPath,
-    backdropPath: media.backdropPath,
-    overview: media.overview,
-    searchTitle: media.searchTitle,
-    tmdbFetchedAt: media.tmdbFetchedAt,
-    metadataJson: media.metadataJson,
-    createdAt: media.createdAt,
-    updatedAt: media.updatedAt,
+    mediaTitleId: media.id,
+    kind: legacyKindFromMediaType(media.mediaType),
+    mediaType: media.mediaType,
+    title: presentation.title,
+    originalTitle: presentation.originalTitle,
+    year: presentation.releaseYear,
+    releaseYear: presentation.releaseYear,
+    overview: presentation.overview,
+    posterUrl: presentation.posterUrl,
+    backdropUrl: presentation.backdropUrl,
+    displaySource: presentation.displaySource,
+    rating: presentation.rating,
+    hasCover: presentation.hasCover,
+    createdAt: media.createdAt?.toISOString?.() ?? media.createdAt,
+    updatedAt: media.updatedAt?.toISOString?.() ?? media.updatedAt,
     matchCount: media.matchCount,
     subscriptionCount: media.subscriptionCount
   };
 }
 
 function serializeItem(item: any) {
+  const activeMatch = item.parsedRelease?.matches?.[0];
   return {
     id: item.id,
     feed: item.feed ? { id: item.feed.id, name: item.feed.name } : undefined,
     rawTitle: item.rawTitle,
-    sourceUrl: item.encryptedSourceUrl ? decryptAead(item.encryptedSourceUrl) : null,
-    publishDate: item.publishDate,
-    firstSeenAt: item.firstSeenAt,
+    publishDate: item.publishDate?.toISOString?.() ?? item.publishDate,
+    firstSeenAt: item.firstSeenAt?.toISOString?.() ?? item.firstSeenAt,
     sizeBytes: item.sizeBytes?.toString?.(),
-    parsedRelease: item.parsedRelease,
-    mediaMatch: item.mediaMatch ? serializeMediaMatch(item.mediaMatch) : undefined,
+    dedupeKeyType: item.dedupeKeyType,
+    parsedRelease: item.parsedRelease ? serializeParsedRelease(item.parsedRelease) : undefined,
+    enrichmentState: releaseEnrichmentState(item.parsedRelease, activeMatch),
+    match: serializeReleaseMatch({
+      match: activeMatch,
+      release: item.parsedRelease,
+      rawTitle: item.rawTitle,
+      downloadJobs: item.downloadJobs
+    }),
     downloadJobs: item.downloadJobs?.map((job: any) => ({
       id: job.id,
       status: job.status,
       error: job.error,
       clientHash: job.clientHash,
-      createdAt: job.createdAt
+      createdAt: job.createdAt?.toISOString?.() ?? job.createdAt
     }))
   };
 }
 
-function serializeMediaMatch(match: any) {
+function releaseEnrichmentState(release: any, activeMatch: any) {
+  if (!release) return "UNPARSED";
+  if (activeMatch?.status === "MATCHED") return "MATCHED";
+  if (activeMatch?.status === "UNMATCHED") return "UNMATCHED";
+  return "PENDING";
+}
+
+function serializeParsedRelease(release: any) {
   return {
-    id: match.id,
-    mediaId: match.mediaId,
-    provider: match.provider,
-    providerId: match.providerId,
-    kind: match.kind,
-    title: match.title,
-    originalTitle: match.originalTitle,
-    year: match.year,
-    posterPath: match.posterPath,
-    backdropPath: match.backdropPath,
-    overview: match.overview,
-    score: match.score,
-    status: match.status,
-    reason: match.reason,
-    matchedAt: match.matchedAt?.toISOString?.(),
-    media: match.media ? serializeMedia({ ...match.media, matchCount: undefined, subscriptionCount: undefined }) : undefined,
-    createdAt: match.createdAt?.toISOString?.(),
-    updatedAt: match.updatedAt?.toISOString?.()
+    id: release.id,
+    title: release.title,
+    year: release.year,
+    kind: legacyKindFromMediaType(release.mediaType),
+    mediaType: release.mediaType,
+    season: release.season,
+    episode: release.episode,
+    episodeEnd: release.episodeEnd,
+    resolution: release.resolution,
+    quality: release.quality,
+    source: release.source,
+    codec: release.codec,
+    audio: release.audio,
+    releaseGroup: release.releaseGroup,
+    confidence: release.parseConfidence,
+    parseConfidence: release.parseConfidence,
+    parsedAt: release.parsedAt?.toISOString?.() ?? release.parsedAt
   };
 }
 
-function normalizeSearchTitle(value: string) {
+function itemRelations() {
+  return {
+    feed: { select: { id: true, name: true } },
+    parsedRelease: {
+      include: {
+        matches: {
+          where: {
+            OR: [
+              { status: ParsedReleaseMatchStatus.MATCHED },
+              { status: ParsedReleaseMatchStatus.UNMATCHED }
+            ],
+            invalidatedAt: null
+          },
+          include: {
+            mediaTitle: {
+              include: { providerLinks: { include: { providerTitle: true } } }
+            },
+            providerTitle: true
+          },
+          orderBy: [{ matchedAt: "desc" as const }, { updatedAt: "desc" as const }],
+          take: 1
+        }
+      }
+    },
+    downloadJobs: {
+      orderBy: { createdAt: "desc" as const },
+      take: 3,
+      select: {
+        id: true,
+        status: true,
+        error: true,
+        clientHash: true,
+        createdAt: true
+      }
+    }
+  };
+}
+
+function providerRatingType(ratingType?: string) {
+  if (ratingType === "user_score") return "USER_SCORE";
+  if (ratingType === "critic_score") return "CRITIC_SCORE";
+  if (ratingType === "popularity") return "POPULARITY";
+  return undefined;
+}
+
+function toPrismaJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
+}
+
+function hashJson(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function normalizeTitle(value: string) {
   return value
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-}
-
-function sanitizeProviderValue(value: unknown, depth: number): unknown {
-  if (value === null || value === undefined) return value;
-  if (typeof value === "string") return redactSecrets(value).slice(0, 1000);
-  if (typeof value === "number" || typeof value === "boolean") return value;
-  if (typeof value === "bigint") return value.toString();
-  if (depth >= 3) return "[REDACTED]";
-
-  if (Array.isArray(value)) {
-    return value.slice(0, 20).map((item) => sanitizeProviderValue(item, depth + 1));
-  }
-
-  if (typeof value === "object") {
-    const output: Record<string, unknown> = {};
-    for (const [key, nested] of Object.entries(value as Record<string, unknown>).slice(0, 50)) {
-      output[key] = sensitiveProviderKey(key)
-        ? "[REDACTED]"
-        : sanitizeProviderValue(nested, depth + 1);
-    }
-    return output;
-  }
-
-  return String(value);
-}
-
-function sensitiveProviderKey(key: string): boolean {
-  return /token|secret|api[_-]?key|password|passkey|auth|credential/i.test(key);
 }
 
 function db(tx?: Transaction) {

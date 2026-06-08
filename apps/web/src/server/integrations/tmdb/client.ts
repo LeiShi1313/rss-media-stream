@@ -1,11 +1,9 @@
-import type { TmdbMedia } from "@rss-media/shared/types";
+import type { MediaType, TmdbTitleResult } from "@rss-media/shared/types";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { decryptSecret } from "../../secrets.js";
-import { toMedia } from "./mapper.js";
+import { toTitleResult } from "./mapper.js";
 import type { TmdbResult, TmdbSearchInput, TmdbSearchResponse } from "./types.js";
-
-const SEARCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 type TmdbCredentialSource = "workspace" | "environment";
 
@@ -13,25 +11,21 @@ export async function searchTmdb(
   config: AppConfig,
   input: TmdbSearchInput,
   tenantId: string
-): Promise<TmdbMedia[]> {
+): Promise<TmdbTitleResult[]> {
   const tmdbSettings = await resolveTmdbRuntimeSettings(config, tenantId);
+  const language = input.language ?? tmdbSettings.language;
+  const kind = tmdbEndpoint(input.mediaType);
   if (!tmdbSettings.credential) {
     throw new Error("TMDB API key is not configured");
   }
 
-  const kind = input.kind === "TV" ? "tv" : "movie";
-  const cacheKey = searchCacheKey(kind, input, tmdbSettings.language);
-  const cached = await readTmdbCache(tenantId, cacheKey);
-  if (cached) {
-    return mapSearchResponse(cached as TmdbSearchResponse, kind, input);
-  }
-
   const params = new URLSearchParams({
-    query: input.query,
+    query: input.title,
     include_adult: "false",
-    language: tmdbSettings.language,
+    language,
     page: "1"
   });
+  if (input.region) params.set("region", input.region);
   if (input.year) {
     params.set(kind === "tv" ? "first_air_date_year" : "year", String(input.year));
   }
@@ -43,31 +37,23 @@ export async function searchTmdb(
     throw new Error(`TMDB search failed with ${response.status}`);
   }
   const body = (await response.json()) as TmdbSearchResponse;
-  await writeTmdbCache(tenantId, cacheKey, body, SEARCH_CACHE_TTL_MS);
-  return mapSearchResponse(body, kind, input);
+  return mapSearchResponse(body, kind, { ...input, language });
 }
 
 export async function getTmdbMediaById(
   config: AppConfig,
   tenantId: string,
-  input: { kind: "MOVIE" | "TV"; tmdbId: string }
-): Promise<TmdbMedia> {
+  input: { mediaType: MediaType; tmdbId: string; language?: string; region?: string }
+): Promise<TmdbTitleResult> {
   const tmdbSettings = await resolveTmdbRuntimeSettings(config, tenantId);
+  const language = input.language ?? tmdbSettings.language;
+  const kind = tmdbEndpoint(input.mediaType);
   if (!tmdbSettings.credential) {
     throw new Error("TMDB API key is not configured");
   }
 
-  const kind = input.kind === "TV" ? "tv" : "movie";
-  const cacheKey = ["tmdb", "detail", kind, input.tmdbId, tmdbSettings.language].join(":");
-  const cached = await readTmdbCache(tenantId, cacheKey);
-  if (cached) {
-    return toMedia(cached as TmdbResult, kind, {
-      query: String(input.tmdbId),
-      kind: input.kind
-    });
-  }
-
-  const params = new URLSearchParams({ language: tmdbSettings.language });
+  const params = new URLSearchParams({ language });
+  if (input.region) params.set("region", input.region);
   applyTmdbApiKeyParam(params, tmdbSettings.credential.value);
   const response = await fetch(`https://api.themoviedb.org/3/${kind}/${input.tmdbId}?${params}`, {
     headers: tmdbHeaders(tmdbSettings.credential.value)
@@ -76,8 +62,12 @@ export async function getTmdbMediaById(
     throw new Error(`TMDB detail lookup failed with ${response.status}`);
   }
   const body = (await response.json()) as TmdbResult;
-  await writeTmdbCache(tenantId, cacheKey, body, SEARCH_CACHE_TTL_MS);
-  return toMedia(body, kind, { query: body.title ?? body.name ?? String(input.tmdbId), kind: input.kind });
+  return toTitleResult(body, kind, {
+    title: body.title ?? body.name ?? String(input.tmdbId),
+    mediaType: input.mediaType,
+    language,
+    region: input.region
+  });
 }
 
 export async function validateTmdbCredential(value: string): Promise<void> {
@@ -172,7 +162,7 @@ function mapSearchResponse(
   kind: "movie" | "tv",
   input: TmdbSearchInput
 ) {
-  return (body.results ?? []).slice(0, 8).map((result) => toMedia(result, kind, input));
+  return (body.results ?? []).slice(0, 8).map((result) => toTitleResult(result, kind, input));
 }
 
 function tmdbHeaders(credential: string) {
@@ -199,42 +189,6 @@ function looksLikeBearerToken(value: string) {
   return value.startsWith("eyJ") || value.split(".").length === 3;
 }
 
-function searchCacheKey(kind: "movie" | "tv", input: TmdbSearchInput, language: string) {
-  return [
-    "tmdb",
-    "search",
-    kind,
-    input.query.trim().toLowerCase(),
-    input.year ?? "",
-    language
-  ].join(":");
-}
-
-async function readTmdbCache(tenantId: string, cacheKey: string): Promise<unknown | null> {
-  const cached = await prisma.tmdbCache.findUnique({
-    where: { tenantId_cacheKey: { tenantId, cacheKey } }
-  });
-  if (!cached || cached.expiresAt <= new Date()) return null;
-  return cached.payload as TmdbSearchResponse;
-}
-
-async function writeTmdbCache(
-  tenantId: string,
-  cacheKey: string,
-  payload: TmdbSearchResponse | TmdbResult,
-  ttlMs: number
-) {
-  await prisma.tmdbCache.upsert({
-    where: { tenantId_cacheKey: { tenantId, cacheKey } },
-    create: {
-      tenantId,
-      cacheKey,
-      payload,
-      expiresAt: new Date(Date.now() + ttlMs)
-    },
-    update: {
-      payload,
-      expiresAt: new Date(Date.now() + ttlMs)
-    }
-  });
+function tmdbEndpoint(mediaType: MediaType) {
+  return mediaType === "TV_SERIES" ? "tv" : "movie";
 }

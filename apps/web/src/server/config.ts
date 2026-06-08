@@ -12,6 +12,8 @@ export type AppConfig = {
   appSecret: string;
   jwtSecret: string;
   tmdbApiKey?: string;
+  tvdbApiKey?: string;
+  tvdbPin?: string;
   apiHost: string;
   apiPort: number;
   clientOrigin: string;
@@ -25,6 +27,8 @@ export function loadConfig(): AppConfig {
     appSecret: requiredSecret("APP_SECRET", "dev-app-secret-change-me-please-32chars"),
     jwtSecret: requiredSecret("JWT_SECRET", "dev-jwt-secret-change-me-please-32chars"),
     tmdbApiKey: process.env.TMDB_API_KEY || undefined,
+    tvdbApiKey: process.env.TVDB_API_KEY || undefined,
+    tvdbPin: process.env.TVDB_PIN || undefined,
     apiHost: process.env.API_HOST ?? "0.0.0.0",
     apiPort: Number(process.env.API_PORT ?? 4000),
     clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173",

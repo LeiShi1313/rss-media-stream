@@ -7,7 +7,6 @@ import { registerErrorHandler } from "./core/errors.js";
 import { registerEventRoutes } from "./core/events.js";
 import { registerClientStatic } from "./http/static-client.js";
 import { registerAppRoutes } from "./modules/index.js";
-import { backfillMediaLibraryFields } from "./modules/media/media.service.js";
 
 export async function buildApp(config: AppConfig) {
   const app = Fastify({
@@ -37,8 +36,6 @@ export async function buildApp(config: AppConfig) {
   });
 
   app.get("/api/health", async () => ({ ok: true }));
-
-  await backfillMediaLibraryFields();
 
   await registerEventRoutes(app);
   await registerAppRoutes(app, config);

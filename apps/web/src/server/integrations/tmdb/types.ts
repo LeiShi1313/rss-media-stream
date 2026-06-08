@@ -1,3 +1,5 @@
+import type { MediaType } from "@rss-media/shared/types";
+
 export type TmdbResult = {
   id: number;
   title?: string;
@@ -9,6 +11,7 @@ export type TmdbResult = {
   poster_path?: string;
   backdrop_path?: string;
   overview?: string;
+  vote_average?: number;
   vote_count?: number;
   popularity?: number;
 };
@@ -21,7 +24,9 @@ export type TmdbSearchResponse = {
 };
 
 export type TmdbSearchInput = {
-  query: string;
-  kind?: "MOVIE" | "TV" | "UNKNOWN";
+  title: string;
+  mediaType: MediaType;
   year?: number;
+  language?: string;
+  region?: string;
 };

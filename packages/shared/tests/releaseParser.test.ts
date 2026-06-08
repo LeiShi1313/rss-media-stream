@@ -7,20 +7,20 @@ describe("parseReleaseTitle", () => {
     expect(release).toMatchObject({
       title: "Example Movie",
       year: 2024,
-      kind: "MOVIE",
+      mediaType: "MOVIE",
       quality: "2160p",
       source: "WEB-DL",
       codec: "H.265",
       releaseGroup: "GROUP"
     });
-    expect(release.confidence).toBeGreaterThanOrEqual(0.8);
+    expect(release.parseConfidence).toBeGreaterThanOrEqual(0.8);
   });
 
   it("extracts strict series episode metadata", () => {
     const release = parseReleaseTitle("[OurBits] Example.Show.S02E03.1080p.HDTV.x264-GRP");
     expect(release).toMatchObject({
       title: "Example Show",
-      kind: "TV",
+      mediaType: "TV_SERIES",
       season: 2,
       episode: 3,
       quality: "1080p",
@@ -31,7 +31,7 @@ describe("parseReleaseTitle", () => {
 
   it("recognizes season packs but leaves episode empty", () => {
     const release = parseReleaseTitle("Example.Show.S01.1080p.BluRay.x265-GRP");
-    expect(release.kind).toBe("TV");
+    expect(release.mediaType).toBe("TV_SERIES");
     expect(release.season).toBe(1);
     expect(release.episode).toBeUndefined();
   });
@@ -40,7 +40,7 @@ describe("parseReleaseTitle", () => {
     const release = parseReleaseTitle("Example.Show.Season.1.2024.1080p.WEB-DL.H264-GRP");
     expect(release).toMatchObject({
       title: "Example Show",
-      kind: "TV",
+      mediaType: "TV_SERIES",
       season: 1,
       episode: undefined
     });
@@ -54,14 +54,14 @@ describe("parseReleaseTitle", () => {
     expect(release).toMatchObject({
       title: "The Golden Sword",
       year: 1969,
-      kind: "MOVIE",
+      mediaType: "MOVIE",
       quality: "1080p",
       source: "BluRay",
       codec: "H.265",
       audio: "DTS-HD",
       releaseGroup: "WiKi"
     });
-    expect(release.confidence).toBeGreaterThanOrEqual(0.8);
+    expect(release.parseConfidence).toBeGreaterThanOrEqual(0.8);
   });
 
   it("parses UBits category-prefixed titles from the release text", () => {
@@ -72,7 +72,7 @@ describe("parseReleaseTitle", () => {
     expect(release).toMatchObject({
       title: "Kami no Niwatsuki Kusunoki tei",
       year: 2026,
-      kind: "TV",
+      mediaType: "TV_SERIES",
       season: 1,
       episode: 10,
       quality: "1080p",
@@ -81,6 +81,6 @@ describe("parseReleaseTitle", () => {
       audio: "AAC",
       releaseGroup: "UBWEB"
     });
-    expect(release.confidence).toBe(1);
+    expect(release.parseConfidence).toBe(1);
   });
 });
