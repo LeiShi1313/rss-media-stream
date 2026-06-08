@@ -1,7 +1,12 @@
 import { z } from "zod";
 
-const mediaKindSchema = z.enum(["MOVIE", "TV", "UNKNOWN"]);
-const providerSchema = z.enum(["tmdb", "imdb", "douban"]);
+const mediaTypeSchema = z.preprocess(
+  (value) => value === "TV" ? "TV_SERIES" : value,
+  z.enum(["MOVIE", "TV_SERIES", "UNKNOWN"])
+);
+const providerSchema = z.enum(["tmdb", "tvdb", "imdb", "douban", "wikidata", "trakt", "musicbrainz"]);
+const ratingTypeSchema = z.enum(["user_score", "critic_score", "popularity"]);
+const ratingComparisonSchema = z.enum(["gte", "lte", "gt", "lt", "eq"]);
 
 const optionalTrimmedString = (max: number) =>
   z
@@ -25,14 +30,27 @@ const regexString = optionalTrimmedString(300).refine(
 );
 
 const stringList = z.array(z.string().trim().min(1).max(80)).max(50).default([]);
+const providerIdentitySchema = z.object({
+  provider: providerSchema,
+  providerEntityType: optionalTrimmedString(80),
+  providerId: z.string().trim().min(1).max(80)
+});
+const providerRatingFilterSchema = z.object({
+  provider: providerSchema,
+  ratingType: ratingTypeSchema.optional(),
+  comparison: ratingComparisonSchema,
+  value: z.coerce.number().finite(),
+  scale: z.coerce.number().finite().positive().optional(),
+  minVoteCount: z.coerce.number().int().nonnegative().optional()
+});
 
 export const subscriptionRuleSchema = z
   .object({
-    mediaKind: mediaKindSchema.optional(),
-    provider: providerSchema.optional(),
-    providerId: optionalTrimmedString(80),
-    imdbId: z.string().regex(/^tt\d+$/).optional(),
-    doubanId: optionalTrimmedString(80),
+    mediaType: mediaTypeSchema.optional(),
+    mediaTitleId: z.string().min(1).optional(),
+    selectedProvider: providerIdentitySchema.optional(),
+    linkedProviders: z.array(providerIdentitySchema).max(20).default([]),
+    providerRatings: z.array(providerRatingFilterSchema).max(20).default([]),
     titleRegex: regexString,
     includeRegex: regexString,
     excludeRegex: regexString,
@@ -62,10 +80,12 @@ export const subscriptionRuleSchema = z
       rule.maxSizeBytes === undefined ||
       rule.minSizeBytes <= rule.maxSizeBytes,
     { message: "minSizeBytes cannot be greater than maxSizeBytes" }
-  );
+  )
+  .transform((rule) => rule);
 
 export const subscriptionCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
+  mediaTitleId: z.string().min(1).optional(),
   mediaId: z.string().min(1).optional(),
   downloaderId: z.string().min(1).optional(),
   autoDownload: z.boolean().default(true),
@@ -75,6 +95,7 @@ export const subscriptionCreateSchema = z.object({
 
 export const subscriptionPatchSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
+  mediaTitleId: z.string().min(1).nullable().optional(),
   mediaId: z.string().min(1).nullable().optional(),
   downloaderId: z.string().min(1).nullable().optional(),
   autoDownload: z.boolean().optional(),

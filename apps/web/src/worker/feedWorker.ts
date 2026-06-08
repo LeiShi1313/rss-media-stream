@@ -1,8 +1,9 @@
 import { redactSecrets } from "@rss-media/shared/redact";
+import type { AppConfig } from "../server/config.js";
 import { prisma } from "../server/db.js";
 import { refreshFeed } from "../server/modules/feeds/feeds.service.js";
 
-export async function pollDueFeeds() {
+export async function pollDueFeeds(config: AppConfig) {
   const now = new Date();
   const feeds = await prisma.rssFeed.findMany({
     where: { enabled: true },
@@ -23,7 +24,7 @@ export async function pollDueFeeds() {
     if (dueAt > now) continue;
 
     try {
-      await refreshFeed(feed.id, { tenantId: feed.tenantId, actor: "worker" });
+      await refreshFeed(feed.id, { tenantId: feed.tenantId, actor: "worker" }, { config });
     } catch (error) {
       const message = redactSecrets(
         error instanceof Error ? error.message : String(error)

@@ -7,7 +7,8 @@ import { requireTenantRole, requireUser } from "../../core/permissions.js";
 import { parseBody } from "../../core/validation.js";
 import { audit } from "../../core/audit.js";
 import { setSessionCookie } from "../auth/auth.routes.js";
-import { getTmdbCredentialStatus, validateTmdbCredential } from "../../integrations/tmdb/client.js";
+import { getTmdbCredentialStatus } from "../../integrations/tmdb/client.js";
+import { getMetadataProvider } from "../../integrations/providers/index.js";
 import { encryptSecret } from "../../secrets.js";
 import { badRequest } from "../../core/errors.js";
 
@@ -139,13 +140,6 @@ async function updateSettings(
   input: z.infer<typeof updateSettingsSchema>
 ) {
   const apiKey = input.apiKey?.trim();
-  const existingSettings = await prisma.tenantSettings.findUnique({
-    where: { tenantId: request.tenantId! },
-    select: { tmdbLanguage: true }
-  });
-  const tmdbLanguageChanged = Boolean(
-    input.tmdbLanguage && input.tmdbLanguage !== (existingSettings?.tmdbLanguage ?? "en-US")
-  );
   const baseData = {
     ...(input.tmdbLanguage ? { tmdbLanguage: input.tmdbLanguage } : {}),
     ...(input.webLanguage ? { webLanguage: input.webLanguage } : {})
@@ -170,14 +164,13 @@ async function updateSettings(
         ...baseData
       }
     });
-    await prisma.tmdbCache.deleteMany({ where: { tenantId: request.tenantId! } });
     await audit(request, "settings.tmdb.clear", "tenant", request.tenantId!);
     return getTmdbCredentialStatus(config, request.tenantId!);
   }
 
   if (apiKey) {
     try {
-      await validateTmdbCredential(apiKey);
+      await validateProviderCredential("tmdb", apiKey);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await prisma.tenantSettings.upsert({
@@ -214,7 +207,6 @@ async function updateSettings(
         ...baseData
       }
     });
-    await prisma.tmdbCache.deleteMany({ where: { tenantId: request.tenantId! } });
     await audit(request, "settings.tmdb.update", "tenant", request.tenantId!);
     return getTmdbCredentialStatus(config, request.tenantId!);
   }
@@ -224,12 +216,17 @@ async function updateSettings(
     create: { tenantId: request.tenantId!, ...baseData },
     update: baseData
   });
-  if (tmdbLanguageChanged) {
-    await prisma.tmdbCache.deleteMany({ where: { tenantId: request.tenantId! } });
-  }
   await audit(request, "settings.update", "tenant", request.tenantId!, {
     tmdbLanguage: input.tmdbLanguage,
     webLanguage: input.webLanguage
   });
   return getTmdbCredentialStatus(config, request.tenantId!);
+}
+
+async function validateProviderCredential(providerId: string, value: string) {
+  const provider = getMetadataProvider(providerId);
+  if (!provider.validateCredential) {
+    throw badRequest(`Media provider ${providerId} cannot validate credentials`);
+  }
+  await provider.validateCredential(value);
 }

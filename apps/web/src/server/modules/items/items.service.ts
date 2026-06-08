@@ -1,13 +1,33 @@
-import type { Prisma } from "@prisma/client";
+import { ParsedReleaseMatchStatus, type Prisma } from "@prisma/client";
 import { prisma } from "../../db.js";
 import { notFound } from "../../core/errors.js";
 import { decryptAead } from "../../secrets.js";
+import { serializeReleaseMatch, type ReleaseMatchDto } from "../media/presentation.js";
 import type { ItemQueryInput } from "./items.schemas.js";
 
 const itemRelations = {
   feed: { select: { id: true, name: true } },
-  parsedRelease: true,
-  mediaMatch: { include: { media: true } },
+  parsedRelease: {
+    include: {
+      matches: {
+        where: {
+          OR: [
+            { status: ParsedReleaseMatchStatus.MATCHED },
+            { status: ParsedReleaseMatchStatus.UNMATCHED }
+          ],
+          invalidatedAt: null
+        },
+        include: {
+          mediaTitle: {
+            include: { providerLinks: { include: { providerTitle: true } } }
+          },
+          providerTitle: true
+        },
+        orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }],
+        take: 1
+      }
+    }
+  },
   downloadJobs: {
     orderBy: { createdAt: "desc" },
     take: 3,
@@ -18,7 +38,7 @@ const itemRelations = {
       createdAt: true
     }
   }
-} as const;
+} satisfies Prisma.RssItemInclude;
 
 export type ItemResponse = {
   id: string;
@@ -29,7 +49,8 @@ export type ItemResponse = {
   firstSeenAt: string;
   dedupeKeyType: "INFO_HASH" | "RELEASE_SIGNATURE" | "LINK_HASH";
   parsedRelease?: unknown;
-  mediaMatch?: unknown;
+  enrichmentState: "MATCHED" | "UNMATCHED" | "PENDING" | "UNPARSED";
+  match?: ReleaseMatchDto;
   downloadJobs: Array<{
     id: string;
     status: string;
@@ -38,9 +59,7 @@ export type ItemResponse = {
   }>;
 };
 
-type ItemWithRelations = Prisma.RssItemGetPayload<{
-  include: typeof itemRelations;
-}>;
+type ItemWithRelations = any;
 
 export async function listItems(
   tenantId: string,
@@ -49,7 +68,23 @@ export async function listItems(
   const where: Prisma.RssItemWhereInput = {
     tenantId,
     feedId: query.feedId,
-    mediaMatch: query.unmatched ? null : undefined,
+    OR: query.unmatched
+      ? [
+          { parsedRelease: { is: null } },
+          {
+            parsedRelease: {
+              is: {
+                matches: {
+                  none: {
+                    status: "MATCHED",
+                    invalidatedAt: null
+                  }
+                }
+              }
+            }
+          }
+        ]
+      : undefined,
     rawTitle: query.q
       ? { contains: query.q, mode: "insensitive" }
       : undefined
@@ -108,6 +143,8 @@ export async function assertItemInTenant(tenantId: string, itemId: string) {
 }
 
 export function serializeItem(item: ItemWithRelations): ItemResponse {
+  const release = item.parsedRelease;
+  const activeMatch = release?.matches[0];
   return {
     id: item.id,
     feed: {
@@ -119,11 +156,17 @@ export function serializeItem(item: ItemWithRelations): ItemResponse {
     sizeBytes: item.sizeBytes?.toString() ?? null,
     firstSeenAt: item.firstSeenAt.toISOString(),
     dedupeKeyType: item.dedupeKeyType,
-    parsedRelease: item.parsedRelease
-      ? serializeParsedRelease(item.parsedRelease)
+    parsedRelease: release
+      ? serializeParsedRelease(release)
       : undefined,
-    mediaMatch: item.mediaMatch ? serializeMediaMatch(item.mediaMatch) : undefined,
-    downloadJobs: item.downloadJobs.map((job) => ({
+    enrichmentState: releaseEnrichmentState(release, activeMatch),
+    match: serializeReleaseMatch({
+      match: activeMatch,
+      release,
+      rawTitle: item.rawTitle,
+      downloadJobs: item.downloadJobs
+    }),
+    downloadJobs: item.downloadJobs.map((job: any) => ({
       id: job.id,
       status: job.status,
       clientHash: job.clientHash,
@@ -132,14 +175,20 @@ export function serializeItem(item: ItemWithRelations): ItemResponse {
   };
 }
 
-function serializeParsedRelease(
-  release: NonNullable<ItemWithRelations["parsedRelease"]>
-) {
+function releaseEnrichmentState(release: any, activeMatch: any) {
+  if (!release) return "UNPARSED";
+  if (activeMatch?.status === "MATCHED") return "MATCHED";
+  if (activeMatch?.status === "UNMATCHED") return "UNMATCHED";
+  return "PENDING";
+}
+
+function serializeParsedRelease(release: any) {
   return {
     id: release.id,
     title: release.title,
     year: release.year,
-    kind: release.kind,
+    kind: legacyKindFromMediaType(release.mediaType),
+    mediaType: release.mediaType,
     season: release.season,
     episode: release.episode,
     episodeEnd: release.episodeEnd,
@@ -149,45 +198,12 @@ function serializeParsedRelease(
     codec: release.codec,
     audio: release.audio,
     releaseGroup: release.releaseGroup,
-    confidence: release.confidence
+    confidence: release.parseConfidence,
+    parseConfidence: release.parseConfidence,
+    parsedAt: release.parsedAt.toISOString()
   };
 }
 
-function serializeMediaMatch(match: NonNullable<ItemWithRelations["mediaMatch"]>) {
-  return {
-    id: match.id,
-    mediaId: match.mediaId,
-    provider: match.provider,
-    providerId: match.providerId,
-    kind: match.kind,
-    title: match.title,
-    originalTitle: match.originalTitle,
-    year: match.year,
-    posterPath: match.posterPath,
-    backdropPath: match.backdropPath,
-    overview: match.overview,
-    score: match.score,
-    status: match.status,
-    reason: match.reason,
-    matchedAt: match.matchedAt?.toISOString(),
-    media: match.media
-      ? {
-          id: match.media.id,
-          provider: match.media.provider,
-          providerId: match.media.providerId,
-          kind: match.media.kind,
-          title: match.media.title,
-          originalTitle: match.media.originalTitle,
-          year: match.media.year,
-          posterPath: match.media.posterPath,
-          backdropPath: match.media.backdropPath,
-          overview: match.media.overview,
-          searchTitle: match.media.searchTitle,
-          tmdbFetchedAt: match.media.tmdbFetchedAt?.toISOString(),
-          metadataJson: match.media.metadataJson
-        }
-      : undefined,
-    createdAt: match.createdAt.toISOString(),
-    updatedAt: match.updatedAt.toISOString()
-  };
+function legacyKindFromMediaType(mediaType: "MOVIE" | "TV_SERIES" | "UNKNOWN") {
+  return mediaType === "TV_SERIES" ? "TV" : mediaType;
 }

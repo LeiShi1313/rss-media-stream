@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { requireTenantRole } from "../../core/permissions.js";
 import { prisma } from "../../db.js";
+import { serializeMediaPresentation, legacyKindFromMediaType } from "../media/presentation.js";
 
 export function registerDashboardRoutes(app: FastifyInstance) {
   app.get(
@@ -29,24 +30,47 @@ export function registerDashboardRoutes(app: FastifyInstance) {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const items = await prisma.rssItem.findMany({
         where: { tenantId: request.tenantId!, firstSeenAt: { gte: since } },
-        include: { parsedRelease: true, mediaMatch: true }
+        include: {
+          parsedRelease: {
+            include: {
+              matches: {
+                where: { status: "MATCHED", invalidatedAt: null },
+                take: 1,
+                include: {
+                  mediaTitle: {
+                    include: { providerLinks: { include: { providerTitle: true } } }
+                  },
+                  providerTitle: true
+                },
+                orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
+              }
+            }
+          }
+        }
       });
       const heat = new Map<
         string,
-        { title: string; count: number; posterPath?: string | null; latest: Date }
+        { title: string; count: number; posterUrl?: string | null; latest: Date }
       >();
       for (const item of items) {
-        const title = item.mediaMatch?.title ?? item.parsedRelease?.title ?? item.rawTitle;
+        const match = item.parsedRelease?.matches[0];
+        const presentation = serializeMediaPresentation({
+          mediaTitle: match?.mediaTitle,
+          providerTitle: match?.providerTitle,
+          release: item.parsedRelease,
+          rawTitle: item.rawTitle
+        });
+        const title = presentation.title;
         const current = heat.get(title) ?? {
           title,
           count: 0,
-          posterPath: item.mediaMatch?.posterPath,
+          posterUrl: presentation.posterUrl,
           latest: item.firstSeenAt
         };
         current.count += 1;
         if (item.firstSeenAt > current.latest) current.latest = item.firstSeenAt;
-        if (!current.posterPath && item.mediaMatch?.posterPath) {
-          current.posterPath = item.mediaMatch.posterPath;
+        if (!current.posterUrl && presentation.posterUrl) {
+          current.posterUrl = presentation.posterUrl;
         }
         heat.set(title, current);
       }
@@ -58,25 +82,43 @@ export function registerDashboardRoutes(app: FastifyInstance) {
     "/api/dashboard/posters",
     { preHandler: requireTenantRole("VIEWER") },
     async (request) => {
-      const matches = await prisma.mediaMatch.findMany({
+      const matches = await prisma.parsedReleaseMatch.findMany({
         where: {
           tenantId: request.tenantId!,
-          status: { in: ["MATCHED", "CANDIDATE"] },
-          posterPath: { not: null }
+          status: "MATCHED",
+          invalidatedAt: null,
+          providerTitleId: { not: null }
         },
         orderBy: { updatedAt: "desc" },
         take: 40,
-        include: { item: { include: { parsedRelease: true } } }
+        include: {
+          mediaTitle: {
+            include: { providerLinks: { include: { providerTitle: true } } }
+          },
+          providerTitle: true,
+          parsedRelease: { include: { item: true } }
+        }
       });
-      return matches.map((match) => ({
-        id: match.id,
-        title: match.title,
-        year: match.year,
-        kind: match.kind,
-        posterUrl: `https://image.tmdb.org/t/p/w342${match.posterPath}`,
-        score: match.score,
-        rawTitle: match.item.rawTitle
-      }));
+      return matches
+        .map((match) => {
+          const presentation = serializeMediaPresentation({
+            mediaTitle: match.mediaTitle,
+            providerTitle: match.providerTitle,
+            release: match.parsedRelease,
+            rawTitle: match.parsedRelease.item.rawTitle
+          });
+          if (!presentation.posterUrl) return null;
+          return {
+            id: match.id,
+            title: presentation.title,
+            year: presentation.releaseYear,
+            kind: legacyKindFromMediaType(match.mediaType ?? match.mediaTitle?.mediaType ?? "UNKNOWN"),
+            posterUrl: presentation.posterUrl,
+            score: match.confidence ?? 0,
+            rawTitle: match.parsedRelease.item.rawTitle
+          };
+        })
+        .filter(Boolean);
     }
   );
 }

@@ -5,12 +5,17 @@ import {
   normalizeRule,
   serializeRuleSnapshot
 } from "@rss-media/shared/subscriptionRules";
-import type { CandidateInput, SubscriptionRuleInput } from "@rss-media/shared/types";
+import type {
+  CandidateInput,
+  ProviderTitleRuleView,
+  SubscriptionRuleInput
+} from "@rss-media/shared/types";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { forbidden, notFound } from "../../core/errors.js";
 import { isAdminRole } from "../../core/permissions.js";
 import { createDownloadJob, sendDownloadJob } from "../jobs/jobs.service.js";
+import { serializeMediaPresentation } from "../media/presentation.js";
 import type {
   matchHistoryQuerySchema,
   subscriptionCreateSchema,
@@ -26,15 +31,16 @@ type MatchHistoryQuery = z.infer<typeof matchHistoryQuerySchema>;
 
 const subscriptionInclude = {
   rule: true,
-  media: {
+  mediaTitle: {
     select: {
       id: true,
-      provider: true,
-      providerId: true,
-      kind: true,
-      title: true,
-      year: true,
-      posterPath: true
+      mediaType: true,
+      canonicalTitle: true,
+      originalTitle: true,
+      releaseYear: true,
+      providerLinks: {
+        include: { providerTitle: true }
+      }
     }
   },
   downloader: {
@@ -94,26 +100,38 @@ export async function createSubscriptionWithRule(args: {
   return prisma.$transaction(async (tx) => {
     await validateSubscriptionReferences(tx, {
       tenantId: args.tenantId,
-      mediaId: args.input.mediaId,
+      mediaTitleId: args.input.mediaTitleId ?? args.input.mediaId,
       downloaderId: args.input.downloaderId
     });
 
     const rule = normalizeRule(args.input.rule);
 
-    const subscription = await db(tx).subscription.create({
+    const created = await db(tx).subscription.create({
       data: {
         tenantId: args.tenantId,
         createdByUserId: args.userId,
         title: args.input.title,
-        mediaId: args.input.mediaId,
+        mediaTitleId: args.input.mediaTitleId ?? args.input.mediaId,
         downloaderId: args.input.downloaderId,
         autoDownload: args.input.autoDownload,
-        enabled: args.input.enabled,
-        rule: {
-          create: {
-            tenantId: args.tenantId,
-            ...rulePersistenceData(rule)
-          }
+        enabled: args.input.enabled
+      },
+      select: { id: true }
+    });
+
+    await db(tx).subscriptionRule.create({
+      data: {
+        tenantId: args.tenantId,
+        subscriptionId: created.id,
+        ...rulePersistenceData(rule)
+      }
+    });
+
+    const subscription = await db(tx).subscription.findUniqueOrThrow({
+      where: {
+        id_tenantId: {
+          id: created.id,
+          tenantId: args.tenantId
         }
       },
       include: subscriptionInclude
@@ -131,7 +149,7 @@ export async function updateSubscription(input: {
   return prisma.$transaction(async (tx) => {
     await validateSubscriptionReferences(tx, {
       tenantId: input.tenantId,
-      mediaId: input.patch.mediaId,
+      mediaTitleId: input.patch.mediaTitleId ?? input.patch.mediaId,
       downloaderId: input.patch.downloaderId
     });
 
@@ -144,7 +162,10 @@ export async function updateSubscription(input: {
       },
       data: {
         title: input.patch.title,
-        mediaId: input.patch.mediaId === null ? null : input.patch.mediaId,
+        mediaTitleId:
+          input.patch.mediaTitleId === null || input.patch.mediaId === null
+            ? null
+            : input.patch.mediaTitleId ?? input.patch.mediaId,
         downloaderId:
           input.patch.downloaderId === null ? null : input.patch.downloaderId,
         autoDownload: input.patch.autoDownload,
@@ -242,11 +263,24 @@ export async function evaluateAutoDownloadsForItem(input: {
   const item = await db().rssItem.findFirst({
     where: { id: input.itemId, tenantId: input.tenantId },
     include: {
-      parsedRelease: true,
-      mediaMatch: true
+      parsedRelease: {
+        include: {
+          matches: {
+            where: { status: "MATCHED", invalidatedAt: null },
+            take: 1,
+            include: {
+              mediaTitle: {
+                include: { providerLinks: { include: { providerTitle: true } } }
+              },
+              providerTitle: true
+            },
+            orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
+          }
+        }
+      }
     }
   });
-  if (!item?.parsedRelease || !item.mediaMatch) return [];
+  if (!item?.parsedRelease) return [];
 
   const subscriptions = await db().subscription.findMany({
     where: {
@@ -271,7 +305,7 @@ export async function evaluateAutoDownloadsForItem(input: {
       continue;
     }
 
-    const ruleInput = ruleFromRow(subscription.rule);
+    const ruleInput = ruleFromRow(subscription.rule, subscription.mediaTitleId);
     const decision = evaluateSubscriptionRule(ruleInput, candidateFromItem(item));
 
     if (!decision.accepted) {
@@ -327,13 +361,13 @@ async function validateSubscriptionReferences(
   tx: unknown,
   input: {
     tenantId: string;
-    mediaId?: string | null;
+    mediaTitleId?: string | null;
     downloaderId?: string | null;
   }
 ) {
-  if (input.mediaId) {
-    const media = await db(tx).media.findFirst({
-      where: { id: input.mediaId, tenantId: input.tenantId },
+  if (input.mediaTitleId) {
+    const media = await db(tx).mediaTitle.findUnique({
+      where: { id: input.mediaTitleId },
       select: { id: true }
     });
     if (!media) throw notFound("Media");
@@ -407,11 +441,12 @@ async function recordDecision(input: {
 
 function rulePersistenceData(rule: ReturnType<typeof normalizeRule>) {
   return {
-    mediaKind: rule.mediaKind ?? null,
-    provider: rule.provider ?? null,
-    providerId: rule.providerId ?? null,
-    imdbId: rule.imdbId ?? null,
-    doubanId: rule.doubanId ?? null,
+    mediaType: rule.mediaType ?? null,
+    provider: null,
+    providerEntityType: null,
+    providerId: null,
+    imdbId: null,
+    doubanId: null,
     titleRegex: rule.titleRegex ?? null,
     includeRegex: rule.includeRegex ?? null,
     excludeRegex: rule.excludeRegex ?? null,
@@ -426,17 +461,45 @@ function rulePersistenceData(rule: ReturnType<typeof normalizeRule>) {
     maxSizeBytes: rule.maxSizeBytes ?? null,
     season: rule.season ?? null,
     episodeStart: rule.episodeStart ?? null,
-    episodeEnd: rule.episodeEnd ?? null
+    episodeEnd: rule.episodeEnd ?? null,
+    criteriaJson: ruleCriteriaJson(rule)
   };
 }
 
-function ruleFromRow(rule: any): SubscriptionRuleInput {
+function ruleCriteriaJson(rule: ReturnType<typeof normalizeRule>) {
+  const criteria = {
+    mediaTitleId: rule.mediaTitleId,
+    selectedProvider: rule.selectedProvider,
+    linkedProviders: rule.linkedProviders,
+    providerRatings: rule.providerRatings
+  };
+  const compact = Object.fromEntries(
+    Object.entries(criteria).filter(([, value]) =>
+      Array.isArray(value) ? value.length > 0 : value !== undefined
+    )
+  );
+  return Object.keys(compact).length > 0 ? compact : null;
+}
+
+function criteriaFromRow(rule: any): {
+  mediaTitleId?: string;
+  selectedProvider?: SubscriptionRuleInput["selectedProvider"];
+  linkedProviders?: SubscriptionRuleInput["linkedProviders"];
+  providerRatings?: SubscriptionRuleInput["providerRatings"];
+} {
+  return rule.criteriaJson && typeof rule.criteriaJson === "object" && !Array.isArray(rule.criteriaJson)
+    ? rule.criteriaJson
+    : {};
+}
+
+function ruleFromRow(rule: any, subscriptionMediaTitleId?: string | null): SubscriptionRuleInput {
+  const criteria = criteriaFromRow(rule);
   return {
-    mediaKind: rule.mediaKind ?? undefined,
-    provider: rule.provider ?? undefined,
-    providerId: rule.providerId ?? undefined,
-    imdbId: rule.imdbId ?? undefined,
-    doubanId: rule.doubanId ?? undefined,
+    mediaType: rule.mediaType ?? undefined,
+    mediaTitleId: subscriptionMediaTitleId ?? criteria.mediaTitleId,
+    selectedProvider: criteria.selectedProvider,
+    linkedProviders: criteria.linkedProviders ?? [],
+    providerRatings: criteria.providerRatings ?? [],
     titleRegex: rule.titleRegex ?? undefined,
     includeRegex: rule.includeRegex ?? undefined,
     excludeRegex: rule.excludeRegex ?? undefined,
@@ -455,14 +518,57 @@ function ruleFromRow(rule: any): SubscriptionRuleInput {
   };
 }
 
+function activeMatchFromRow(match: any): CandidateInput["activeMatch"] {
+  if (!match?.mediaTitle || !match.providerTitle) return null;
+  return {
+    id: match.id,
+    status: match.status,
+    source: match.source,
+    confidence: match.confidence ?? 0,
+    mediaTitle: {
+      id: match.mediaTitle.id,
+      mediaType: match.mediaTitle.mediaType,
+      canonicalTitle: match.mediaTitle.canonicalTitle,
+      releaseYear: match.mediaTitle.releaseYear ?? null
+    },
+    selectedProviderTitle: providerTitleRuleView(match.providerTitle),
+    linkedProviderTitles: (match.mediaTitle.providerLinks ?? [])
+      .map((link: any) => link.providerTitle)
+      .filter(Boolean)
+      .map(providerTitleRuleView)
+  };
+}
+
+function providerTitleRuleView(providerTitle: any): ProviderTitleRuleView {
+  return {
+    providerTitleId: providerTitle.id,
+    provider: providerTitle.provider,
+    providerEntityType: providerTitle.providerEntityType,
+    providerId: providerTitle.providerId,
+    mediaType: providerTitle.mediaType,
+    ratingValue: providerTitle.ratingValue ?? null,
+    ratingScale: providerTitle.ratingScale ?? null,
+    ratingVoteCount: providerTitle.ratingVoteCount ?? null,
+    ratingType: providerRatingType(providerTitle.ratingType)
+  };
+}
+
+function providerRatingType(value?: string | null): ProviderTitleRuleView["ratingType"] {
+  if (value === "USER_SCORE") return "user_score";
+  if (value === "CRITIC_SCORE") return "critic_score";
+  if (value === "POPULARITY") return "popularity";
+  return null;
+}
+
 function candidateFromItem(item: any): CandidateInput {
+  const match = item.parsedRelease.matches[0] ?? null;
   return {
     rawTitle: item.rawTitle,
     sizeBytes: item.sizeBytes,
     release: {
       title: item.parsedRelease.title,
       year: item.parsedRelease.year ?? undefined,
-      kind: item.parsedRelease.kind,
+      mediaType: item.parsedRelease.mediaType,
       season: item.parsedRelease.season ?? undefined,
       episode: item.parsedRelease.episode ?? undefined,
       episodeEnd: item.parsedRelease.episodeEnd ?? undefined,
@@ -472,35 +578,35 @@ function candidateFromItem(item: any): CandidateInput {
       codec: item.parsedRelease.codec ?? undefined,
       audio: item.parsedRelease.audio ?? undefined,
       releaseGroup: item.parsedRelease.releaseGroup ?? undefined,
-      confidence: item.parsedRelease.confidence
+      parseConfidence: item.parsedRelease.parseConfidence
     },
-    match: {
-      mediaId: item.mediaMatch.mediaId ?? undefined,
-      provider: item.mediaMatch.provider,
-      providerId: item.mediaMatch.providerId,
-      imdbId: item.mediaMatch.imdbId ?? undefined,
-      doubanId: item.mediaMatch.doubanId ?? undefined,
-      kind: item.mediaMatch.kind ?? item.parsedRelease.kind,
-      score: item.mediaMatch.score,
-      status: item.mediaMatch.status
-    }
+    activeMatch: activeMatchFromRow(match)
   };
 }
 
 export function serializeSubscription(subscription: any) {
+  const mediaPresentation = subscription.mediaTitle
+    ? serializeMediaPresentation({
+        mediaTitle: subscription.mediaTitle,
+        providerLinks: subscription.mediaTitle.providerLinks
+      })
+    : undefined;
   return {
     id: subscription.id,
     title: subscription.title,
     createdByUserId: subscription.createdByUserId,
-    media: subscription.media
+    media: subscription.mediaTitle
       ? {
-          id: subscription.media.id,
-          provider: subscription.media.provider,
-          providerId: subscription.media.providerId,
-          kind: subscription.media.kind,
-          title: subscription.media.title,
-          year: subscription.media.year,
-          posterPath: subscription.media.posterPath
+          id: subscription.mediaTitle.id,
+          provider: mediaPresentation?.displaySource?.provider ?? "internal",
+          providerEntityType: mediaPresentation?.displaySource?.providerEntityType,
+          providerId: mediaPresentation?.displaySource?.providerId ?? subscription.mediaTitle.id,
+          kind: legacyKindFromMediaType(subscription.mediaTitle.mediaType),
+          mediaType: subscription.mediaTitle.mediaType,
+          title: mediaPresentation?.title ?? subscription.mediaTitle.canonicalTitle,
+          year: mediaPresentation?.releaseYear ?? subscription.mediaTitle.releaseYear,
+          posterUrl: mediaPresentation?.posterUrl,
+          hasCover: mediaPresentation?.hasCover ?? false
         }
       : undefined,
     downloader: subscription.downloader
@@ -513,20 +619,21 @@ export function serializeSubscription(subscription: any) {
       : undefined,
     autoDownload: subscription.autoDownload,
     enabled: subscription.enabled,
-    rule: subscription.rule ? serializeRule(subscription.rule) : undefined,
+    rule: subscription.rule ? serializeRule(subscription.rule, subscription.mediaTitleId) : undefined,
     createdAt: subscription.createdAt,
     updatedAt: subscription.updatedAt
   };
 }
 
-function serializeRule(rule: any) {
+function serializeRule(rule: any, subscriptionMediaTitleId?: string | null) {
+  const ruleInput = ruleFromRow(rule, subscriptionMediaTitleId);
   return {
     id: rule.id,
-    mediaKind: rule.mediaKind,
-    provider: rule.provider,
-    providerId: rule.providerId,
-    imdbId: rule.imdbId,
-    doubanId: rule.doubanId,
+    mediaType: rule.mediaType,
+    mediaTitleId: ruleInput.mediaTitleId,
+    selectedProvider: ruleInput.selectedProvider,
+    linkedProviders: ruleInput.linkedProviders,
+    providerRatings: ruleInput.providerRatings,
     titleRegex: rule.titleRegex,
     includeRegex: rule.includeRegex,
     excludeRegex: rule.excludeRegex,
@@ -589,6 +696,11 @@ function isDefaultDownloaderError(error: unknown) {
     value?.code === "DEFAULT_DOWNLOADER_UNAVAILABLE" ||
     /default downloader/i.test(value?.message ?? "")
   );
+}
+
+function legacyKindFromMediaType(mediaType?: string | null) {
+  if (!mediaType) return undefined;
+  return mediaType === "TV_SERIES" ? "TV" : mediaType;
 }
 
 function db(tx?: unknown) {

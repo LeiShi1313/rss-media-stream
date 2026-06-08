@@ -21,7 +21,7 @@ import { itemQuerySchema } from "../items/items.schemas.js";
 
 export async function registerFeedRoutes(
   app: FastifyInstance,
-  _config: AppConfig
+  config: AppConfig
 ) {
   app.get(
     "/api/feeds",
@@ -92,6 +92,8 @@ export async function registerFeedRoutes(
       const result = await refreshFeed(params.feedId, {
         tenantId: request.tenantId!,
         actor: { userId: request.currentUser!.id }
+      }, {
+        config
       });
 
       await audit(request, "feed.refresh", "feed", params.feedId, result);

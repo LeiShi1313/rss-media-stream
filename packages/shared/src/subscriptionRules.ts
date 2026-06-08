@@ -1,12 +1,17 @@
 import type {
   CandidateInput,
   NormalizedSubscriptionRule,
+  ProviderIdentityFilter,
+  ProviderRatingFilter,
+  ProviderTitleRuleView,
   RuleDecision,
   SubscriptionRuleInput
 } from "./types.js";
 
-const MIN_MATCH_SCORE = 0.84;
 const MAX_REGEX_LENGTH = 300;
+const AUTO_DOWNLOAD_CONFIDENCE_THRESHOLD = 0.88;
+const RATING_COMPARISONS = new Set(["gte", "lte", "gt", "lt", "eq"]);
+const RATING_TYPES = new Set(["user_score", "critic_score", "popularity"]);
 
 const SOURCE_ALIASES: Record<string, string> = {
   WEB: "WEB",
@@ -34,36 +39,55 @@ export function evaluateSubscriptionRule(
 ): RuleDecision {
   const normalized = normalizeRule(rule);
 
-  if (!candidate.match || ["REJECTED", "UNMATCHED"].includes(candidate.match.status)) {
-    return reject("metadata has not been matched", normalized);
-  }
-
-  if (normalized.provider && normalizeProvider(candidate.match.provider) !== normalized.provider) {
-    return reject("metadata provider does not match subscription", normalized);
-  }
-
-  if (normalized.providerId && candidate.match.providerId !== normalized.providerId) {
-    return reject("metadata provider id does not match subscription", normalized);
-  }
-
-  if (normalized.imdbId && candidate.match.imdbId !== normalized.imdbId) {
-    return reject("IMDb id does not match subscription", normalized);
-  }
-
-  if (normalized.doubanId && candidate.match.doubanId !== normalized.doubanId) {
-    return reject("Douban id does not match subscription", normalized);
+  if (!candidate.activeMatch || candidate.activeMatch.status !== "MATCHED") {
+    return reject("release has no active matched media title", normalized);
   }
 
   if (
-    normalized.mediaKind &&
-    normalized.mediaKind !== "UNKNOWN" &&
-    candidate.release.kind !== normalized.mediaKind
+    candidate.activeMatch.source === "AUTO" &&
+    candidate.activeMatch.confidence < AUTO_DOWNLOAD_CONFIDENCE_THRESHOLD
   ) {
-    return reject("media kind does not match", normalized);
+    return reject("metadata match confidence is below auto-download threshold", normalized);
   }
 
-  if (candidate.match.score < MIN_MATCH_SCORE) {
-    return reject("metadata match confidence is below auto-download threshold", normalized);
+  if (
+    normalized.mediaType &&
+    normalized.mediaType !== "UNKNOWN" &&
+    candidate.activeMatch.mediaTitle.mediaType !== normalized.mediaType
+  ) {
+    return reject("media type does not match", normalized);
+  }
+
+  if (
+    normalized.mediaTitleId &&
+    candidate.activeMatch.mediaTitle.id !== normalized.mediaTitleId
+  ) {
+    return reject("media title does not match subscription", normalized);
+  }
+
+  if (
+    normalized.selectedProvider &&
+    !sameProviderIdentity(
+      candidate.activeMatch.selectedProviderTitle,
+      normalized.selectedProvider
+    )
+  ) {
+    return reject("selected provider title does not match subscription", normalized);
+  }
+
+  for (const filter of normalized.linkedProviders) {
+    if (
+      !candidate.activeMatch.linkedProviderTitles.some((title) =>
+        sameProviderIdentity(title, filter)
+      )
+    ) {
+      return reject("linked provider title does not match subscription", normalized);
+    }
+  }
+
+  for (const filter of normalized.providerRatings) {
+    const ratingDecision = evaluateProviderRatingFilter(candidate, filter, normalized);
+    if (ratingDecision) return ratingDecision;
   }
 
   if (!matchesTitleRegex(normalized.titleRegex, candidate.release.title, candidate.rawTitle)) {
@@ -160,7 +184,18 @@ export function evaluateSubscriptionRule(
 }
 
 export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscriptionRule {
-  const provider = normalizeProvider(optionalString(rule.provider));
+  const criteria = criteriaObject(rule.criteriaJson);
+  const mediaTitleId = optionalString(rule.mediaTitleId) ??
+    optionalString(criteria.mediaTitleId);
+  const selectedProvider = normalizeProviderIdentity(
+    rule.selectedProvider ?? criteria.selectedProvider
+  );
+  const linkedProviders = normalizeProviderIdentityList(
+    rule.linkedProviders ?? criteria.linkedProviders
+  );
+  const providerRatings = normalizeProviderRatingList(
+    rule.providerRatings ?? criteria.providerRatings
+  );
   const minResolution = normalizeOptionalResolution(rule.minResolution);
   const maxResolution = normalizeOptionalResolution(rule.maxResolution);
 
@@ -188,11 +223,11 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
   }
 
   return {
-    mediaKind: rule.mediaKind ?? undefined,
-    provider,
-    providerId: optionalString(rule.providerId),
-    imdbId: optionalString(rule.imdbId),
-    doubanId: optionalString(rule.doubanId),
+    mediaType: rule.mediaType ?? undefined,
+    mediaTitleId,
+    selectedProvider,
+    linkedProviders,
+    providerRatings,
     titleRegex: normalizeRegex(rule.titleRegex),
     includeRegex: normalizeRegex(rule.includeRegex),
     excludeRegex: normalizeRegex(rule.excludeRegex),
@@ -394,8 +429,8 @@ function requiresStrictEpisode(
   candidate: CandidateInput
 ): boolean {
   return (
-    rule.mediaKind === "TV" ||
-    candidate.release.kind === "TV" ||
+    rule.mediaType === "TV_SERIES" ||
+    candidate.release.mediaType === "TV_SERIES" ||
     hasNumber(rule.season) ||
     hasNumber(rule.episodeStart) ||
     hasNumber(rule.episodeEnd)
@@ -404,6 +439,206 @@ function requiresStrictEpisode(
 
 function hasNumber(value: number | undefined): value is number {
   return typeof value === "number";
+}
+
+function criteriaObject(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, any>
+    : {};
+}
+
+function normalizeProviderIdentity(value: unknown): ProviderIdentityFilter | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const input = value as Record<string, unknown>;
+  const provider = normalizeProvider(optionalUnknownString(input.provider));
+  const providerId = optionalUnknownString(input.providerId);
+  const providerEntityType = optionalUnknownString(input.providerEntityType);
+  if (!provider && !providerId && !providerEntityType) return undefined;
+  if (!provider || !providerId) {
+    throw new SubscriptionRuleValidationError(
+      "provider identity filters require provider and providerId"
+    );
+  }
+  return {
+    provider,
+    providerId,
+    ...(providerEntityType ? { providerEntityType } : {})
+  };
+}
+
+function normalizeProviderIdentityList(value: unknown): ProviderIdentityFilter[] {
+  if (!value) return [];
+  if (!Array.isArray(value)) {
+    throw new SubscriptionRuleValidationError("linkedProviders must be an array");
+  }
+  const normalized = value
+    .map(normalizeProviderIdentity)
+    .filter((filter): filter is ProviderIdentityFilter => Boolean(filter));
+  return uniqueProviderIdentities(normalized);
+}
+
+function normalizeProviderRatingList(value: unknown): ProviderRatingFilter[] {
+  if (!value) return [];
+  if (!Array.isArray(value)) {
+    throw new SubscriptionRuleValidationError("providerRatings must be an array");
+  }
+  return value
+    .map(normalizeProviderRating)
+    .filter((filter): filter is ProviderRatingFilter => Boolean(filter));
+}
+
+function normalizeProviderRating(value: unknown): ProviderRatingFilter | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const input = value as Record<string, unknown>;
+  const provider = normalizeProvider(optionalUnknownString(input.provider));
+  const comparison = optionalUnknownString(input.comparison);
+  const ratingType = optionalUnknownString(input.ratingType);
+  const ratingValue = optionalNumber(input.value);
+  const scale = optionalNumber(input.scale);
+  const minVoteCount = optionalInt(input.minVoteCount);
+
+  if (
+    !provider &&
+    !comparison &&
+    ratingValue === undefined &&
+    scale === undefined &&
+    minVoteCount === undefined &&
+    !ratingType
+  ) {
+    return undefined;
+  }
+  if (!provider) {
+    throw new SubscriptionRuleValidationError("provider rating filters require provider");
+  }
+  if (!comparison || !RATING_COMPARISONS.has(comparison)) {
+    throw new SubscriptionRuleValidationError("provider rating comparison is unsupported");
+  }
+  if (ratingValue === undefined) {
+    throw new SubscriptionRuleValidationError("provider rating value is required");
+  }
+  if (scale !== undefined && scale <= 0) {
+    throw new SubscriptionRuleValidationError("provider rating scale must be positive");
+  }
+  if (minVoteCount !== undefined && minVoteCount < 0) {
+    throw new SubscriptionRuleValidationError("provider rating min vote count must be non-negative");
+  }
+  if (ratingType && !RATING_TYPES.has(ratingType)) {
+    throw new SubscriptionRuleValidationError("provider rating type is unsupported");
+  }
+
+  return {
+    provider,
+    comparison: comparison as ProviderRatingFilter["comparison"],
+    value: ratingValue,
+    ...(ratingType ? { ratingType: ratingType as ProviderRatingFilter["ratingType"] } : {}),
+    ...(scale !== undefined ? { scale } : {}),
+    ...(minVoteCount !== undefined ? { minVoteCount } : {})
+  };
+}
+
+function uniqueProviderIdentities(filters: ProviderIdentityFilter[]): ProviderIdentityFilter[] {
+  const seen = new Set<string>();
+  const result: ProviderIdentityFilter[] = [];
+  for (const filter of filters) {
+    const key = `${filter.provider}:${filter.providerEntityType ?? ""}:${filter.providerId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(filter);
+  }
+  return result;
+}
+
+function sameProviderIdentity(
+  title: ProviderTitleRuleView,
+  filter: ProviderIdentityFilter
+): boolean {
+  return (
+    normalizeProvider(title.provider) === filter.provider &&
+    title.providerId === filter.providerId &&
+    (!filter.providerEntityType || title.providerEntityType === filter.providerEntityType)
+  );
+}
+
+function evaluateProviderRatingFilter(
+  candidate: CandidateInput,
+  filter: ProviderRatingFilter,
+  normalized: NormalizedSubscriptionRule
+): RuleDecision | undefined {
+  const providerTitle = activeProviderTitles(candidate).find(
+    (title) =>
+      normalizeProvider(title.provider) === filter.provider &&
+      (!filter.ratingType || title.ratingType === filter.ratingType)
+  );
+
+  if (!providerTitle || providerTitle.ratingValue == null || providerTitle.ratingScale == null) {
+    return reject("provider rating is missing", normalized);
+  }
+  if (providerTitle.ratingScale <= 0) {
+    return reject("provider rating scale is invalid", normalized);
+  }
+  if (
+    filter.minVoteCount != null &&
+    (providerTitle.ratingVoteCount == null || providerTitle.ratingVoteCount < filter.minVoteCount)
+  ) {
+    return reject("provider rating vote count is below subscription minimum", normalized);
+  }
+
+  const candidateScore = providerTitle.ratingValue / providerTitle.ratingScale;
+  const threshold = filter.scale ? filter.value / filter.scale : filter.value;
+  if (!compareRating(candidateScore, threshold, filter.comparison)) {
+    return reject("provider rating does not match subscription", normalized);
+  }
+  return undefined;
+}
+
+function activeProviderTitles(candidate: CandidateInput): ProviderTitleRuleView[] {
+  const match = candidate.activeMatch;
+  if (!match) return [];
+  const titles = [match.selectedProviderTitle, ...match.linkedProviderTitles];
+  const seen = new Set<string>();
+  return titles.filter((title) => {
+    const key = `${title.providerTitleId}:${title.provider}:${title.providerEntityType}:${title.providerId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function compareRating(left: number, right: number, comparison: ProviderRatingFilter["comparison"]) {
+  switch (comparison) {
+    case "gte":
+      return left >= right;
+    case "lte":
+      return left <= right;
+    case "gt":
+      return left > right;
+    case "lt":
+      return left < right;
+    case "eq":
+      return Math.abs(left - right) < Number.EPSILON;
+  }
+}
+
+function optionalUnknownString(value: unknown): string | undefined {
+  return typeof value === "string" ? optionalString(value) : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(numeric)) {
+    throw new SubscriptionRuleValidationError("provider rating numeric fields must be finite");
+  }
+  return numeric;
+}
+
+function optionalInt(value: unknown): number | undefined {
+  const numeric = optionalNumber(value);
+  if (numeric === undefined) return undefined;
+  if (!Number.isInteger(numeric)) {
+    throw new SubscriptionRuleValidationError("provider rating min vote count must be an integer");
+  }
+  return numeric;
 }
 
 function reject(reason: string, rule: NormalizedSubscriptionRule): RuleDecision {

@@ -2,12 +2,18 @@ import Parser from "rss-parser";
 import type { Prisma } from "@prisma/client";
 import { parseReleaseTitle } from "@rss-media/shared/releaseParser";
 import { redactSecrets } from "@rss-media/shared/redact";
+import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { badGateway, notFound } from "../../core/errors.js";
 import { publishTenantEvent } from "../../core/events.js";
 import { decryptAead, encryptAead, hmacSecret } from "../../secrets.js";
 import { listItems } from "../items/items.service.js";
 import type { ItemQueryInput } from "../items/items.schemas.js";
+import {
+  invalidateMatchesForParsedRelease,
+  matchParsedReleaseForItem
+} from "../media/media.service.js";
+import { evaluateAutoDownloadsForItem } from "../subscriptions/subscriptions.service.js";
 import type { CreateFeedInput, PatchFeedInput } from "./feeds.schemas.js";
 
 type TenantJobContext =
@@ -47,6 +53,32 @@ type DedupeKey = {
   type: "INFO_HASH" | "RELEASE_SIGNATURE" | "LINK_HASH";
   hash: string;
   releaseSignature?: string;
+};
+
+type FeedRefreshOptions = {
+  config?: AppConfig;
+  enrichmentLimit?: number;
+};
+
+type FeedRefreshResult = {
+  created: number;
+  updated: number;
+  changed: number;
+  unchanged: number;
+  skipped: number;
+  enrichment: {
+    attempted: number;
+    matched: number;
+    unmatched: number;
+    queued: number;
+    failed: number;
+    reasons: Record<string, number>;
+  };
+  subscriptions: {
+    evaluatedItems: number;
+    downloadJobsCreated: number;
+    failed: number;
+  };
 };
 
 export type FeedResponse = {
@@ -151,11 +183,15 @@ export async function listFeedItems(
   return listItems(tenantId, { ...query, feedId });
 }
 
-export async function refreshFeed(feedId: string, ctx: TenantJobContext) {
+export async function refreshFeed(
+  feedId: string,
+  ctx: TenantJobContext,
+  options: FeedRefreshOptions = {}
+): Promise<FeedRefreshResult> {
   const feed = await prisma.rssFeed.findFirst({
     where: { id: feedId, tenantId: ctx.tenantId, enabled: true }
   });
-  if (!feed) return { created: 0, updated: 0 };
+  if (!feed) return emptyRefreshResult();
 
   try {
     const url = decryptAead(feed.encryptedUrl);
@@ -163,10 +199,17 @@ export async function refreshFeed(feedId: string, ctx: TenantJobContext) {
 
     let created = 0;
     let updated = 0;
+    let changed = 0;
+    let unchanged = 0;
+    let skipped = 0;
+    const changedItemIds: string[] = [];
 
     for (const raw of parsed.items ?? []) {
       const item = normalizeFeedItem(raw);
-      if (!item) continue;
+      if (!item) {
+        skipped += 1;
+        continue;
+      }
 
       const dedupe = chooseDedupeKey(item);
       const safeRaw = safeRawPayload(raw);
@@ -190,6 +233,16 @@ export async function refreshFeed(feedId: string, ctx: TenantJobContext) {
       });
 
       if (existing) {
+        const previousRelease = await prisma.parsedRelease.findUnique({
+          where: {
+            rssItemId_tenantId: {
+              rssItemId: existing.id,
+              tenantId: ctx.tenantId
+            }
+          },
+          select: parsedReleaseComparisonSelect()
+        });
+
         await prisma.rssItem.update({
           where: { id_tenantId: { id: existing.id, tenantId: ctx.tenantId } },
           data: {
@@ -206,7 +259,7 @@ export async function refreshFeed(feedId: string, ctx: TenantJobContext) {
             sizeBytes: item.sizeBytes,
             ...safeRaw,
             parseStatus: "PARSED",
-            parseConfidence: release.confidence,
+            parseConfidence: release.parseConfidence,
             parsedRelease: {
               upsert: {
                 create: parsedReleaseData(release),
@@ -215,10 +268,25 @@ export async function refreshFeed(feedId: string, ctx: TenantJobContext) {
             }
           }
         });
-        await syncUnmatchedMediaMatchTitle(ctx.tenantId, existing.id, release.title);
+
+        const releaseChanged = !previousRelease || parsedReleaseChanged(previousRelease, release);
+        if (previousRelease && releaseChanged) {
+          await invalidateMatchesForParsedRelease({
+            tenantId: ctx.tenantId,
+            parsedReleaseId: previousRelease.id,
+            staleReason: "parsed_release_changed"
+          });
+        }
+        if (releaseChanged) {
+          changedItemIds.push(existing.id);
+          changed += 1;
+        } else {
+          unchanged += 1;
+        }
+
         updated += 1;
       } else {
-        await prisma.rssItem.create({
+        const createdItem = await prisma.rssItem.create({
           data: {
             tenantId: ctx.tenantId,
             feedId,
@@ -235,12 +303,14 @@ export async function refreshFeed(feedId: string, ctx: TenantJobContext) {
             sizeBytes: item.sizeBytes,
             ...safeRaw,
             parseStatus: "PARSED",
-            parseConfidence: release.confidence,
+            parseConfidence: release.parseConfidence,
             parsedRelease: {
               create: parsedReleaseData(release)
             }
-          }
+          },
+          select: { id: true }
         });
+        changedItemIds.push(createdItem.id);
         created += 1;
       }
     }
@@ -250,13 +320,29 @@ export async function refreshFeed(feedId: string, ctx: TenantJobContext) {
       data: { lastPolledAt: new Date(), lastError: null }
     });
 
+    const { enrichment, subscriptions } = await enrichChangedItems({
+      itemIds: changedItemIds,
+      tenantId: ctx.tenantId,
+      config: options.config,
+      limit: options.enrichmentLimit ?? 50
+    });
+    const result = {
+      created,
+      updated,
+      changed,
+      unchanged,
+      skipped,
+      enrichment,
+      subscriptions
+    };
+
     publishTenantEvent({
       tenantId: ctx.tenantId,
       type: "feed.refresh",
-      data: { feedId, created, updated }
+      data: { feedId, ...result }
     });
 
-    return { created, updated };
+    return result;
   } catch (error) {
     const message = redactSecrets(error instanceof Error ? error.message : String(error));
     await prisma.rssFeed.update({
@@ -265,6 +351,114 @@ export async function refreshFeed(feedId: string, ctx: TenantJobContext) {
     });
     throw badGateway(`RSS refresh failed: ${message}`);
   }
+}
+
+async function enrichChangedItems(input: {
+  tenantId: string;
+  itemIds: string[];
+  config?: AppConfig;
+  limit: number;
+}): Promise<Pick<FeedRefreshResult, "enrichment" | "subscriptions">> {
+  const enrichment = emptyEnrichmentSummary();
+  const subscriptions = emptySubscriptionSummary();
+
+  if (!input.config) {
+    enrichment.queued = input.itemIds.length;
+    return { enrichment, subscriptions };
+  }
+
+  const itemIds = input.itemIds.slice(0, input.limit);
+  enrichment.queued = Math.max(0, input.itemIds.length - itemIds.length);
+
+  for (const itemId of itemIds) {
+    enrichment.attempted += 1;
+    try {
+      const match = await matchParsedReleaseForItem({
+        tenantId: input.tenantId,
+        itemId,
+        config: input.config
+      });
+      if (match.status === "MATCHED") {
+        enrichment.matched += 1;
+        await evaluateSubscriptionsForMatchedItem({
+          tenantId: input.tenantId,
+          itemId,
+          config: input.config,
+          subscriptions
+        });
+      } else {
+        enrichment.unmatched += 1;
+      }
+      countReason(enrichment.reasons, match.reason ?? match.status);
+    } catch (error) {
+      enrichment.failed += 1;
+      countReason(
+        enrichment.reasons,
+        redactSecrets(error instanceof Error ? error.message : String(error))
+      );
+      console.error(`Media enrichment failed for ${itemId}`, redactSecrets(error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  return { enrichment, subscriptions };
+}
+
+async function evaluateSubscriptionsForMatchedItem(input: {
+  tenantId: string;
+  itemId: string;
+  config: AppConfig;
+  subscriptions: FeedRefreshResult["subscriptions"];
+}) {
+  input.subscriptions.evaluatedItems += 1;
+  try {
+    const createdJobs = await evaluateAutoDownloadsForItem({
+      tenantId: input.tenantId,
+      itemId: input.itemId,
+      config: input.config
+    });
+    input.subscriptions.downloadJobsCreated += createdJobs.length;
+  } catch (error) {
+    input.subscriptions.failed += 1;
+    console.error(
+      `Subscription evaluation failed for ${input.itemId}`,
+      redactSecrets(error instanceof Error ? error.message : String(error))
+    );
+  }
+}
+
+function emptyRefreshResult(): FeedRefreshResult {
+  return {
+    created: 0,
+    updated: 0,
+    changed: 0,
+    unchanged: 0,
+    skipped: 0,
+    enrichment: emptyEnrichmentSummary(),
+    subscriptions: emptySubscriptionSummary()
+  };
+}
+
+function emptyEnrichmentSummary(): FeedRefreshResult["enrichment"] {
+  return {
+    attempted: 0,
+    matched: 0,
+    unmatched: 0,
+    queued: 0,
+    failed: 0,
+    reasons: {}
+  };
+}
+
+function emptySubscriptionSummary(): FeedRefreshResult["subscriptions"] {
+  return {
+    evaluatedItems: 0,
+    downloadJobsCreated: 0,
+    failed: 0
+  };
+}
+
+function countReason(reasons: Record<string, number>, reason: string) {
+  reasons[reason] = (reasons[reason] ?? 0) + 1;
 }
 
 export function chooseDedupeKey(item: ParsedFeedItem): DedupeKey {
@@ -307,21 +501,6 @@ export function normalizeFeedItem(raw: RssParserItem): ParsedFeedItem | null {
     publishDate: parseDate(raw.isoDate ?? raw.pubDate),
     sizeBytes: parseSize(raw.torrentContentLength ?? raw.enclosure?.length)
   };
-}
-
-async function syncUnmatchedMediaMatchTitle(
-  tenantId: string,
-  itemId: string,
-  title: string
-) {
-  await prisma.mediaMatch.updateMany({
-    where: {
-      tenantId,
-      itemId,
-      status: "UNMATCHED"
-    },
-    data: { title }
-  });
 }
 
 export function safeRawPayload(raw: unknown) {
@@ -463,7 +642,7 @@ function buildReleaseSignature(
 
   return [
     ["title", normalizeSignaturePart(release.title)],
-    ["kind", release.kind],
+    ["mediaType", release.mediaType],
     ["year", release.year],
     ["season", release.season],
     ["episode", release.episode],
@@ -483,18 +662,59 @@ function parsedReleaseData(release: ReturnType<typeof parseReleaseTitle>) {
   return {
     title: release.title,
     year: release.year,
-    kind: release.kind,
+    mediaType: release.mediaType,
     season: release.season,
     episode: release.episode,
     episodeEnd: release.episodeEnd,
+    resolution: release.resolution,
     quality: release.quality,
     source: release.source,
     codec: release.codec,
     audio: release.audio,
     releaseGroup: release.releaseGroup,
-    confidence: release.confidence,
-    raw: stripUndefined(release)
+    parseConfidence: release.parseConfidence,
+    parsedAt: new Date()
   };
+}
+
+function parsedReleaseComparisonSelect() {
+  return {
+    id: true,
+    title: true,
+    year: true,
+    mediaType: true,
+    season: true,
+    episode: true,
+    episodeEnd: true,
+    resolution: true,
+    quality: true,
+    source: true,
+    codec: true,
+    audio: true,
+    releaseGroup: true,
+    parseConfidence: true
+  } as const;
+}
+
+function parsedReleaseChanged(
+  previous: Prisma.ParsedReleaseGetPayload<{ select: ReturnType<typeof parsedReleaseComparisonSelect> }>,
+  next: ReturnType<typeof parseReleaseTitle>
+) {
+  return [
+    previous.title !== next.title,
+    previous.year !== (next.year ?? null),
+    previous.mediaType !== next.mediaType,
+    previous.season !== (next.season ?? null),
+    previous.episode !== (next.episode ?? null),
+    previous.episodeEnd !== (next.episodeEnd ?? null),
+    previous.resolution !== (next.resolution ?? null),
+    previous.quality !== (next.quality ?? null),
+    previous.source !== (next.source ?? null),
+    previous.codec !== (next.codec ?? null),
+    previous.audio !== (next.audio ?? null),
+    previous.releaseGroup !== (next.releaseGroup ?? null),
+    previous.parseConfidence !== next.parseConfidence
+  ].some(Boolean);
 }
 
 function normalizeSignaturePart(value: unknown): string {
