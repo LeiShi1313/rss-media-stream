@@ -12,6 +12,14 @@ export type TvdbSeriesResponse = {
   data?: TvdbSeriesRecord;
 };
 
+export type TvdbMovieResponse = {
+  data?: TvdbMovieRecord;
+};
+
+export type TvdbTranslationResponse = {
+  data?: TvdbTranslationRecord;
+};
+
 export type TvdbSearchResult = {
   id?: string;
   tvdb_id?: string;
@@ -20,6 +28,7 @@ export type TvdbSearchResult = {
   primary_language?: string;
   year?: string;
   image_url?: string;
+  slug?: string;
   overview?: string;
   overviews?: Record<string, string>;
   translations?: Record<string, string>;
@@ -46,4 +55,29 @@ export type TvdbSeriesRecord = {
     nameTranslations?: string[];
     overviewTranslations?: string[];
   };
+};
+
+export type TvdbMovieRecord = {
+  id?: number;
+  name?: string;
+  slug?: string;
+  image?: string;
+  first_release?: {
+    date?: string;
+  };
+  year?: string;
+  overview?: string;
+  score?: number;
+  status?: {
+    name?: string;
+  };
+  originalLanguage?: string;
+};
+
+export type TvdbTranslationRecord = {
+  name?: string;
+  overview?: string;
+  language?: string;
+  aliases?: string[];
+  tagline?: string;
 };

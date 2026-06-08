@@ -30,7 +30,8 @@ export function toTitleResult(
     ratingScale: result.vote_average === undefined ? undefined : 10,
     ratingVoteCount: result.vote_count,
     ratingType: result.vote_average === undefined ? undefined : "user_score",
-    matchConfidence: scoreCandidate(input.title, displayTitle, input.year, releaseYear, result)
+    matchConfidence: scoreCandidate(input.title, displayTitle, input.year, releaseYear, result),
+    externalUrl: `https://www.themoviedb.org/${endpoint}/${result.id}`
   };
 }
 

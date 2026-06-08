@@ -1,5 +1,5 @@
 import type { ProviderTitleResult } from "@rss-media/shared/types";
-import type { TvdbSearchResult, TvdbSeriesRecord } from "./types.js";
+import type { TvdbMovieRecord, TvdbSearchResult, TvdbSeriesRecord, TvdbTranslationRecord } from "./types.js";
 
 export function tvdbSearchResultToTitleResult(
   result: TvdbSearchResult,
@@ -9,12 +9,13 @@ export function tvdbSearchResultToTitleResult(
   const title = result.name;
   if (!providerId || !title) return null;
   const searchScore = normalizeTvdbScore(result.score);
+  const mediaType = result.type?.toLowerCase() === "movie" ? "MOVIE" : "TV_SERIES";
 
   return {
     provider: "tvdb",
-    providerEntityType: "tvdb_series",
+    providerEntityType: mediaType === "MOVIE" ? "tvdb_movie" : "tvdb_series",
     providerId: String(providerId),
-    mediaType: "TV_SERIES",
+    mediaType,
     title,
     normalizedTitle: normalizeTitle(title),
     releaseYear: yearFromValue(result.year),
@@ -25,21 +26,24 @@ export function tvdbSearchResultToTitleResult(
       query: input.title,
       posterPath: result.image_url,
       overview: result.overview ?? result.overviews?.eng,
+      slug: result.slug,
       searchScore,
       primaryLanguage: result.primary_language,
       aliases: result.aliases,
       raw: result
     },
-    matchConfidence: searchScore
+    matchConfidence: searchScore,
+    externalUrl: tvdbExternalUrl(mediaType, result.slug)
   };
 }
 
 export function tvdbSeriesToTitleResult(
   series: TvdbSeriesRecord,
-  input: { language?: string; region?: string } = {}
+  input: { language?: string; region?: string; translation?: TvdbTranslationRecord } = {}
 ): ProviderTitleResult {
   const providerId = String(series.id ?? "");
-  const title = series.name ?? `TVDB series ${providerId}`;
+  const title = input.translation?.name ?? series.name ?? `TVDB series ${providerId}`;
+  const overview = input.translation?.overview ?? series.overview;
 
   return {
     provider: "tvdb",
@@ -54,7 +58,7 @@ export function tvdbSeriesToTitleResult(
     payload: {
       source: "tvdb",
       posterPath: series.image,
-      overview: series.overview,
+      overview,
       slug: series.slug,
       firstAired: series.firstAired,
       lastAired: series.lastAired,
@@ -63,8 +67,42 @@ export function tvdbSeriesToTitleResult(
       status: series.status?.name,
       originalLanguage: series.originalLanguage,
       translations: series.translations,
-      raw: series
-    }
+      raw: series,
+      translation: input.translation
+    },
+    externalUrl: tvdbExternalUrl("TV_SERIES", series.slug)
+  };
+}
+
+export function tvdbMovieToTitleResult(
+  movie: TvdbMovieRecord,
+  input: { language?: string; region?: string; translation?: TvdbTranslationRecord } = {}
+): ProviderTitleResult {
+  const providerId = String(movie.id ?? "");
+  const title = input.translation?.name ?? movie.name ?? `TVDB movie ${providerId}`;
+  const overview = input.translation?.overview ?? movie.overview;
+
+  return {
+    provider: "tvdb",
+    providerEntityType: "tvdb_movie",
+    providerId,
+    mediaType: "MOVIE",
+    title,
+    normalizedTitle: normalizeTitle(title),
+    releaseYear: yearFromValue(movie.year ?? movie.first_release?.date),
+    language: input.language,
+    region: input.region,
+    payload: {
+      source: "tvdb",
+      posterPath: movie.image,
+      overview,
+      slug: movie.slug,
+      searchScore: movie.score,
+      status: movie.status?.name,
+      raw: movie,
+      translation: input.translation
+    },
+    externalUrl: tvdbExternalUrl("MOVIE", movie.slug)
   };
 }
 
@@ -81,4 +119,9 @@ function normalizeTvdbScore(score?: number) {
 
 function normalizeTitle(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function tvdbExternalUrl(mediaType: "MOVIE" | "TV_SERIES", slug?: string) {
+  if (!slug) return undefined;
+  return `https://thetvdb.com/${mediaType === "MOVIE" ? "movies" : "series"}/${slug}`;
 }

@@ -1,21 +1,22 @@
 import type { MediaType, TmdbTitleResult } from "@rss-media/shared/types";
-import type { AppConfig } from "../../config.js";
-import { prisma } from "../../db.js";
-import { decryptSecret } from "../../secrets.js";
 import { toTitleResult } from "./mapper.js";
 import type { TmdbResult, TmdbSearchInput, TmdbSearchResponse } from "./types.js";
 
-type TmdbCredentialSource = "workspace" | "environment";
+type TmdbClientOptions = {
+  credential?: string;
+  language?: string;
+  region?: string;
+};
 
 export async function searchTmdb(
-  config: AppConfig,
   input: TmdbSearchInput,
-  tenantId: string
+  options: TmdbClientOptions
 ): Promise<TmdbTitleResult[]> {
-  const tmdbSettings = await resolveTmdbRuntimeSettings(config, tenantId);
-  const language = input.language ?? tmdbSettings.language;
+  const credential = normalizeTmdbCredential(options.credential);
+  const language = input.language ?? options.language ?? "en-US";
+  const region = input.region ?? options.region;
   const kind = tmdbEndpoint(input.mediaType);
-  if (!tmdbSettings.credential) {
+  if (!credential) {
     throw new Error("TMDB API key is not configured");
   }
 
@@ -25,38 +26,38 @@ export async function searchTmdb(
     language,
     page: "1"
   });
-  if (input.region) params.set("region", input.region);
+  if (region) params.set("region", region);
   if (input.year) {
     params.set(kind === "tv" ? "first_air_date_year" : "year", String(input.year));
   }
-  applyTmdbApiKeyParam(params, tmdbSettings.credential.value);
+  applyTmdbApiKeyParam(params, credential);
   const response = await fetch(`https://api.themoviedb.org/3/search/${kind}?${params}`, {
-    headers: tmdbHeaders(tmdbSettings.credential.value)
+    headers: tmdbHeaders(credential)
   });
   if (!response.ok) {
     throw new Error(`TMDB search failed with ${response.status}`);
   }
   const body = (await response.json()) as TmdbSearchResponse;
-  return mapSearchResponse(body, kind, { ...input, language });
+  return mapSearchResponse(body, kind, { ...input, language, region });
 }
 
 export async function getTmdbMediaById(
-  config: AppConfig,
-  tenantId: string,
-  input: { mediaType: MediaType; tmdbId: string; language?: string; region?: string }
+  input: { mediaType: MediaType; tmdbId: string; language?: string; region?: string },
+  options: TmdbClientOptions
 ): Promise<TmdbTitleResult> {
-  const tmdbSettings = await resolveTmdbRuntimeSettings(config, tenantId);
-  const language = input.language ?? tmdbSettings.language;
+  const credential = normalizeTmdbCredential(options.credential);
+  const language = input.language ?? options.language ?? "en-US";
+  const region = input.region ?? options.region;
   const kind = tmdbEndpoint(input.mediaType);
-  if (!tmdbSettings.credential) {
+  if (!credential) {
     throw new Error("TMDB API key is not configured");
   }
 
   const params = new URLSearchParams({ language });
-  if (input.region) params.set("region", input.region);
-  applyTmdbApiKeyParam(params, tmdbSettings.credential.value);
+  if (region) params.set("region", region);
+  applyTmdbApiKeyParam(params, credential);
   const response = await fetch(`https://api.themoviedb.org/3/${kind}/${input.tmdbId}?${params}`, {
-    headers: tmdbHeaders(tmdbSettings.credential.value)
+    headers: tmdbHeaders(credential)
   });
   if (!response.ok) {
     throw new Error(`TMDB detail lookup failed with ${response.status}`);
@@ -66,7 +67,7 @@ export async function getTmdbMediaById(
     title: body.title ?? body.name ?? String(input.tmdbId),
     mediaType: input.mediaType,
     language,
-    region: input.region
+    region
   });
 }
 
@@ -85,76 +86,6 @@ export async function validateTmdbCredential(value: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`TMDB authentication failed with ${response.status}`);
   }
-}
-
-export async function getTmdbCredentialStatus(config: AppConfig, tenantId: string) {
-  const settings = await prisma.tenantSettings.findUnique({
-    where: { tenantId },
-    select: {
-      encryptedTmdbApiKey: true,
-      tmdbConfiguredAt: true,
-      tmdbLastValidatedAt: true,
-      tmdbLastError: true,
-      tmdbLanguage: true,
-      webLanguage: true
-    }
-  });
-
-  if (settings?.encryptedTmdbApiKey) {
-    return {
-      configured: true,
-      source: "workspace" as TmdbCredentialSource,
-      configuredAt: settings.tmdbConfiguredAt,
-      lastValidatedAt: settings.tmdbLastValidatedAt,
-      lastError: settings.tmdbLastError,
-      tmdbLanguage: settings.tmdbLanguage,
-      webLanguage: settings.webLanguage
-    };
-  }
-
-  return {
-    configured: Boolean(config.tmdbApiKey),
-    source: config.tmdbApiKey ? ("environment" as TmdbCredentialSource) : null,
-    configuredAt: null,
-    lastValidatedAt: null,
-    lastError: null,
-    tmdbLanguage: settings?.tmdbLanguage ?? "en-US",
-    webLanguage: settings?.webLanguage ?? "en-US"
-  };
-}
-
-export async function tenantHasTmdbCredential(config: AppConfig, tenantId: string) {
-  return Boolean(await resolveTmdbCredential(config, tenantId));
-}
-
-async function resolveTmdbCredential(
-  config: AppConfig,
-  tenantId: string
-): Promise<{ value: string; source: TmdbCredentialSource } | null> {
-  const settings = await prisma.tenantSettings.findUnique({
-    where: { tenantId },
-    select: { encryptedTmdbApiKey: true }
-  });
-  if (settings?.encryptedTmdbApiKey) {
-    return {
-      value: normalizeTmdbCredential(decryptSecret(settings.encryptedTmdbApiKey, config.appSecret))!,
-      source: "workspace"
-    };
-  }
-
-  const fallback = normalizeTmdbCredential(config.tmdbApiKey);
-  return fallback ? { value: fallback, source: "environment" } : null;
-}
-
-async function resolveTmdbRuntimeSettings(config: AppConfig, tenantId: string) {
-  const settings = await prisma.tenantSettings.findUnique({
-    where: { tenantId },
-    select: { tmdbLanguage: true }
-  });
-  return {
-    credential: await resolveTmdbCredential(config, tenantId),
-    language: settings?.tmdbLanguage ?? "en-US"
-  };
 }
 
 function mapSearchResponse(
