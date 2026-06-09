@@ -20,9 +20,10 @@ export function stringListFromInput(value: string) {
     .filter(Boolean);
 }
 
-export function providerValue(value?: string): "" | "tmdb" | "tvdb" | "imdb" | "douban" | "wikidata" | "trakt" | "musicbrainz" {
+export function providerValue(value?: string): "" | "tmdb" | "tvdb" | "ptgen" | "imdb" | "douban" | "wikidata" | "trakt" | "musicbrainz" {
   return value === "tmdb" ||
     value === "tvdb" ||
+    value === "ptgen" ||
     value === "imdb" ||
     value === "douban" ||
     value === "wikidata" ||

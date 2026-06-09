@@ -11,7 +11,7 @@ import {
   getMatchingProviderOrder,
   getPresentationProviderOrder
 } from "../../integrations/providers/policy.js";
-import { resolveProviderRuntime } from "../../integrations/providers/runtime.js";
+import { providerRuntimeAvailable, resolveProviderRuntime } from "../../integrations/providers/runtime.js";
 import type { ProviderRuntimeContext } from "../../integrations/providers/types.js";
 import {
   LOW_CONFIDENCE_THRESHOLD,
@@ -106,18 +106,24 @@ export async function smartSearchExternalMedia(
     }) ?? []
   );
 
-  const exactProbes = probes.filter((probe) => probe.providerId && probe.providerEntityType && probe.mediaType);
+  const exactProbes = probes.filter((probe) => probe.providerId && probe.providerEntityType);
   if (exactProbes.length > 0) {
     const results = await Promise.all(
-      exactProbes.map((probe) =>
-        runProviderDetailLookup(config, tenantId, probe.provider, {
-          providerEntityType: probe.providerEntityType!,
-          providerId: probe.providerId!,
-          mediaType: probe.mediaType!
-        })
-      )
+      exactProbes.map(async (probe) => {
+        try {
+          return await runProviderDetailLookup(config, tenantId, probe.provider, {
+            providerEntityType: probe.providerEntityType!,
+            providerId: probe.providerId!,
+            mediaType: probe.mediaType
+          });
+        } catch (error) {
+          if (isProviderLookupNotFound(error)) return undefined;
+          throw error;
+        }
+      })
     );
-    return dedupeProviderResults(results).map(serializeProviderTitleSearchResult);
+    return dedupeProviderResults(results.filter((result): result is ProviderTitleResult => Boolean(result)))
+      .map(serializeProviderTitleSearchResult);
   }
 
   const hintedTargets = probes
@@ -413,7 +419,7 @@ async function selectProviderTitleCandidate(input: {
 
   for (const providerId of providerOrder) {
     const runtime = await resolveProviderRuntime(input.config, input.tenantId, providerId);
-    if (!runtime.enabled || !runtime.credential) {
+    if (!providerRuntimeAvailable(runtime)) {
       continue;
     }
     configured += 1;
@@ -931,7 +937,7 @@ async function runProviderSearch(
 ) {
   try {
     const runtime = await resolveProviderRuntime(config, tenantId, providerId);
-    if (!runtime.enabled || !runtime.credential) {
+    if (!providerRuntimeAvailable(runtime)) {
       throw new Error(`${providerId.toUpperCase()} API key is not configured`);
     }
     return await runProviderSearchWithRuntime(providerId, runtime, input);
@@ -1007,11 +1013,11 @@ async function runProviderDetailLookup(
   config: AppConfig,
   tenantId: string,
   providerId: MediaProvider,
-  input: { providerEntityType: string; providerId: string; mediaType: MediaType }
+  input: { providerEntityType: string; providerId: string; mediaType?: MediaType }
 ) {
   try {
     const runtime = await resolveProviderRuntime(config, tenantId, providerId);
-    if (!runtime.enabled || !runtime.credential) {
+    if (!providerRuntimeAvailable(runtime)) {
       throw new Error(`${providerId.toUpperCase()} API key is not configured`);
     }
     return await getMetadataProvider(providerId).fetchTitle(
@@ -1036,11 +1042,18 @@ function providerError(error: unknown) {
   return badGateway(message);
 }
 
+function isProviderLookupNotFound(error: unknown) {
+  return error instanceof AppError && error.statusCode === 404;
+}
+
 function providerEntityTypeFor(provider: MediaProvider, mediaType: MediaType) {
   if (provider === "tmdb" && mediaType === "MOVIE") return "tmdb_movie";
   if (provider === "tmdb" && mediaType === "TV_SERIES") return "tmdb_tv";
   if (provider === "tvdb" && mediaType === "MOVIE") return "tvdb_movie";
   if (provider === "tvdb" && mediaType === "TV_SERIES") return "tvdb_series";
+  if (provider === "ptgen") {
+    throw conflict("UNSUPPORTED_PROVIDER_ENTITY", "PtGen detail lookup requires ptgen_imdb or ptgen_douban");
+  }
   throw conflict("UNSUPPORTED_PROVIDER_ENTITY", `Provider ${provider} does not support ${mediaType} detail lookup yet`);
 }
 

@@ -532,6 +532,7 @@ function providerEntityTypeFor(provider: string, mediaType: string) {
   if (provider === "tmdb" && mediaType === "TV_SERIES") return "tmdb_tv";
   if (provider === "tvdb" && mediaType === "MOVIE") return "tvdb_movie";
   if (provider === "tvdb" && mediaType === "TV_SERIES") return "tvdb_series";
+  if (provider === "ptgen") return undefined;
   return undefined;
 }
 
@@ -546,6 +547,7 @@ function providerOptions(t: (key: string) => string) {
     { value: "", label: t("common.anyProvider") },
     { value: "tmdb", label: "TMDB" },
     { value: "tvdb", label: "TVDB" },
+    { value: "ptgen", label: "PtGen" },
     { value: "imdb", label: "IMDb" },
     { value: "douban", label: "Douban" },
     { value: "wikidata", label: "Wikidata" },

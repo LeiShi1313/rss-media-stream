@@ -118,6 +118,7 @@ model TenantProviderConfig {
   lastError            String?
   metadataLanguage     String?
   region               String?
+  baseUrl              String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)

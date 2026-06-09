@@ -65,6 +65,9 @@ export const tvdbProvider: MetadataProvider = {
     return urlProbe ? [urlProbe] : [];
   },
   fetchTitle(input, context) {
+    if (!input.mediaType) {
+      throw new Error("TVDB detail lookup requires a media type");
+    }
     if (input.mediaType === "MOVIE" && input.providerEntityType === "tvdb_movie") {
       return getTvdbMovieById(
         {

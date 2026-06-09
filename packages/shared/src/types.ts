@@ -1,6 +1,6 @@
 export type MediaType = "MOVIE" | "TV_SERIES";
 export type ParsedMediaType = MediaType | "UNKNOWN";
-export type MediaProvider = "tmdb" | "tvdb" | "imdb" | "douban" | "wikidata" | "trakt" | "musicbrainz";
+export type MediaProvider = "tmdb" | "tvdb" | "ptgen" | "imdb" | "douban" | "wikidata" | "trakt" | "musicbrainz";
 export type ProviderEntityType = `${MediaProvider}_${string}`;
 export type RatingType = "user_score" | "critic_score" | "popularity";
 export type ProviderRatingType = RatingType;

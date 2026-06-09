@@ -30,7 +30,7 @@ const updateWorkspaceSchema = z.object({
 
 const mediaLanguageSchema = z.enum(["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"]);
 const webLanguageSchema = z.enum(["en-US", "zh-CN"]);
-const providerSchema = z.enum(["tmdb", "tvdb"]);
+const providerSchema = z.enum(["tmdb", "tvdb", "ptgen"]);
 const concreteMediaTypeSchema = z.enum(["MOVIE", "TV_SERIES"]);
 
 const updateSettingsSchema = z.object({
@@ -46,7 +46,8 @@ const providerSettingsUpdateSchema = z.object({
   secrets: z.record(z.string(), z.string().trim().max(5000)).optional(),
   clearSecrets: z.boolean().optional(),
   metadataLanguage: mediaLanguageSchema.nullable().optional(),
-  region: z.string().trim().max(20).nullable().optional()
+  region: z.string().trim().max(20).nullable().optional(),
+  baseUrl: z.string().trim().url().max(500).nullable().optional()
 });
 
 const providerPolicyUpdateSchema = z.object({
@@ -164,7 +165,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, config: AppC
         enabled: input.enabled,
         clearSecrets: input.clearSecrets,
         metadataLanguage: input.metadataLanguage,
-        region: input.region
+        region: input.region,
+        baseUrl: input.baseUrl
       });
       return listProviderSettings(config, request.tenantId!);
     }

@@ -1,5 +1,7 @@
 import type { MediaProvider, MediaType, ParsedMediaType } from "@rss-media/shared/types";
 import { badRequest } from "../../core/errors.js";
+import { DEFAULT_PTGEN_BASE_URL, PTGEN_BASE_URLS } from "../ptgen/client.js";
+import { ptgenProvider } from "../ptgen/provider.js";
 import { tmdbProvider } from "../tmdb/provider.js";
 import { tvdbProvider } from "../tvdb/provider.js";
 import type { MetadataProvider, ProviderDefinition, ProviderDefaultPolicy } from "./types.js";
@@ -57,12 +59,40 @@ const providerDefinitions = {
         presentationPriority: 1
       }
     ]
+  },
+  ptgen: {
+    id: "ptgen",
+    label: "PtGen",
+    supportedMediaTypes: ["MOVIE", "TV_SERIES"],
+    authFields: [],
+    supportsMetadataLanguage: true,
+    supportsRegion: false,
+    defaultMetadataLanguage: "en-US",
+    defaultBaseUrl: DEFAULT_PTGEN_BASE_URL,
+    baseUrlOptions: PTGEN_BASE_URLS,
+    defaultPolicies: [
+      {
+        mediaType: "MOVIE",
+        enabledForMatching: false,
+        enabledForPresentation: true,
+        matchingPriority: 3,
+        presentationPriority: 3
+      },
+      {
+        mediaType: "TV_SERIES",
+        enabledForMatching: false,
+        enabledForPresentation: true,
+        matchingPriority: 3,
+        presentationPriority: 3
+      }
+    ]
   }
-} as const satisfies Record<"tmdb" | "tvdb", ProviderDefinition>;
+} as const satisfies Record<"tmdb" | "ptgen" | "tvdb", ProviderDefinition>;
 
 const providers = new Map<MediaProvider, MetadataProvider>([
   [tmdbProvider.id, tmdbProvider],
-  [tvdbProvider.id, tvdbProvider]
+  [tvdbProvider.id, tvdbProvider],
+  [ptgenProvider.id, ptgenProvider]
 ]);
 
 export function getMetadataProvider(providerId: string): MetadataProvider {
@@ -110,6 +140,7 @@ export function getMetadataProviders(): MetadataProvider[] {
 export type {
   MetadataProvider,
   ProviderContext,
+  ProviderBaseUrlOption,
   ProviderDefinition,
   ProviderDetailInput,
   ProviderProbeInput,

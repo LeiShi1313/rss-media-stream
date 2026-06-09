@@ -67,13 +67,19 @@ export type ProviderAuthField = {
   required: boolean;
 };
 
+export type ProviderBaseUrlOption = {
+  label: string;
+  value: string;
+};
+
 export type ProviderSettings = {
-  id: "tmdb" | "tvdb";
+  id: "tmdb" | "tvdb" | "ptgen";
   label: string;
   supportedMediaTypes: Array<"MOVIE" | "TV_SERIES">;
   authFields: ProviderAuthField[];
   supportsMetadataLanguage: boolean;
   supportsRegion: boolean;
+  baseUrlOptions: ProviderBaseUrlOption[];
   enabled: boolean;
   configured: boolean;
   credentialSource: "workspace" | "environment" | null;
@@ -82,6 +88,7 @@ export type ProviderSettings = {
   lastError?: string | null;
   metadataLanguage?: string | null;
   region?: string | null;
+  baseUrl?: string | null;
 };
 
 export type ProviderSettingsResponse = {
@@ -89,7 +96,7 @@ export type ProviderSettingsResponse = {
 };
 
 export type MediaProviderPolicy = {
-  provider: "tmdb" | "tvdb";
+  provider: "tmdb" | "tvdb" | "ptgen";
   label: string;
   mediaType: "MOVIE" | "TV_SERIES";
   enabledForMatching: boolean;

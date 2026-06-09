@@ -4,7 +4,7 @@ const mediaTypeSchema = z.preprocess(
   (value) => value === "TV" ? "TV_SERIES" : value,
   z.enum(["MOVIE", "TV_SERIES", "UNKNOWN"])
 );
-const providerSchema = z.enum(["tmdb", "tvdb", "imdb", "douban", "wikidata", "trakt", "musicbrainz"]);
+const providerSchema = z.enum(["tmdb", "tvdb", "ptgen", "imdb", "douban", "wikidata", "trakt", "musicbrainz"]);
 const ratingTypeSchema = z.enum(["user_score", "critic_score", "popularity"]);
 const ratingComparisonSchema = z.enum(["gte", "lte", "gt", "lt", "eq"]);
 

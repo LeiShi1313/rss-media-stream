@@ -1,0 +1,35 @@
+export type PtgenSite = "imdb" | "douban";
+export type PtgenProviderEntityType = "ptgen_imdb" | "ptgen_douban";
+
+export type PtgenRecord = {
+  success?: boolean;
+  error?: string | null;
+  site?: string;
+  sid?: string | number;
+  "@type"?: string;
+  name?: string;
+  chinese_title?: string;
+  foreign_title?: string;
+  this_title?: string[];
+  trans_title?: string[];
+  aka?: string[];
+  year?: string | number;
+  playdate?: string[];
+  datePublished?: string;
+  release_date?: string[] | string;
+  imdb_id?: string;
+  imdb_link?: string;
+  douban_link?: string;
+  poster?: string;
+  introduction?: string;
+  description?: string;
+  douban_rating_average?: string | number;
+  douban_votes?: string | number;
+  imdb_rating_average?: string | number;
+  imdb_votes?: string | number;
+  genre?: string[];
+  language?: string[];
+  region?: string[];
+  episodes?: string | number | null;
+  update_at?: string;
+};

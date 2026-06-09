@@ -6,6 +6,7 @@ import {
   getProviderDefinition,
   providerSupportsMediaType
 } from "./index.js";
+import type { ProviderDefaultPolicy } from "./types.js";
 
 export type ProviderPolicyDto = {
   provider: MediaProvider;
@@ -113,9 +114,10 @@ async function getPoliciesForMediaType(
     where: { tenantId, mediaType },
     orderBy: [{ matchingPriority: "asc" }, { presentationPriority: "asc" }, { provider: "asc" }]
   });
+  const defaults = getDefaultPoliciesForMediaType(mediaType);
   const source = rows.length > 0
-    ? rows
-    : getDefaultPoliciesForMediaType(mediaType);
+    ? mergeMissingDefaultPolicies(rows, defaults)
+    : defaults;
 
   return source.map((policy) => {
     const definition = getProviderDefinition(policy.provider);
@@ -129,6 +131,27 @@ async function getPoliciesForMediaType(
       presentationPriority: policy.presentationPriority
     };
   });
+}
+
+function mergeMissingDefaultPolicies(
+  rows: Array<{
+    provider: string;
+    enabledForMatching: boolean;
+    enabledForPresentation: boolean;
+    matchingPriority: number;
+    presentationPriority: number;
+  }>,
+  defaults: Array<ProviderDefaultPolicy & { provider: MediaProvider }>
+) {
+  const seen = new Set(rows.map((row) => row.provider));
+  return [
+    ...rows,
+    ...defaults.filter((policy) => !seen.has(policy.provider))
+  ].sort((a, b) =>
+    a.matchingPriority - b.matchingPriority ||
+    a.presentationPriority - b.presentationPriority ||
+    a.provider.localeCompare(b.provider)
+  );
 }
 
 async function disabledProviders(tenantId: string) {

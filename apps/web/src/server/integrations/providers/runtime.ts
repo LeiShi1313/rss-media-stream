@@ -20,6 +20,10 @@ export type ProviderSettingsStatus = {
   }[];
   supportsMetadataLanguage: boolean;
   supportsRegion: boolean;
+  baseUrlOptions: readonly {
+    label: string;
+    value: string;
+  }[];
   enabled: boolean;
   configured: boolean;
   credentialSource: ProviderCredentialSource | null;
@@ -28,6 +32,7 @@ export type ProviderSettingsStatus = {
   lastError?: string | null;
   metadataLanguage?: string | null;
   region?: string | null;
+  baseUrl?: string | null;
 };
 
 export async function resolveProviderRuntime(
@@ -55,7 +60,8 @@ export async function resolveProviderRuntime(
     enabled: row?.enabled ?? true,
     credential,
     metadataLanguage: row?.metadataLanguage ?? definition.defaultMetadataLanguage,
-    region: row?.region ?? undefined
+    region: row?.region ?? undefined,
+    baseUrl: row?.baseUrl ?? definition.defaultBaseUrl
   };
 }
 
@@ -65,7 +71,7 @@ export async function providerIsConfigured(
   provider: MediaProvider
 ) {
   const runtime = await resolveProviderRuntime(config, tenantId, provider);
-  return runtime.enabled && Boolean(runtime.credential);
+  return providerRuntimeAvailable(runtime);
 }
 
 export async function listProviderSettings(config: AppConfig, tenantId: string) {
@@ -82,14 +88,16 @@ export async function listProviderSettings(config: AppConfig, tenantId: string) 
         authFields: definition.authFields,
         supportsMetadataLanguage: definition.supportsMetadataLanguage,
         supportsRegion: definition.supportsRegion,
+        baseUrlOptions: definition.baseUrlOptions ?? [],
         enabled: runtime.enabled,
-        configured: Boolean(runtime.credential),
+        configured: providerRuntimeConfigured(runtime),
         credentialSource: runtime.credential?.source ?? null,
         configuredAt: row?.configuredAt ?? null,
         lastValidatedAt: row?.lastValidatedAt ?? null,
         lastError: row?.lastError ?? null,
         metadataLanguage: runtime.metadataLanguage ?? null,
-        region: runtime.region ?? null
+        region: runtime.region ?? null,
+        baseUrl: runtime.baseUrl ?? null
       };
     })
   );
@@ -106,6 +114,7 @@ export async function upsertProviderSettings(input: {
   clearSecrets?: boolean;
   metadataLanguage?: string | null;
   region?: string | null;
+  baseUrl?: string | null;
 }) {
   const definition = getProviderDefinition(input.provider);
   const data: {
@@ -116,6 +125,7 @@ export async function upsertProviderSettings(input: {
     lastError?: string | null;
     metadataLanguage?: string | null;
     region?: string | null;
+    baseUrl?: string | null;
   } = {};
 
   if (input.enabled !== undefined) data.enabled = input.enabled;
@@ -130,6 +140,9 @@ export async function upsertProviderSettings(input: {
       throw badRequest(`${definition.label} does not support region settings`);
     }
     data.region = input.region?.trim() || null;
+  }
+  if (input.baseUrl !== undefined) {
+    data.baseUrl = validateBaseUrl(definition.label, definition.baseUrlOptions, input.baseUrl);
   }
 
   if (input.clearSecrets) {
@@ -157,6 +170,7 @@ export async function upsertProviderSettings(input: {
           enabled: input.enabled ?? true,
           metadataLanguage: data.metadataLanguage ?? definition.defaultMetadataLanguage,
           region: data.region,
+          baseUrl: data.baseUrl ?? definition.defaultBaseUrl,
           lastError: message
         },
         update: {
@@ -185,10 +199,20 @@ export async function upsertProviderSettings(input: {
       lastValidatedAt: data.lastValidatedAt,
       lastError: data.lastError,
       metadataLanguage: data.metadataLanguage ?? definition.defaultMetadataLanguage,
-      region: data.region
+      region: data.region,
+      baseUrl: data.baseUrl ?? definition.defaultBaseUrl
     },
     update: data
   });
+}
+
+export function providerRuntimeAvailable(runtime: ProviderRuntimeContext) {
+  return runtime.enabled && providerRuntimeConfigured(runtime);
+}
+
+export function providerRuntimeConfigured(runtime: ProviderRuntimeContext) {
+  const definition = getProviderDefinition(runtime.provider);
+  return !providerRequiresCredentials(definition.authFields) || Boolean(runtime.credential);
 }
 
 export function validateSecretShape(provider: MediaProvider, rawSecrets: ProviderSecrets) {
@@ -217,6 +241,44 @@ function environmentSecrets(config: AppConfig, provider: MediaProvider): Provide
     };
   }
   return undefined;
+}
+
+function validateBaseUrl(
+  label: string,
+  options: readonly { value: string }[] | undefined,
+  value: string | null
+) {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (!options?.length) {
+    throw badRequest(`${label} does not support base URL settings`);
+  }
+
+  try {
+    new URL(trimmed);
+  } catch {
+    throw badRequest(`${label} base URL must be a valid URL`);
+  }
+
+  const canonical = options.find((option) =>
+    normalizeBaseUrlForComparison(option.value) === normalizeBaseUrlForComparison(trimmed)
+  )?.value;
+  if (!canonical) {
+    throw badRequest(`${label} base URL is not supported`);
+  }
+
+  return canonical;
+}
+
+function providerRequiresCredentials(authFields: readonly { required: boolean }[]) {
+  return authFields.some((field) => field.required);
+}
+
+function normalizeBaseUrlForComparison(value: string) {
+  const url = new URL(value.trim());
+  url.hash = "";
+  url.search = "";
+  return url.toString().replace(/\/+$/, "");
 }
 
 function cleanSecrets(rawSecrets: unknown): ProviderSecrets {

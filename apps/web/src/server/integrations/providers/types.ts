@@ -9,7 +9,7 @@ export type ProviderSearchInput = {
 };
 
 export type ProviderDetailInput = {
-  mediaType: MediaType;
+  mediaType?: MediaType;
   providerEntityType: string;
   providerId: string;
   language?: string;
@@ -38,6 +38,11 @@ export type ProviderSecretField = {
   required: boolean;
 };
 
+export type ProviderBaseUrlOption = {
+  label: string;
+  value: string;
+};
+
 export type ProviderDefaultPolicy = {
   mediaType: MediaType;
   enabledForMatching: boolean;
@@ -54,6 +59,8 @@ export type ProviderDefinition = {
   supportsMetadataLanguage: boolean;
   supportsRegion: boolean;
   defaultMetadataLanguage?: string;
+  defaultBaseUrl?: string;
+  baseUrlOptions?: readonly ProviderBaseUrlOption[];
   defaultPolicies: readonly ProviderDefaultPolicy[];
 };
 
@@ -69,6 +76,7 @@ export type ProviderRuntimeContext = {
   };
   metadataLanguage?: string;
   region?: string;
+  baseUrl?: string;
 };
 
 export type ProviderContext = {

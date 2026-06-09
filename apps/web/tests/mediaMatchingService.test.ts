@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../src/server/config.js";
+import { AppError } from "../src/server/core/errors.js";
 
 const mocks = vi.hoisted(() => {
   const prisma = {
@@ -32,26 +33,33 @@ const mocks = vi.hoisted(() => {
     }
   };
 
-	  const provider = {
-	    id: "tmdb",
-	    search: vi.fn(),
-	    fetchTitle: vi.fn(),
-	    probe: vi.fn()
-	  };
-	  const tvdbProvider = {
-	    id: "tvdb",
-	    search: vi.fn(),
-	    fetchTitle: vi.fn(),
-	    probe: vi.fn()
-	  };
+  const provider = {
+    id: "tmdb",
+    search: vi.fn(),
+    fetchTitle: vi.fn(),
+    probe: vi.fn()
+  };
+  const tvdbProvider = {
+    id: "tvdb",
+    search: vi.fn(),
+    fetchTitle: vi.fn(),
+    probe: vi.fn()
+  };
+  const ptgenProvider = {
+    id: "ptgen",
+    search: vi.fn(),
+    fetchTitle: vi.fn(),
+    probe: vi.fn()
+  };
   type MockRuntime = {
     tenantId: string;
-    provider: "tmdb" | "tvdb";
+    provider: "tmdb" | "tvdb" | "ptgen";
     enabled: boolean;
     credential?: { source: string; secrets: { apiKey: string } };
     metadataLanguage: string;
+    baseUrl?: string;
   };
-  const runtime: Record<"tmdb" | "tvdb", MockRuntime> = {
+  const runtime: Record<"tmdb" | "tvdb" | "ptgen", MockRuntime> = {
     tmdb: {
       tenantId: "tenant-1",
       provider: "tmdb",
@@ -65,10 +73,17 @@ const mocks = vi.hoisted(() => {
       enabled: true,
       credential: { source: "workspace", secrets: { apiKey: "tvdb-key" } },
       metadataLanguage: "en-US"
+    },
+    ptgen: {
+      tenantId: "tenant-1",
+      provider: "ptgen",
+      enabled: true,
+      metadataLanguage: "en-US",
+      baseUrl: "https://ourbits.github.io/PtGen/"
     }
   };
 
-	  return { prisma, provider, tvdbProvider, runtime };
+  return { prisma, provider, tvdbProvider, ptgenProvider, runtime };
 });
 
 vi.mock("../src/server/db.js", () => ({
@@ -76,9 +91,9 @@ vi.mock("../src/server/db.js", () => ({
 }));
 
 vi.mock("../src/server/integrations/providers/index.js", () => ({
-  getMetadataProviders: vi.fn(() => [mocks.tvdbProvider, mocks.provider]),
+  getMetadataProviders: vi.fn(() => [mocks.ptgenProvider, mocks.tvdbProvider, mocks.provider]),
   getMetadataProvider: vi.fn((providerId: string) =>
-    providerId === "tvdb" ? mocks.tvdbProvider : mocks.provider
+    providerId === "tvdb" ? mocks.tvdbProvider : providerId === "ptgen" ? mocks.ptgenProvider : mocks.provider
   )
 }));
 
@@ -98,7 +113,10 @@ vi.mock("../src/server/integrations/providers/policy.js", () => ({
 }));
 
 vi.mock("../src/server/integrations/providers/runtime.js", () => ({
-  resolveProviderRuntime: vi.fn((_config: AppConfig, _tenantId: string, providerId: "tmdb" | "tvdb") =>
+  providerRuntimeAvailable: vi.fn((runtime: any) =>
+    runtime.enabled && (runtime.provider === "ptgen" || Boolean(runtime.credential))
+  ),
+  resolveProviderRuntime: vi.fn((_config: AppConfig, _tenantId: string, providerId: "tmdb" | "tvdb" | "ptgen") =>
     mocks.runtime[providerId]
   )
 }));
@@ -140,6 +158,13 @@ beforeEach(() => {
     credential: { source: "workspace", secrets: { apiKey: "tvdb-key" } },
     metadataLanguage: "en-US"
   };
+  mocks.runtime.ptgen = {
+    tenantId: "tenant-1",
+    provider: "ptgen",
+    enabled: true,
+    metadataLanguage: "en-US",
+    baseUrl: "https://ourbits.github.io/PtGen/"
+  };
 });
 
 describe("smartSearchExternalMedia", () => {
@@ -147,8 +172,10 @@ describe("smartSearchExternalMedia", () => {
     vi.clearAllMocks();
     mocks.provider.probe.mockReturnValue([]);
     mocks.tvdbProvider.probe.mockReturnValue([]);
+    mocks.ptgenProvider.probe.mockReturnValue([]);
     mocks.provider.search.mockResolvedValue([]);
     mocks.tvdbProvider.search.mockResolvedValue([]);
+    mocks.ptgenProvider.search.mockResolvedValue([]);
   });
 
   it("uses media type context to exact-fetch short TMDB IDs", async () => {
@@ -270,6 +297,66 @@ describe("smartSearchExternalMedia", () => {
       providerId: "169",
       title: "The Matrix"
     });
+  });
+
+  it("exact-fetches PtGen IDs even when the probe does not know media type yet", async () => {
+    mocks.ptgenProvider.probe.mockReturnValue([{
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0133093"
+    }]);
+    mocks.ptgenProvider.fetchTitle.mockResolvedValue(providerResult({
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0133093",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      externalUrl: "https://www.imdb.com/title/tt0133093/"
+    }));
+
+    const results = await smartSearchExternalMedia(config, "tenant-1", {
+      input: "imdb:tt0133093"
+    });
+
+    expect(mocks.ptgenProvider.fetchTitle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerEntityType: "ptgen_imdb",
+        providerId: "tt0133093",
+        mediaType: undefined
+      }),
+      expect.objectContaining({
+        runtime: expect.objectContaining({
+          provider: "ptgen",
+          baseUrl: "https://ourbits.github.io/PtGen/"
+        })
+      })
+    );
+    expect(results[0]).toMatchObject({
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0133093",
+      title: "The Matrix",
+      externalUrl: "https://www.imdb.com/title/tt0133093/"
+    });
+  });
+
+  it("returns no exact search results when a probed provider record is missing", async () => {
+    mocks.ptgenProvider.probe.mockReturnValue([{
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0000000"
+    }]);
+    mocks.ptgenProvider.fetchTitle.mockRejectedValue(new AppError(404, "NOT_FOUND", "PtGen title not found"));
+
+    const results = await smartSearchExternalMedia(config, "tenant-1", {
+      input: "imdb:tt0000000"
+    });
+
+    expect(mocks.ptgenProvider.fetchTitle).toHaveBeenCalled();
+    expect(results).toEqual([]);
+    expect(mocks.ptgenProvider.search).not.toHaveBeenCalled();
   });
 
   it("uses movie context to exact-fetch bare TVDB IDs", async () => {

@@ -21,6 +21,7 @@ type ProviderDraft = {
   enabled: boolean;
   metadataLanguage: string;
   region: string;
+  baseUrl: string;
   secrets: Record<string, string>;
 };
 
@@ -59,6 +60,7 @@ export function SettingsPage({
         enabled: provider.enabled,
         metadataLanguage: provider.metadataLanguage ?? "en-US",
         region: provider.region ?? "",
+        baseUrl: provider.baseUrl ?? provider.baseUrlOptions[0]?.value ?? "",
         secrets: {}
       }
     ])));
@@ -97,6 +99,7 @@ export function SettingsPage({
           enabled: draft.enabled,
           ...(provider.supportsMetadataLanguage ? { metadataLanguage: draft.metadataLanguage || null } : {}),
           ...(provider.supportsRegion ? { region: draft.region || null } : {}),
+          ...(provider.baseUrlOptions.length > 0 ? { baseUrl: draft.baseUrl || null } : {}),
           ...(Object.keys(secrets).length > 0 ? { secrets } : {})
         })
       })
@@ -113,7 +116,8 @@ export function SettingsPage({
           enabled: draft.enabled,
           clearSecrets: true,
           ...(provider.supportsMetadataLanguage ? { metadataLanguage: draft.metadataLanguage || null } : {}),
-          ...(provider.supportsRegion ? { region: draft.region || null } : {})
+          ...(provider.supportsRegion ? { region: draft.region || null } : {}),
+          ...(provider.baseUrlOptions.length > 0 ? { baseUrl: draft.baseUrl || null } : {})
         })
       })
     );
@@ -225,6 +229,7 @@ function ProviderCard({
     enabled: provider.enabled,
     metadataLanguage: provider.metadataLanguage ?? "en-US",
     region: provider.region ?? "",
+    baseUrl: provider.baseUrl ?? provider.baseUrlOptions[0]?.value ?? "",
     secrets: {}
   };
 
@@ -290,6 +295,17 @@ function ProviderCard({
               onChange={(event) => update({ region: event.target.value })}
               placeholder={t("settings.regionPlaceholder")}
               value={current.region}
+            />
+          </FieldLabel>
+        )}
+        {provider.baseUrlOptions.length > 0 && (
+          <FieldLabel>
+            {t("settings.providerBaseUrl")}
+            <SelectField
+              disabled={busy || ownerOnly}
+              onValueChange={(value) => update({ baseUrl: value })}
+              options={provider.baseUrlOptions}
+              value={current.baseUrl}
             />
           </FieldLabel>
         )}
@@ -386,6 +402,7 @@ function PolicyTable({
 }
 
 function providerCredentialText(status: ProviderSettings, t: TFunction) {
+  if (status.authFields.length === 0) return t("settings.noCredentialRequired");
   if (status.credentialSource === "workspace") return t("settings.workspaceCredential");
   if (status.credentialSource === "environment") return t("settings.environmentCredential");
   return t("settings.addCredential");

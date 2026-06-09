@@ -577,8 +577,10 @@ function ReleaseInspectorModal({
             </UiButton>
           </form>
           {titleSearchError && <p className="modal-feedback error">{titleSearchError}</p>}
-          {titleSearchSubmitted && !titleSearchBusy && !titleSearchError && titleSearchResults.length === 0 && /^\d+$/.test(titleSearchQuery.trim()) && (
-            <p className="modal-feedback">{t("overview.inspector.providerLinkHint")}</p>
+          {titleSearchSubmitted && !titleSearchBusy && !titleSearchError && titleSearchResults.length === 0 && (
+            <p className="modal-feedback">
+              {t("overview.inspector.noTitleResults")} {t("overview.inspector.providerLinkHint")}
+            </p>
           )}
           <details className="release-id-fallback">
             <summary>{t("overview.inspector.searchOptions")}</summary>

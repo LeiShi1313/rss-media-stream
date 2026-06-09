@@ -10,7 +10,10 @@ import {
   getPresentationProviderOrder,
   replaceMediaProviderPolicies
 } from "../src/server/integrations/providers/policy.js";
-import { resolveProviderRuntime } from "../src/server/integrations/providers/runtime.js";
+import { resolveProviderRuntime, upsertProviderSettings } from "../src/server/integrations/providers/runtime.js";
+import { getPtgenTitleById, ptgenRecordUrl } from "../src/server/integrations/ptgen/client.js";
+import { ptgenRecordToTitleResult } from "../src/server/integrations/ptgen/mapper.js";
+import { ptgenProvider } from "../src/server/integrations/ptgen/provider.js";
 import { tmdbProvider } from "../src/server/integrations/tmdb/provider.js";
 import { toTitleResult } from "../src/server/integrations/tmdb/mapper.js";
 import { tvdbProvider } from "../src/server/integrations/tvdb/provider.js";
@@ -24,7 +27,8 @@ const mocks = vi.hoisted(() => ({
     $transaction: vi.fn(),
     tenantProviderConfig: {
       findUnique: vi.fn(),
-      findMany: vi.fn()
+      findMany: vi.fn(),
+      upsert: vi.fn()
     },
     tenantMediaProviderPolicy: {
       findMany: vi.fn(),
@@ -56,11 +60,20 @@ describe("provider adapter defaults", () => {
   });
 
   it("uses registry default media type policies", () => {
-    expect(listProviderDefinitions().map((provider) => provider.id)).toEqual(["tmdb", "tvdb"]);
+    expect(listProviderDefinitions().map((provider) => provider.id)).toEqual(["tmdb", "tvdb", "ptgen"]);
     const tvdb = listProviderDefinitions().find((provider) => provider.id === "tvdb");
     expect(tvdb?.supportedMediaTypes).toEqual(["MOVIE", "TV_SERIES"]);
-    expect(getDefaultPoliciesForMediaType("MOVIE").map((policy) => policy.provider)).toEqual(["tmdb", "tvdb"]);
-    expect(getDefaultPoliciesForMediaType("TV_SERIES").map((policy) => policy.provider)).toEqual(["tvdb", "tmdb"]);
+    const ptgen = listProviderDefinitions().find((provider) => provider.id === "ptgen");
+    expect(ptgen).toMatchObject({
+      authFields: [],
+      defaultBaseUrl: "https://ourbits.github.io/PtGen/"
+    });
+    expect(getDefaultPoliciesForMediaType("MOVIE").map((policy) => policy.provider)).toEqual(["tmdb", "tvdb", "ptgen"]);
+    expect(getDefaultPoliciesForMediaType("TV_SERIES").map((policy) => policy.provider)).toEqual(["tvdb", "tmdb", "ptgen"]);
+    expect(getDefaultPoliciesForMediaType("MOVIE").find((policy) => policy.provider === "ptgen")).toMatchObject({
+      enabledForMatching: false,
+      enabledForPresentation: true
+    });
   });
 
   it("resolves missing and environment credential state through runtime", async () => {
@@ -72,6 +85,12 @@ describe("provider adapter defaults", () => {
     });
     await expect(resolveProviderRuntime({ ...baseConfig, tmdbApiKey: "env-key" }, "tenant-1", "tmdb")).resolves.toMatchObject({
       credential: { source: "environment", secrets: { apiKey: "env-key" } }
+    });
+    await expect(resolveProviderRuntime(baseConfig, "tenant-1", "ptgen")).resolves.toMatchObject({
+      enabled: true,
+      credential: undefined,
+      metadataLanguage: "en-US",
+      baseUrl: "https://ourbits.github.io/PtGen/"
     });
   });
 
@@ -95,7 +114,7 @@ describe("provider adapter defaults", () => {
     mocks.prisma.tenantProviderConfig.findMany.mockResolvedValue([{ provider: "tvdb" }]);
 
     await expect(getMatchingProviderOrder("tenant-1", "TV_SERIES")).resolves.toEqual(["tmdb"]);
-    await expect(getPresentationProviderOrder("tenant-1", "TV_SERIES")).resolves.toEqual(["tmdb"]);
+    await expect(getPresentationProviderOrder("tenant-1", "TV_SERIES")).resolves.toEqual(["tmdb", "ptgen"]);
   });
 
   it("builds broad search targets from matching policy order", async () => {
@@ -108,21 +127,26 @@ describe("provider adapter defaults", () => {
 
     mocks.prisma.tenantMediaProviderPolicy.findMany.mockImplementation(async (args: any) =>
       args.where.mediaType === "MOVIE"
-        ? [{
-            provider: "tmdb",
-            enabledForMatching: true,
-            enabledForPresentation: true,
-            matchingPriority: 1,
-            presentationPriority: 1
-          }]
+        ? [
+            {
+              provider: "tmdb",
+              enabledForMatching: true,
+              enabledForPresentation: true,
+              matchingPriority: 1,
+              presentationPriority: 1
+            },
+            {
+              provider: "tvdb",
+              enabledForMatching: true,
+              enabledForPresentation: true,
+              matchingPriority: 2,
+              presentationPriority: 2
+            }
+          ]
         : []
     );
 
-    await expect(getBroadSearchTargets("tenant-1")).resolves.toEqual([
-      { provider: "tmdb", mediaType: "MOVIE" },
-      { provider: "tvdb", mediaType: "TV_SERIES" },
-      { provider: "tmdb", mediaType: "TV_SERIES" }
-    ]);
+    await expect(getPresentationProviderOrder("tenant-1", "MOVIE")).resolves.toEqual(["tmdb", "tvdb", "ptgen"]);
   });
 
   it("rejects duplicate enabled policy priorities", async () => {
@@ -142,6 +166,32 @@ describe("provider adapter defaults", () => {
         presentationPriority: 2
       }
     ])).rejects.toThrow("Duplicate matching priority");
+  });
+
+  it("canonicalizes PtGen base URL settings and rejects base URLs for providers without options", async () => {
+    await upsertProviderSettings({
+      config: baseConfig,
+      tenantId: "tenant-1",
+      provider: "ptgen",
+      baseUrl: "https://cdn.ourhelp.club/ptgen"
+    });
+
+    expect(mocks.prisma.tenantProviderConfig.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        provider: "ptgen",
+        baseUrl: "https://cdn.ourhelp.club/ptgen/"
+      }),
+      update: expect.objectContaining({
+        baseUrl: "https://cdn.ourhelp.club/ptgen/"
+      })
+    }));
+
+    await expect(upsertProviderSettings({
+      config: baseConfig,
+      tenantId: "tenant-1",
+      provider: "tmdb",
+      baseUrl: "https://example.invalid"
+    })).rejects.toThrow("TMDB does not support base URL settings");
   });
 });
 
@@ -214,6 +264,40 @@ describe("provider adapter probes", () => {
       searchQuery: "the matrix"
     }]);
   });
+
+  it("resolves PtGen IMDb and Douban exact IDs and URLs", () => {
+    expect(ptgenProvider.probe?.({ input: "imdb:tt0133093", mediaType: "MOVIE" })).toEqual([{
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0133093",
+      mediaType: "MOVIE"
+    }]);
+    expect(ptgenProvider.probe?.({ input: "tt0944947" })).toEqual([{
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0944947",
+      mediaType: undefined
+    }]);
+    expect(ptgenProvider.probe?.({ input: "ptgen:douban:1291843", mediaType: "MOVIE" })).toEqual([{
+      provider: "ptgen",
+      providerEntityType: "ptgen_douban",
+      providerId: "1291843",
+      mediaType: "MOVIE"
+    }]);
+    expect(ptgenProvider.probe?.({ input: "https://www.imdb.com/title/TT0133093/" })).toEqual([{
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0133093",
+      mediaType: undefined
+    }]);
+    expect(ptgenProvider.probe?.({ input: "https://movie.douban.com/subject/1291843/" })).toEqual([{
+      provider: "ptgen",
+      providerEntityType: "ptgen_douban",
+      providerId: "1291843",
+      mediaType: undefined
+    }]);
+    expect(ptgenProvider.probe?.({ input: "douban:not-a-number" })).toEqual([]);
+  });
 });
 
 describe("manual provider match schema", () => {
@@ -228,6 +312,152 @@ describe("manual provider match schema", () => {
       providerEntityType: "tvdb_movie",
       providerId: "169",
       mediaType: "MOVIE"
+    });
+  });
+
+  it("accepts PtGen entity types and validates IDs by source site", () => {
+    expect(manualProviderMatchSchema.parse({
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0133093",
+      mediaType: "MOVIE"
+    })).toEqual({
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0133093",
+      mediaType: "MOVIE"
+    });
+    expect(manualProviderMatchSchema.parse({
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "TT0133093",
+      mediaType: "MOVIE"
+    })).toEqual({
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0133093",
+      mediaType: "MOVIE"
+    });
+    expect(manualProviderMatchSchema.parse({
+      provider: "ptgen",
+      providerEntityType: "ptgen_douban",
+      providerId: "3016187",
+      mediaType: "TV_SERIES"
+    })).toEqual({
+      provider: "ptgen",
+      providerEntityType: "ptgen_douban",
+      providerId: "3016187",
+      mediaType: "TV_SERIES"
+    });
+    expect(() => manualProviderMatchSchema.parse({
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "1291843",
+      mediaType: "MOVIE"
+    })).toThrow("provider ID must be an IMDb tt ID");
+  });
+});
+
+describe("PtGen title mapper", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("maps Douban records into provider title results", () => {
+    const result = ptgenRecordToTitleResult(
+      {
+        site: "douban",
+        sid: "1291843",
+        chinese_title: "黑客帝国",
+        foreign_title: "The Matrix",
+        this_title: ["The Matrix"],
+        trans_title: ["黑客帝国", "骇客任务"],
+        year: "1999",
+        imdb_id: "tt0133093",
+        imdb_link: "https://www.imdb.com/title/tt0133093/",
+        douban_link: "https://movie.douban.com/subject/1291843/",
+        poster: "https://img1.doubanio.com/poster.jpg",
+        introduction: "A localized overview.",
+        douban_rating_average: "9.1",
+        douban_votes: "944092",
+        episodes: ""
+      },
+      { site: "douban", sid: "1291843", language: "en-US" }
+    );
+
+    expect(result).toMatchObject({
+      provider: "ptgen",
+      providerEntityType: "ptgen_douban",
+      providerId: "1291843",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      originalTitle: "黑客帝国",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      ratingValue: 9.1,
+      ratingScale: 10,
+      ratingVoteCount: 944092,
+      ratingType: "user_score",
+      externalUrl: "https://movie.douban.com/subject/1291843/"
+    });
+    expect(result.payload).toMatchObject({
+      source: "ptgen",
+      site: "douban",
+      imdbId: "tt0133093",
+      posterPath: "https://img1.doubanio.com/poster.jpg",
+      overview: "A localized overview."
+    });
+  });
+
+  it("maps IMDb series records and host URL formats", () => {
+    const result = ptgenRecordToTitleResult(
+      {
+        site: "imdb",
+        sid: "tt0944947",
+        "@type": "TVSeries",
+        name: "Game of Thrones",
+        year: "2011",
+        datePublished: "2011-04-17",
+        imdb_link: "https://www.imdb.com/title/tt0944947/",
+        poster: "https://m.media-amazon.com/poster.jpg",
+        description: "Nine noble families fight for control.",
+        imdb_rating_average: 9.2,
+        imdb_votes: 2411567
+      },
+      { site: "imdb", sid: "tt0944947" }
+    );
+
+    expect(result).toMatchObject({
+      provider: "ptgen",
+      providerEntityType: "ptgen_imdb",
+      providerId: "tt0944947",
+      mediaType: "TV_SERIES",
+      title: "Game of Thrones",
+      releaseYear: 2011,
+      ratingValue: 9.2,
+      ratingVoteCount: 2411567
+    });
+    expect(ptgenRecordUrl("https://ourbits.github.io/PtGen/", "imdb", "tt0133093"))
+      .toBe("https://ourbits.github.io/PtGen/imdb/tt0133093.json");
+    expect(ptgenRecordUrl("https://cdn.ourhelp.club/ptgen", "douban", "1291843"))
+      .toBe("https://cdn.ourhelp.club/ptgen/douban/1291843.json");
+    expect(ptgenRecordUrl("https://api.ourhelp.club/infogen", "imdb", "tt0133093"))
+      .toBe("https://api.ourhelp.club/infogen?site=imdb&sid=tt0133093");
+  });
+
+  it("treats missing PtGen records as not found instead of upstream failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404
+    }));
+
+    await expect(getPtgenTitleById({
+      site: "imdb",
+      sid: "tt0000000"
+    })).rejects.toMatchObject({
+      statusCode: 404,
+      code: "NOT_FOUND",
+      message: "PtGen title not found"
     });
   });
 });

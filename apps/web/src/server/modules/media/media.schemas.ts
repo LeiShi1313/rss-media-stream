@@ -2,13 +2,15 @@ import { z } from "zod";
 
 export const mediaTypeSchema = z.enum(["MOVIE", "TV_SERIES"]);
 export const parsedMediaTypeSchema = z.enum(["MOVIE", "TV_SERIES", "UNKNOWN"]);
-export const providerSchema = z.enum(["tmdb", "tvdb"]);
+export const providerSchema = z.enum(["tmdb", "tvdb", "ptgen"]);
 export const providerEntityTypeSchema = z.string().trim().min(1).max(80);
 
 const providerEntityTypeFor = (provider: "tmdb" | "tvdb", mediaType: "MOVIE" | "TV_SERIES") => {
   if (provider === "tmdb") return mediaType === "MOVIE" ? "tmdb_movie" : "tmdb_tv";
   return mediaType === "MOVIE" ? "tvdb_movie" : "tvdb_series";
 };
+
+const ptgenEntityTypes = new Set(["ptgen_imdb", "ptgen_douban"]);
 
 const mediaTypeFromRequest = z.preprocess(
   (value) => value === "TV" ? "TV_SERIES" : value,
@@ -77,7 +79,9 @@ export const manualProviderMatchSchema = z
   .transform((input) => ({
     provider: input.provider,
     providerEntityType: input.providerEntityType,
-    providerId: input.providerId,
+    providerId: input.provider === "ptgen" && input.providerEntityType === "ptgen_imdb"
+      ? input.providerId.toLowerCase()
+      : input.providerId,
     mediaType: input.mediaType ?? input.kind ?? "MOVIE"
   }))
   .refine(
@@ -89,10 +93,22 @@ export const manualProviderMatchSchema = z
     { message: "provider ID must be numeric for TVDB" }
   )
   .refine(
-    (input) => providerEntityTypeFor(input.provider, input.mediaType) !== undefined,
+    (input) => input.provider !== "ptgen" || ptgenEntityTypes.has(input.providerEntityType ?? ""),
+    { message: "PtGen providerEntityType must be ptgen_imdb or ptgen_douban" }
+  )
+  .refine(
+    (input) => input.provider !== "ptgen" || input.providerEntityType !== "ptgen_imdb" || /^tt\d+$/i.test(input.providerId),
+    { message: "provider ID must be an IMDb tt ID for PtGen IMDb" }
+  )
+  .refine(
+    (input) => input.provider !== "ptgen" || input.providerEntityType !== "ptgen_douban" || /^\d+$/.test(input.providerId),
+    { message: "provider ID must be numeric for PtGen Douban" }
+  )
+  .refine(
+    (input) => input.provider === "ptgen" || providerEntityTypeFor(input.provider, input.mediaType) !== undefined,
     { message: "provider does not support this media type" }
   )
   .refine(
-    (input) => !input.providerEntityType || input.providerEntityType === providerEntityTypeFor(input.provider, input.mediaType),
+    (input) => input.provider === "ptgen" || !input.providerEntityType || input.providerEntityType === providerEntityTypeFor(input.provider, input.mediaType),
     { message: "providerEntityType must match provider and media type" }
   );

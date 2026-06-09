@@ -51,6 +51,9 @@ export const tmdbProvider: MetadataProvider = {
     return [];
   },
   fetchTitle(input, context) {
+    if (!input.mediaType) {
+      throw new Error("TMDB detail lookup requires a media type");
+    }
     const expectedEntityType = input.mediaType === "MOVIE" ? "tmdb_movie" : "tmdb_tv";
     if (input.providerEntityType !== expectedEntityType) {
       throw new Error(`TMDB ${input.mediaType} lookup requires ${expectedEntityType}`);
