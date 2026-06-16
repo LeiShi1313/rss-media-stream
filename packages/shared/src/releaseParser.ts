@@ -30,6 +30,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const cleanedRawTitle = stripMediaExtension(rawTitle);
   const parseInput = stripMediaExtension(releaseParseInput(rawTitle));
   const unsupportedMediaCategory = hasUnsupportedLeadingMediaCategory(rawTitle);
+  const movieMediaCategory = hasMovieLeadingMediaCategory(rawTitle);
   const releaseGroup = extractReleaseGroup(parseInput);
   const normalized = normalizeReleaseText(parseInput);
   const rawNormalized = normalizeReleaseText(cleanedRawTitle);
@@ -39,7 +40,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const episodeOnly = tv ? undefined : normalized.match(EPISODE_ONLY_RE);
   const seasonPack = normalized.match(SEASON_PACK_RE) ?? normalized.match(SEASON_WORD_PACK_RE);
   const normalizedChineseSeason = parseInputHasBrackets ? undefined : findChineseSeason(normalized, "normalized");
-  const chineseSeason = normalizedChineseSeason ?? findChineseSeason(rawTitle, "raw");
+  const chineseSeason = normalizedChineseSeason ?? (movieMediaCategory ? undefined : findChineseSeason(rawTitle, "raw"));
   const rawChineseEpisode = tv || episodeOnly || seasonPack || chineseSeason
     ? findChineseEpisode(rawTitle, "raw")
     : undefined;
@@ -214,6 +215,17 @@ function hasUnsupportedLeadingMediaCategory(rawTitle: string) {
   if (bracketed && unsupportedMediaCategorySegment(bracketed)) return true;
   const leadingWord = trimmed.match(/^([^\s[\]:：]+)/u)?.[1];
   return Boolean(leadingWord && unsupportedMediaCategorySegment(leadingWord));
+}
+
+function hasMovieLeadingMediaCategory(rawTitle: string) {
+  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  return Boolean(bracketed && movieMediaCategorySegment(bracketed));
+}
+
+function movieMediaCategorySegment(segment: string) {
+  const trimmed = segment.trim();
+  return /^(?:电影|電影)/u.test(trimmed) ||
+    /^movies?(?:\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
 }
 
 function unsupportedMediaCategorySegment(segment: string) {

@@ -275,6 +275,37 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("does not treat movie collection part metadata as a TV season", () => {
+    const release = parseReleaseTitle(
+      "[电影(Movie)]Basic Instinct 2 2006 1080p BluRay x265 10bit DDP 5.1 2Audios MNHD-FRDS[【本能2/Basic Instinct 2: Risk Addiction/本能2:致命诱惑/第六感追緝令2(台)】 10bit HEVC版本 情色系列第10部 英语 评论音轨 双语字幕][7.68 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Basic Instinct 2",
+      year: 2006,
+      mediaType: "MOVIE",
+      season: undefined,
+      quality: "1080p",
+      source: "BluRay",
+      releaseGroup: "FRDS"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["本能2"]));
+  });
+
+  it("still trusts explicit TV markers when a category label says movie", () => {
+    const release = parseReleaseTitle(
+      "[电影(Movie)]Example Show 2026 S01E02 1080p WEB-DL H264-GRP[错误分类 第10部][1.00 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Example Show",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 2
+    });
+  });
+
   it("parses episode-only TV releases as first-season episodes", () => {
     const release = parseReleaseTitle("Fan.Ren.Xiu.Xian.Zhuan.E32.1080p.WEB-DL.H264.AAC-CHDWEB.mp4");
 
