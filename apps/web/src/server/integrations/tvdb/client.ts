@@ -22,7 +22,7 @@ type TvdbClientOptions = {
 };
 
 export async function searchTvdbSeries(
-  input: { title: string; mediaType: "TV_SERIES"; year?: number; language?: string; region?: string },
+  input: { title: string; mediaType: "TV_SERIES"; year?: number; season?: number; episode?: number; language?: string; region?: string },
   options: TvdbClientOptions
 ): Promise<ProviderTitleResult[]> {
   const token = await resolveTvdbToken(options);
@@ -47,7 +47,7 @@ export async function searchTvdbSeries(
 }
 
 export async function searchTvdbMovie(
-  input: { title: string; mediaType: "MOVIE"; year?: number; language?: string; region?: string },
+  input: { title: string; mediaType: "MOVIE"; year?: number; season?: number; episode?: number; language?: string; region?: string },
   options: TvdbClientOptions
 ): Promise<ProviderTitleResult[]> {
   const token = await resolveTvdbToken(options);
@@ -165,7 +165,7 @@ async function loginTvdb(apiKey: string, pin?: string) {
 
 function mapSearchResponse(
   body: TvdbSearchResponse,
-  input: { title: string; language?: string; region?: string }
+  input: { title: string; year?: number; season?: number; episode?: number; language?: string; region?: string }
 ) {
   return (body.data ?? [])
     .map((result) => tvdbSearchResultToTitleResult(result, input))

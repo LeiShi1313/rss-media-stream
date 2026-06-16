@@ -18,9 +18,17 @@
       "types": "./dist/releaseParser.d.ts",
       "import": "./dist/releaseParser.js"
     },
+    "./releaseSignature": {
+      "types": "./dist/releaseSignature.d.ts",
+      "import": "./dist/releaseSignature.js"
+    },
     "./subscriptionRules": {
       "types": "./dist/subscriptionRules.d.ts",
       "import": "./dist/subscriptionRules.js"
+    },
+    "./titleNormalization": {
+      "types": "./dist/titleNormalization.d.ts",
+      "import": "./dist/titleNormalization.js"
     },
     "./types": {
       "types": "./dist/types.d.ts",

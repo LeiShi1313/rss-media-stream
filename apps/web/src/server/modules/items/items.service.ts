@@ -25,8 +25,10 @@ const itemRelations = {
         },
         include: {
           mediaTitle: {
-            include: { providerLinks: { include: { providerTitle: true } } }
+            include: { providerIdentities: { include: { metadata: true } } }
           },
+          mediaProviderIdentity: true,
+          providerMediaMetadata: { include: { mediaProviderIdentity: true } },
           providerTitle: true
         },
         orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }],

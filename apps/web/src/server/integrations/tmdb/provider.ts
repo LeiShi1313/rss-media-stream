@@ -10,6 +10,8 @@ export const tmdbProvider: MetadataProvider = {
         title: input.title,
         mediaType: input.mediaType,
         year: input.year,
+        season: input.season,
+        episode: input.episode,
         language: input.language,
         region: input.region
       },
@@ -30,6 +32,7 @@ export const tmdbProvider: MetadataProvider = {
       const mediaType = explicit[1].toLowerCase() === "tv" ? "TV_SERIES" : "MOVIE";
       return [{
         provider: "tmdb",
+        providerSource: "tmdb_api",
         providerEntityType: mediaType === "TV_SERIES" ? "tmdb_tv" : "tmdb_movie",
         providerId: explicit[2],
         mediaType
@@ -42,6 +45,7 @@ export const tmdbProvider: MetadataProvider = {
       if (!mediaType) return [];
       return [{
         provider: "tmdb",
+        providerSource: "tmdb_api",
         providerEntityType: mediaType === "TV_SERIES" ? "tmdb_tv" : "tmdb_movie",
         providerId: contextual[1],
         mediaType
@@ -97,6 +101,7 @@ function probeTmdbUrl(input: string): ProviderProbeResult | undefined {
   const mediaType = kind === "tv" ? "TV_SERIES" : "MOVIE";
   return {
     provider: "tmdb" as const,
+    providerSource: "tmdb_api",
     providerEntityType: mediaType === "TV_SERIES" ? "tmdb_tv" : "tmdb_movie",
     providerId: id,
     mediaType

@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import { Activity, Film, HardDrive, ListFilter, LogOut, RefreshCw, Rss, Settings, Shield, Users } from "lucide-react";
+import { Activity, Check, Film, Globe2, HardDrive, ListFilter, LogOut, RefreshCw, Rss, Settings, Shield, Users } from "lucide-react";
 import {
   api,
   type AuthResponse,
@@ -26,7 +26,7 @@ import { SubscriptionsPage } from "./pages/subscriptions.js";
 import { WorkspacePage } from "./pages/workspace.js";
 import { pageIds, type ActionResult, type PageId, type RunAction, type TimelinePoint } from "./types.js";
 import { relativeTime } from "./lib/format.js";
-import { applyUiLanguage } from "./i18n.js";
+import { applyUiLanguage, normalizeUiLanguage } from "./i18n.js";
 
 export function App() {
   const { t } = useTranslation();
@@ -168,7 +168,7 @@ function Dashboard({
   workspace: Workspace | null;
   onLogout: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [page, setPage] = useState<PageId>(() => readPageFromHash());
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -181,6 +181,11 @@ function Dashboard({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  const uiLanguage = normalizeUiLanguage(i18n.language);
+  const uiLanguageOptions = [
+    { value: "en-US", label: "EN" },
+    { value: "zh-CN", label: "中文" }
+  ];
 
   useEffect(() => {
     const syncPage = () => setPage(readPageFromHash());
@@ -253,6 +258,19 @@ function Dashboard({
     }
   }
 
+  async function changeUiLanguage(value: string) {
+    const language = await applyUiLanguage(value);
+    if (workspace?.role !== "OWNER") return;
+    try {
+      await api<WorkspaceSettings>("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ webLanguage: language })
+      });
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -273,11 +291,21 @@ function Dashboard({
           <PageLink page="settings" active={page} icon={<Settings size={18} />} label={t("nav.settings")} />
         </nav>
         <div className="sidebar-footer">
-          <span>{user.email}</span>
-          <UiButton className="ghost" onClick={onLogout}>
-            <LogOut size={18} />
-            {t("app.signOut")}
-          </UiButton>
+          <div className="sidebar-account">
+            <div className="sidebar-account-row">
+              <span className="sidebar-email">{user.email}</span>
+              <LanguageIconSelect
+                label={t("common.language")}
+                onValueChange={(value) => void changeUiLanguage(value)}
+                options={uiLanguageOptions}
+                value={uiLanguage}
+              />
+            </div>
+            <UiButton className="ghost sidebar-signout" onClick={onLogout}>
+              <LogOut size={18} />
+              {t("app.signOut")}
+            </UiButton>
+          </div>
         </div>
       </aside>
 
@@ -333,6 +361,73 @@ function Dashboard({
         )}
       </section>
     </main>
+  );
+}
+
+function LanguageIconSelect({
+  label,
+  onValueChange,
+  options,
+  value
+}: {
+  label: string;
+  onValueChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  value: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className="sidebar-language-menu" ref={menuRef}>
+      <button
+        className="icon-button sidebar-language-trigger"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={label}
+        onClick={() => setOpen((current) => !current)}
+        title={label}
+        type="button"
+      >
+        <Globe2 size={18} />
+      </button>
+      {open && (
+        <div className="sidebar-language-content" role="listbox" aria-label={label}>
+          {options.map((option) => (
+            <button
+              aria-selected={option.value === value}
+              className="sidebar-language-option"
+              key={option.value}
+              onClick={() => {
+                onValueChange(option.value);
+                setOpen(false);
+              }}
+              role="option"
+              type="button"
+            >
+              <span>{option.label}</span>
+              {option.value === value && <Check size={14} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

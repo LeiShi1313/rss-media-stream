@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { Globe2, KeyRound, SlidersHorizontal } from "lucide-react";
+import { useEffect, useState } from "react";
+import { KeyRound, SlidersHorizontal } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,14 +8,12 @@ import {
   type MediaProviderPolicy,
   type ProviderSettings,
   type ProviderSettingsResponse,
-  type Workspace,
-  type WorkspaceSettings
+  type Workspace
 } from "../api.js";
 import { Pill, StatusPill } from "../components/common/feedback.js";
 import { Panel } from "../components/common/surfaces.js";
 import { FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
 import type { RunAction } from "../types.js";
-import { applyUiLanguage, normalizeUiLanguage } from "../i18n.js";
 
 type ProviderDraft = {
   enabled: boolean;
@@ -36,23 +34,15 @@ export function SettingsPage({
 }) {
   const { t } = useTranslation();
   const mediaLanguageOptions = languageOptions(t);
-  const webLanguageOptions = [
-    { value: "en-US", label: t("settings.languages.enUS") },
-    { value: "zh-CN", label: t("settings.languages.zhCN") }
-  ];
-  const [workspaceSettings, setWorkspaceSettings] = useState<WorkspaceSettings | null>(null);
   const [providerSettings, setProviderSettings] = useState<ProviderSettings[]>([]);
   const [providerDrafts, setProviderDrafts] = useState<Record<string, ProviderDraft>>({});
   const [policies, setPolicies] = useState<MediaProviderPoliciesResponse["mediaTypes"]>([]);
-  const [webLanguage, setWebLanguage] = useState("en-US");
 
   async function loadSettings() {
-    const [nextWorkspaceSettings, nextProviders, nextPolicies] = await Promise.all([
-      api<WorkspaceSettings>("/api/settings"),
+    const [nextProviders, nextPolicies] = await Promise.all([
       api<ProviderSettingsResponse>("/api/settings/providers"),
       api<MediaProviderPoliciesResponse>("/api/settings/media-provider-policies")
     ]);
-    setWorkspaceSettings(nextWorkspaceSettings);
     setProviderSettings(nextProviders.providers);
     setProviderDrafts(Object.fromEntries(nextProviders.providers.map((provider) => [
       provider.id,
@@ -65,27 +55,11 @@ export function SettingsPage({
       }
     ])));
     setPolicies(nextPolicies.mediaTypes);
-    const nextWebLanguage = await applyUiLanguage(nextWorkspaceSettings.webLanguage);
-    setWebLanguage(nextWebLanguage);
   }
 
   useEffect(() => {
     void loadSettings();
   }, []);
-
-  async function saveWorkspaceSettings(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const result = await runAction(() =>
-      api<WorkspaceSettings>("/api/settings", {
-        method: "PUT",
-        body: JSON.stringify({ webLanguage })
-      })
-    );
-    if (result.ok) {
-      await applyUiLanguage(webLanguage);
-      await loadSettings();
-    }
-  }
 
   async function saveProviderSettings(provider: ProviderSettings) {
     const draft = providerDrafts[provider.id];
@@ -138,23 +112,6 @@ export function SettingsPage({
 
   return (
     <div className="page-stack">
-      <Panel title={t("settings.workspaceLanguage")} icon={<Globe2 size={19} />}>
-        <form className="settings-form settings-form-compact" onSubmit={saveWorkspaceSettings}>
-          <FieldLabel>
-            {t("settings.webLanguage")}
-            <SelectField disabled={busy || ownerOnly} onValueChange={(value) => setWebLanguage(normalizeUiLanguage(value))} options={webLanguageOptions} value={webLanguage} />
-          </FieldLabel>
-          <div className="form-actions">
-            <UiButton className="primary" disabled={busy || ownerOnly}>
-              {t("settings.saveSettings")}
-            </UiButton>
-          </div>
-        </form>
-        <div className="integration-meta">
-          <Pill>{languageLabel(webLanguage, t)} {t("common.webUi")}</Pill>
-        </div>
-      </Panel>
-
       <Panel title={t("settings.providerCredentials")} icon={<KeyRound size={19} />}>
         <div className="provider-card-grid">
           {providerSettings.map((provider) => (
@@ -189,15 +146,6 @@ export function SettingsPage({
               t={t}
             />
           ))}
-        </div>
-      </Panel>
-
-      <Panel title={t("settings.languageBehavior")} icon={<Globe2 size={19} />}>
-        <div className="settings-note">
-          <strong>{t("settings.providerLanguageBehaviorTitle")}</strong>
-          <span>{t("settings.providerLanguageBehaviorBody")}</span>
-          <strong>{t("settings.webBehaviorTitle")}</strong>
-          <span>{t("settings.webBehaviorBody")}</span>
         </div>
       </Panel>
     </div>
@@ -346,8 +294,8 @@ function PolicyTable({
   ownerOnly: boolean;
   t: TFunction;
 }) {
-  function update(provider: string, patch: Partial<MediaProviderPolicy>) {
-    onChange(group.policies.map((policy) => policy.provider === provider ? { ...policy, ...patch } : policy));
+  function update(providerSource: string, patch: Partial<MediaProviderPolicy>) {
+    onChange(group.policies.map((policy) => policy.providerSource === providerSource ? { ...policy, ...patch } : policy));
   }
 
   return (
@@ -360,13 +308,13 @@ function PolicyTable({
       </div>
       <div className="policy-rows">
         {group.policies.map((policy) => (
-          <div className="policy-row" key={policy.provider}>
+          <div className="policy-row" key={policy.providerSource}>
             <strong>{policy.label}</strong>
             <label>
               <input
                 checked={policy.enabledForMatching}
                 disabled={busy || ownerOnly}
-                onChange={(event) => update(policy.provider, { enabledForMatching: event.target.checked })}
+                onChange={(event) => update(policy.providerSource, { enabledForMatching: event.target.checked })}
                 type="checkbox"
               />
               <span>{t("settings.matching")}</span>
@@ -374,7 +322,7 @@ function PolicyTable({
             <FormInput
               disabled={busy || ownerOnly}
               min={1}
-              onChange={(event) => update(policy.provider, { matchingPriority: Number(event.target.value) })}
+              onChange={(event) => update(policy.providerSource, { matchingPriority: Number(event.target.value) })}
               type="number"
               value={String(policy.matchingPriority)}
             />
@@ -382,7 +330,7 @@ function PolicyTable({
               <input
                 checked={policy.enabledForPresentation}
                 disabled={busy || ownerOnly}
-                onChange={(event) => update(policy.provider, { enabledForPresentation: event.target.checked })}
+                onChange={(event) => update(policy.providerSource, { enabledForPresentation: event.target.checked })}
                 type="checkbox"
               />
               <span>{t("settings.presentation")}</span>
@@ -390,7 +338,7 @@ function PolicyTable({
             <FormInput
               disabled={busy || ownerOnly}
               min={1}
-              onChange={(event) => update(policy.provider, { presentationPriority: Number(event.target.value) })}
+              onChange={(event) => update(policy.providerSource, { presentationPriority: Number(event.target.value) })}
               type="number"
               value={String(policy.presentationPriority)}
             />
@@ -419,10 +367,6 @@ function languageOptions(t: TFunction) {
     { value: "de-DE", label: t("settings.languages.deDE") },
     { value: "es-ES", label: t("settings.languages.esES") }
   ];
-}
-
-function languageLabel(value: string, t: TFunction) {
-  return languageOptions(t).find((option) => option.value === value)?.label ?? value;
 }
 
 function mediaTypeLabel(mediaType: "MOVIE" | "TV_SERIES", t: TFunction) {

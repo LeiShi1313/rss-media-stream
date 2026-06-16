@@ -1,13 +1,26 @@
 import type { MediaType } from "@rss-media/shared/types";
-import { getPtgenTitleById, searchPtgen } from "./client.js";
-import { providerEntityType, ptgenEntityTypeToSite } from "./mapper.js";
-import type { PtgenSite } from "./types.js";
+import { getPtgenTitleByProviderId, searchPtgen } from "./client.js";
+import { ptgenIdentity, ptgenProviderEntityType } from "./identity.js";
+import type { PtgenSource } from "./types.js";
 import type { MetadataProvider, ProviderProbeResult } from "../providers/types.js";
 
 export const ptgenProvider: MetadataProvider = {
   id: "ptgen",
-  search() {
-    return searchPtgen();
+  search(input, context) {
+    return searchPtgen(
+      {
+        title: input.title,
+        mediaType: input.mediaType,
+        year: input.year,
+        season: input.season,
+        episode: input.episode,
+        language: input.language,
+        source: ptgenSourceFromProviderSource(context.runtime.providerSource)
+      },
+      {
+        language: context.runtime.metadataLanguage
+      }
+    );
   },
   probe(input) {
     const value = input.input.trim();
@@ -15,48 +28,36 @@ export const ptgenProvider: MetadataProvider = {
     const urlProbe = probePtgenUrl(value, mediaType);
     if (urlProbe) return [urlProbe];
 
-    const explicit = value.match(/^ptgen:(imdb|douban):(.+)$/i);
-    if (explicit) {
-      return probeForSite(explicit[1].toLowerCase() as PtgenSite, explicit[2], mediaType);
-    }
-
-    const imdbShorthand = value.match(/^imdb:(tt\d+)$/i) ?? value.match(/^(tt\d+)$/i);
-    if (imdbShorthand) {
-      return probeForSite("imdb", imdbShorthand[1], mediaType);
-    }
-
-    const doubanShorthand = value.match(/^douban:(\d+)$/i);
-    if (doubanShorthand) {
-      return probeForSite("douban", doubanShorthand[1], mediaType);
+    const canonical = value.match(/^(imdb|douban)-(.+)$/i);
+    if (canonical) {
+      return probeForSource(canonical[1].toLowerCase() as PtgenSource, canonical[2], mediaType);
     }
 
     return [];
   },
   fetchTitle(input, context) {
-    const site = ptgenEntityTypeToSite(input.providerEntityType);
-    if (!site) throw new Error("PtGen detail lookup requires ptgen_imdb or ptgen_douban");
-    return getPtgenTitleById(
+    return getPtgenTitleByProviderId(
       {
-        site,
-        sid: input.providerId,
+        providerEntityType: input.providerEntityType,
+        providerId: input.providerId,
         mediaType: input.mediaType,
         language: input.language
       },
       {
-        baseUrl: context.runtime.baseUrl,
         language: context.runtime.metadataLanguage
       }
     );
   }
 };
 
-function probeForSite(site: PtgenSite, sid: string, mediaType?: MediaType): ProviderProbeResult[] {
-  const normalized = normalizeSid(site, sid);
-  if (!normalized) return [];
+function probeForSource(source: PtgenSource, sourceId: string, mediaType?: MediaType): ProviderProbeResult[] {
+  const identity = ptgenIdentity(source, sourceId);
+  if (!identity) return [];
   return [{
     provider: "ptgen",
-    providerEntityType: providerEntityType(site),
-    providerId: normalized,
+    providerSource: source === "imdb" ? "ptgen_imdb" : "ptgen_douban",
+    providerEntityType: identity.providerEntityType,
+    providerId: identity.providerId,
     mediaType
   }];
 }
@@ -71,36 +72,28 @@ function probePtgenUrl(input: string, mediaType?: MediaType): ProviderProbeResul
 
   const host = url.hostname.replace(/^www\./, "").toLowerCase();
   if (host === "imdb.com") {
-    const sid = url.pathname.match(/\/title\/(tt\d+)/i)?.[1];
-    if (!sid) return undefined;
-    return {
-      provider: "ptgen",
-      providerEntityType: "ptgen_imdb",
-      providerId: sid.toLowerCase(),
-      mediaType
-    };
+    const sourceId = url.pathname.match(/\/title\/(tt\d+)/i)?.[1];
+    if (!sourceId) return undefined;
+    return probeForSource("imdb", sourceId, mediaType)[0];
   }
 
   if (host === "douban.com" || host === "movie.douban.com") {
-    const sid = url.pathname.match(/\/(?:subject|movie)\/(\d+)/i)?.[1];
-    if (!sid) return undefined;
-    return {
-      provider: "ptgen",
-      providerEntityType: "ptgen_douban",
-      providerId: sid,
-      mediaType
-    };
+    const sourceId = url.pathname.match(/\/(?:subject|movie)\/(\d+)/i)?.[1];
+    if (!sourceId) return undefined;
+    return probeForSource("douban", sourceId, mediaType)[0];
   }
 
   return undefined;
 }
 
-function normalizeSid(site: PtgenSite, sid: string) {
-  const trimmed = sid.trim().replace(/\/+$/, "");
-  if (site === "imdb") return /^tt\d+$/i.test(trimmed) ? trimmed.toLowerCase() : undefined;
-  return /^\d+$/.test(trimmed) ? trimmed : undefined;
-}
-
 function concreteMediaType(mediaType?: string): MediaType | undefined {
   return mediaType === "MOVIE" || mediaType === "TV_SERIES" ? mediaType : undefined;
 }
+
+function ptgenSourceFromProviderSource(providerSource?: string): PtgenSource | undefined {
+  if (providerSource === "ptgen_imdb") return "imdb";
+  if (providerSource === "ptgen_douban") return "douban";
+  return undefined;
+}
+
+export { ptgenProviderEntityType as providerEntityType };

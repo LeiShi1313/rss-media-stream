@@ -7,6 +7,7 @@ import type {
   RuleDecision,
   SubscriptionRuleInput
 } from "./types.js";
+import { normalizeTitleKey } from "./titleNormalization.js";
 
 const MAX_REGEX_LENGTH = 300;
 const AUTO_DOWNLOAD_CONFIDENCE_THRESHOLD = 0.88;
@@ -398,7 +399,7 @@ function matchesTitleRegex(
 }
 
 function normalizeTitle(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return normalizeTitleKey(value);
 }
 
 function releaseResolution(candidate: CandidateInput): number | undefined {

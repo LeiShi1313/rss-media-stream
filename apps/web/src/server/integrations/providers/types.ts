@@ -1,11 +1,14 @@
-import type { MediaProvider, MediaType, ParsedMediaType, ProviderTitleResult } from "@rss-media/shared/types";
+import type { MediaProvider, MediaType, ParsedMediaType, ProviderSource, ProviderTitleResult } from "@rss-media/shared/types";
 
 export type ProviderSearchInput = {
   title: string;
   mediaType: MediaType;
   year?: number;
+  season?: number;
+  episode?: number;
   language?: string;
   region?: string;
+  providerSource?: ProviderSource;
 };
 
 export type ProviderDetailInput = {
@@ -14,6 +17,7 @@ export type ProviderDetailInput = {
   providerId: string;
   language?: string;
   region?: string;
+  providerSource?: ProviderSource;
 };
 
 export type ProviderProbeInput = {
@@ -25,6 +29,7 @@ export type ProviderProbeInput = {
 
 export type ProviderProbeResult = {
   provider: MediaProvider;
+  providerSource?: ProviderSource;
   providerEntityType?: string;
   providerId?: string;
   mediaType?: MediaType;
@@ -52,7 +57,9 @@ export type ProviderDefaultPolicy = {
 };
 
 export type ProviderDefinition = {
-  id: MediaProvider;
+  id: ProviderSource;
+  provider: MediaProvider;
+  adapterId: string;
   label: string;
   supportedMediaTypes: readonly MediaType[];
   authFields: readonly ProviderSecretField[];
@@ -68,7 +75,9 @@ export type ProviderSecrets = Record<string, string>;
 
 export type ProviderRuntimeContext = {
   tenantId: string;
+  providerSource: ProviderSource;
   provider: MediaProvider;
+  adapterId: string;
   enabled: boolean;
   credential?: {
     source: "workspace" | "environment";

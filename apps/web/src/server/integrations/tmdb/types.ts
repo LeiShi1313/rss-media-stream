@@ -14,6 +14,12 @@ export type TmdbResult = {
   vote_average?: number;
   vote_count?: number;
   popularity?: number;
+  seasons?: TmdbSeasonSummary[];
+};
+
+export type TmdbSeasonSummary = {
+  season_number?: number;
+  episode_count?: number;
 };
 
 export type TmdbSearchResponse = {
@@ -27,6 +33,16 @@ export type TmdbSearchInput = {
   title: string;
   mediaType: MediaType;
   year?: number;
+  season?: number;
+  episode?: number;
   language?: string;
   region?: string;
+};
+
+export type TmdbTvSeasonEpisodeEvidence = {
+  season: number;
+  episode: number;
+  episodeCount?: number;
+  confirmed: boolean;
+  reason: "season_episode_confirmed" | "missing_season" | "missing_episode_count" | "episode_out_of_range";
 };

@@ -1,15 +1,17 @@
-import type { MediaProvider } from "@rss-media/shared/types";
+import type { MediaProvider, ProviderSource } from "@rss-media/shared/types";
 import type { AppConfig } from "../../config.js";
 import { badRequest } from "../../core/errors.js";
 import { prisma } from "../../db.js";
 import { decryptSecret, encryptSecret } from "../../secrets.js";
-import { getMetadataProvider, getProviderDefinition, listProviderDefinitions } from "./index.js";
+import { getMetadataProvider, listProviderSourceDefinitions } from "./index.js";
+import { getProviderSourceDefinition, providerSourceForLegacyProvider } from "./sources.js";
 import type { ProviderRuntimeContext, ProviderSecrets } from "./types.js";
 
 export type ProviderCredentialSource = "workspace" | "environment";
 
 export type ProviderSettingsStatus = {
-  id: MediaProvider;
+  id: ProviderSource;
+  provider: MediaProvider;
   label: string;
   supportedMediaTypes: readonly string[];
   authFields: readonly {
@@ -38,51 +40,54 @@ export type ProviderSettingsStatus = {
 export async function resolveProviderRuntime(
   config: AppConfig,
   tenantId: string,
-  provider: MediaProvider
+  providerSource: ProviderSource | string
 ): Promise<ProviderRuntimeContext> {
-  const definition = getProviderDefinition(provider);
-  const row = await prisma.tenantProviderConfig.findUnique({
-    where: { tenantId_provider: { tenantId, provider } }
-  });
+  const normalizedProviderSource = canonicalProviderSource(providerSource);
+  const definition = getProviderSourceDefinition(normalizedProviderSource);
+  const row = await findProviderSourceConfig(tenantId, normalizedProviderSource);
   const workspaceSecrets = row?.encryptedSecretsJson
     ? cleanSecrets(JSON.parse(decryptSecret(row.encryptedSecretsJson, config.appSecret)))
     : undefined;
-  const environment = environmentSecrets(config, provider);
+  const environment = environmentSecrets(config, normalizedProviderSource);
   const credential = workspaceSecrets && Object.keys(workspaceSecrets).length > 0
     ? { source: "workspace" as const, secrets: workspaceSecrets }
     : environment
       ? { source: "environment" as const, secrets: environment }
       : undefined;
+  const baseUrl = providerSupportsBaseUrl(definition)
+    ? row?.baseUrl ?? definition.defaultBaseUrl
+    : undefined;
 
   return {
     tenantId,
-    provider,
+    providerSource: normalizedProviderSource,
+    provider: definition.provider,
+    adapterId: definition.adapterId,
     enabled: row?.enabled ?? true,
     credential,
     metadataLanguage: row?.metadataLanguage ?? definition.defaultMetadataLanguage,
     region: row?.region ?? undefined,
-    baseUrl: row?.baseUrl ?? definition.defaultBaseUrl
+    baseUrl
   };
 }
 
 export async function providerIsConfigured(
   config: AppConfig,
   tenantId: string,
-  provider: MediaProvider
+  providerSource: ProviderSource | string
 ) {
-  const runtime = await resolveProviderRuntime(config, tenantId, provider);
+  const runtime = await resolveProviderRuntime(config, tenantId, providerSource);
   return providerRuntimeAvailable(runtime);
 }
 
 export async function listProviderSettings(config: AppConfig, tenantId: string) {
   const statuses = await Promise.all(
-    listProviderDefinitions().map(async (definition): Promise<ProviderSettingsStatus> => {
+    listProviderSourceDefinitions().map(async (definition): Promise<ProviderSettingsStatus> => {
       const runtime = await resolveProviderRuntime(config, tenantId, definition.id);
-      const row = await prisma.tenantProviderConfig.findUnique({
-        where: { tenantId_provider: { tenantId, provider: definition.id } }
-      });
+      const row = await findProviderSourceConfig(tenantId, definition.id);
       return {
         id: definition.id,
+        provider: definition.provider,
         label: definition.label,
         supportedMediaTypes: definition.supportedMediaTypes,
         authFields: definition.authFields,
@@ -108,7 +113,8 @@ export async function listProviderSettings(config: AppConfig, tenantId: string) 
 export async function upsertProviderSettings(input: {
   config: AppConfig;
   tenantId: string;
-  provider: MediaProvider;
+  providerSource?: ProviderSource | string;
+  provider?: MediaProvider | string;
   enabled?: boolean;
   secrets?: ProviderSecrets;
   clearSecrets?: boolean;
@@ -116,7 +122,8 @@ export async function upsertProviderSettings(input: {
   region?: string | null;
   baseUrl?: string | null;
 }) {
-  const definition = getProviderDefinition(input.provider);
+  const providerSource = canonicalProviderSource(input.providerSource ?? input.provider);
+  const definition = getProviderSourceDefinition(providerSource);
   const data: {
     enabled?: boolean;
     encryptedSecretsJson?: string | null;
@@ -144,6 +151,9 @@ export async function upsertProviderSettings(input: {
   if (input.baseUrl !== undefined) {
     data.baseUrl = validateBaseUrl(definition.label, definition.baseUrlOptions, input.baseUrl);
   }
+  if (!providerSupportsBaseUrl(definition)) {
+    data.baseUrl = null;
+  }
 
   if (input.clearSecrets) {
     data.encryptedSecretsJson = null;
@@ -153,20 +163,20 @@ export async function upsertProviderSettings(input: {
   }
 
   if (input.secrets) {
-    const secrets = validateSecretShape(input.provider, input.secrets);
+    const secrets = validateSecretShape(providerSource, input.secrets);
     try {
-      const provider = getMetadataProvider(input.provider);
+      const provider = getMetadataProvider(definition.adapterId);
       if (!provider.validateCredentials) {
-        throw badRequest(`Media provider ${input.provider} cannot validate credentials`);
+        throw badRequest(`Provider source ${providerSource} cannot validate credentials`);
       }
       await provider.validateCredentials(secrets);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await prisma.tenantProviderConfig.upsert({
-        where: { tenantId_provider: { tenantId: input.tenantId, provider: input.provider } },
+      await prisma.tenantProviderSourceConfig.upsert({
+        where: { tenantId_providerSource: { tenantId: input.tenantId, providerSource } },
         create: {
           tenantId: input.tenantId,
-          provider: input.provider,
+          providerSource,
           enabled: input.enabled ?? true,
           metadataLanguage: data.metadataLanguage ?? definition.defaultMetadataLanguage,
           region: data.region,
@@ -188,11 +198,11 @@ export async function upsertProviderSettings(input: {
     data.lastError = null;
   }
 
-  await prisma.tenantProviderConfig.upsert({
-    where: { tenantId_provider: { tenantId: input.tenantId, provider: input.provider } },
+  await prisma.tenantProviderSourceConfig.upsert({
+    where: { tenantId_providerSource: { tenantId: input.tenantId, providerSource } },
     create: {
       tenantId: input.tenantId,
-      provider: input.provider,
+      providerSource,
       enabled: data.enabled ?? true,
       encryptedSecretsJson: data.encryptedSecretsJson,
       configuredAt: data.configuredAt,
@@ -211,12 +221,12 @@ export function providerRuntimeAvailable(runtime: ProviderRuntimeContext) {
 }
 
 export function providerRuntimeConfigured(runtime: ProviderRuntimeContext) {
-  const definition = getProviderDefinition(runtime.provider);
+  const definition = getProviderSourceDefinition(runtime.providerSource);
   return !providerRequiresCredentials(definition.authFields) || Boolean(runtime.credential);
 }
 
-export function validateSecretShape(provider: MediaProvider, rawSecrets: ProviderSecrets) {
-  const definition = getProviderDefinition(provider);
+export function validateSecretShape(providerSource: ProviderSource | string, rawSecrets: ProviderSecrets) {
+  const definition = getProviderSourceDefinition(canonicalProviderSource(providerSource));
   const allowed = new Set(definition.authFields.map((field) => field.key));
   const cleaned = cleanSecrets(rawSecrets);
 
@@ -232,14 +242,44 @@ export function validateSecretShape(provider: MediaProvider, rawSecrets: Provide
   return cleaned;
 }
 
-function environmentSecrets(config: AppConfig, provider: MediaProvider): ProviderSecrets | undefined {
-  if (provider === "tmdb" && config.tmdbApiKey) return { apiKey: config.tmdbApiKey };
-  if (provider === "tvdb" && config.tvdbApiKey) {
+function canonicalProviderSource(providerSource?: string | null): ProviderSource {
+  const normalized = providerSourceForLegacyProvider(providerSource ?? "") ?? providerSource;
+  return getProviderSourceDefinition(normalized ?? "").id;
+}
+
+function environmentSecrets(config: AppConfig, providerSource: ProviderSource): ProviderSecrets | undefined {
+  if (providerSource === "tmdb_api" && config.tmdbApiKey) return { apiKey: config.tmdbApiKey };
+  if (providerSource === "tvdb_api" && config.tvdbApiKey) {
     return {
       apiKey: config.tvdbApiKey,
       ...(config.tvdbPin ? { pin: config.tvdbPin } : {})
     };
   }
+  return undefined;
+}
+
+async function legacyProviderConfig(tenantId: string, providerSource: ProviderSource) {
+  const legacyProvider = legacyProviderForSource(providerSource);
+  if (!legacyProvider) return null;
+  return prisma.tenantProviderConfig.findUnique({
+    where: { tenantId_provider: { tenantId, provider: legacyProvider } }
+  });
+}
+
+async function findProviderSourceConfig(tenantId: string, providerSource: ProviderSource) {
+  const sourceModel = (prisma as any).tenantProviderSourceConfig;
+  const sourceRow = sourceModel
+    ? await sourceModel.findUnique({
+        where: { tenantId_providerSource: { tenantId, providerSource } }
+      })
+    : null;
+  return sourceRow ?? legacyProviderConfig(tenantId, providerSource);
+}
+
+function legacyProviderForSource(providerSource: ProviderSource) {
+  if (providerSource === "tmdb_api") return "tmdb";
+  if (providerSource === "tvdb_api") return "tvdb";
+  if (providerSource === "ptgen_imdb" || providerSource === "ptgen_douban") return "ptgen";
   return undefined;
 }
 
@@ -268,6 +308,10 @@ function validateBaseUrl(
   }
 
   return canonical;
+}
+
+function providerSupportsBaseUrl(definition: { defaultBaseUrl?: string; baseUrlOptions?: readonly { value: string }[] }) {
+  return Boolean(definition.defaultBaseUrl || definition.baseUrlOptions?.length);
 }
 
 function providerRequiresCredentials(authFields: readonly { required: boolean }[]) {

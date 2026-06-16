@@ -14,7 +14,8 @@ export type MediaPresentationDto = {
 
 export type ProviderRefDto = {
   provider: string;
-  providerEntityType: string;
+  providerSource?: string;
+  providerEntityType?: string;
   providerId: string;
 };
 
@@ -49,6 +50,7 @@ export type ReleaseMatchDto = {
   reason?: string | null;
   matchedAt?: string | null;
   providerTitle?: ProviderRefDto;
+  providerMetadata?: ProviderRefDto;
   presentation?: MediaPresentationDto;
   attention: {
     required: boolean;
@@ -66,65 +68,76 @@ export type AttentionReason =
   | "failed_download";
 
 export const LOW_CONFIDENCE_THRESHOLD = 0.88;
-export function serializeProviderRef(providerTitle: any): ProviderRefDto | undefined {
-  if (!providerTitle?.provider || !providerTitle.providerEntityType || !providerTitle.providerId) {
+export function serializeProviderRef(providerMetadata: any): ProviderRefDto | undefined {
+  if (!providerMetadata) return undefined;
+  const identity = providerMetadata.mediaProviderIdentity;
+  const provider = identity?.provider ?? providerMetadata.provider;
+  const providerId = identity?.providerId ?? providerMetadata.providerId;
+  if (!provider || !providerId) {
     return undefined;
   }
   return {
-    provider: providerTitle.provider,
-    providerEntityType: providerTitle.providerEntityType,
-    providerId: providerTitle.providerId
+    provider,
+    providerSource: providerMetadata.providerSource,
+    providerEntityType: providerMetadata.providerEntityType,
+    providerId
   };
 }
 
 export function serializeMediaPresentation(input: {
   mediaTitle?: any;
+  providerMetadata?: any;
   providerTitle?: any;
+  providerIdentities?: Array<{ metadata?: any[] }>;
   providerLinks?: Array<{ providerTitle?: any }>;
   release?: any;
   rawTitle?: string;
 }, options: PresentationOptions = {}): MediaPresentationDto {
   const mediaTitle = input.mediaTitle;
   const release = input.release;
-  const providerTitle = selectPresentationProviderTitle({
+  const providerMetadata = selectPresentationProviderMetadata({
     mediaTitle,
-    selectedProviderTitle: input.providerTitle,
+    selectedProviderMetadata: input.providerMetadata ?? providerTitleToMetadata(input.providerTitle),
+    providerIdentities: input.providerIdentities ?? mediaTitle?.providerIdentities,
     providerLinks: input.providerLinks ?? mediaTitle?.providerLinks,
     release,
     providerOrder: options.providerOrder
   });
-  const payload = providerPayload(providerTitle?.payload);
-  const mediaType = mediaTitle?.mediaType ?? providerTitle?.mediaType ?? release?.mediaType ?? "UNKNOWN";
-  const title = providerTitle?.title ?? mediaTitle?.canonicalTitle ?? release?.title ?? input.rawTitle ?? "Unknown";
-  const source = serializeProviderRef(providerTitle);
-  const posterUrl = providerImageUrl(providerTitle?.provider, payload.posterPath, "w342");
-  const backdropUrl = providerImageUrl(providerTitle?.provider, payload.backdropPath, "w342");
+  const payload = providerPayload(providerMetadata?.payload);
+  const mediaType = mediaTitle?.mediaType ?? providerMetadata?.mediaType ?? release?.mediaType ?? "UNKNOWN";
+  const title = providerMetadata?.title ?? mediaTitle?.title ?? mediaTitle?.canonicalTitle ?? release?.title ?? input.rawTitle ?? "Unknown";
+  const source = serializeProviderRef(providerMetadata);
+  const posterUrl = providerImageUrl(source?.provider ?? providerMetadata?.provider, payload.posterPath, "w342");
+  const backdropUrl = providerImageUrl(source?.provider ?? providerMetadata?.provider, payload.backdropPath, "w342");
 
   return {
     mediaTitleId: mediaTitle?.id,
     mediaType,
     title,
-    originalTitle: mediaTitle?.originalTitle ?? providerTitle?.originalTitle ?? undefined,
-    releaseYear: mediaTitle?.releaseYear ?? providerTitle?.releaseYear ?? release?.year ?? undefined,
+    originalTitle: providerMetadata?.originalTitle ?? undefined,
+    releaseYear: mediaTitle?.releaseYear ?? providerMetadata?.releaseYear ?? release?.year ?? undefined,
     overview: payload.overview,
     posterUrl,
     backdropUrl,
     displaySource: source,
-    rating: serializeRating(providerTitle),
+    rating: serializeRating(providerMetadata),
     hasCover: Boolean(posterUrl)
   };
 }
 
-export function selectPresentationProviderTitle(input: {
+export function selectPresentationProviderMetadata(input: {
   mediaTitle?: any;
+  selectedProviderMetadata?: any;
   selectedProviderTitle?: any;
+  providerIdentities?: Array<{ metadata?: any[]; provider?: string; providerId?: string }>;
   providerLinks?: Array<{ providerTitle?: any; updatedAt?: unknown; createdAt?: unknown }>;
   release?: any;
   providerOrder?: string[];
 }) {
-  const mediaType = input.mediaTitle?.mediaType ?? input.selectedProviderTitle?.mediaType ?? input.release?.mediaType;
+  const selectedProviderMetadata = input.selectedProviderMetadata ?? providerTitleToMetadata(input.selectedProviderTitle);
+  const mediaType = input.mediaTitle?.mediaType ?? selectedProviderMetadata?.mediaType ?? input.release?.mediaType;
   const choices: Array<{
-    providerTitle: any;
+    providerMetadata: any;
     selected: boolean;
     linkUpdatedAt?: unknown;
     linkCreatedAt?: unknown;
@@ -132,19 +145,26 @@ export function selectPresentationProviderTitle(input: {
   const seen = new Set<string>();
 
   // Active release matches keep their selected provider as presentation provenance.
-  addProviderChoice(choices, seen, input.selectedProviderTitle, true);
+  addProviderChoice(choices, seen, selectedProviderMetadata, true);
+  for (const identity of input.providerIdentities ?? []) {
+    for (const metadata of identity.metadata ?? []) {
+      addProviderChoice(choices, seen, attachIdentity(metadata, identity), false);
+    }
+  }
   for (const link of input.providerLinks ?? []) {
-    addProviderChoice(choices, seen, link.providerTitle, false, link);
+    addProviderChoice(choices, seen, providerTitleToMetadata(link.providerTitle), false, link);
   }
 
   const filtered = input.providerOrder
     ? choices.filter((choice) =>
-        input.providerOrder!.includes(choice.providerTitle?.provider)
+        input.providerOrder!.includes(choice.providerMetadata?.providerSource)
       )
     : choices;
 
-  return filtered.sort((a, b) => compareProviderChoices(a, b, mediaType, input.providerOrder))[0]?.providerTitle;
+  return filtered.sort((a, b) => compareProviderChoices(a, b, mediaType, input.providerOrder))[0]?.providerMetadata;
 }
+
+export const selectPresentationProviderTitle = selectPresentationProviderMetadata;
 
 export function serializeReleaseMatch(input: {
   match?: any;
@@ -157,7 +177,7 @@ export function serializeReleaseMatch(input: {
 
   const presentation = serializeMediaPresentation({
     mediaTitle: match.mediaTitle,
-    providerTitle: match.providerTitle,
+    providerMetadata: match.providerMediaMetadata ?? providerTitleToMetadata(match.providerTitle),
     release,
     rawTitle
   }, options);
@@ -170,7 +190,8 @@ export function serializeReleaseMatch(input: {
     confidence: match.confidence,
     reason: match.reason,
     matchedAt: match.matchedAt?.toISOString?.() ?? match.matchedAt,
-    providerTitle: serializeProviderRef(match.providerTitle),
+    providerTitle: serializeProviderRef(match.providerMediaMetadata ?? match.providerTitle),
+    providerMetadata: serializeProviderRef(match.providerMediaMetadata ?? match.providerTitle),
     presentation,
     attention: {
       required: attentionReasons.length > 0,
@@ -181,7 +202,8 @@ export function serializeReleaseMatch(input: {
 
 export function serializeProviderTitleSearchResult(result: {
   provider: string;
-  providerEntityType: string;
+  providerSource?: string;
+  providerEntityType?: string;
   providerId: string;
   mediaType: "MOVIE" | "TV_SERIES";
   title: string;
@@ -200,6 +222,7 @@ export function serializeProviderTitleSearchResult(result: {
   });
   return {
     provider: result.provider,
+    providerSource: result.providerSource,
     providerEntityType: result.providerEntityType,
     providerId: result.providerId,
     mediaType: result.mediaType,
@@ -246,24 +269,25 @@ function releaseAttentionReasons(
 
 function addProviderChoice(
   choices: Array<{
-    providerTitle: any;
+    providerMetadata: any;
     selected: boolean;
     linkUpdatedAt?: unknown;
     linkCreatedAt?: unknown;
   }>,
   seen: Set<string>,
-  providerTitle: any,
+  providerMetadata: any,
   selected: boolean,
   link?: { updatedAt?: unknown; createdAt?: unknown }
 ) {
-  if (!providerTitle) return;
-  const key = providerTitle.id
-    ? `id:${providerTitle.id}`
-    : `${providerTitle.provider}:${providerTitle.providerEntityType}:${providerTitle.providerId}`;
+  if (!providerMetadata) return;
+  const ref = serializeProviderRef(providerMetadata);
+  const key = providerMetadata.id
+    ? `id:${providerMetadata.id}`
+    : `${providerMetadata.providerSource ?? ""}:${ref?.provider ?? ""}:${ref?.providerId ?? ""}`;
   if (seen.has(key)) return;
   seen.add(key);
   choices.push({
-    providerTitle,
+    providerMetadata,
     selected,
     linkUpdatedAt: link?.updatedAt,
     linkCreatedAt: link?.createdAt
@@ -272,13 +296,13 @@ function addProviderChoice(
 
 function compareProviderChoices(
   a: {
-    providerTitle: any;
+    providerMetadata: any;
     selected: boolean;
     linkUpdatedAt?: unknown;
     linkCreatedAt?: unknown;
   },
   b: {
-    providerTitle: any;
+    providerMetadata: any;
     selected: boolean;
     linkUpdatedAt?: unknown;
     linkCreatedAt?: unknown;
@@ -288,23 +312,23 @@ function compareProviderChoices(
 ) {
   if (a.selected !== b.selected) return a.selected ? -1 : 1;
 
-  const aMediaTypeMatch = providerMatchesMediaType(a.providerTitle, mediaType);
-  const bMediaTypeMatch = providerMatchesMediaType(b.providerTitle, mediaType);
+  const aMediaTypeMatch = providerMatchesMediaType(a.providerMetadata, mediaType);
+  const bMediaTypeMatch = providerMatchesMediaType(b.providerMetadata, mediaType);
   if (aMediaTypeMatch !== bMediaTypeMatch) return aMediaTypeMatch ? -1 : 1;
 
-  const providerPriorityDelta = providerPriority(a.providerTitle.provider, providerOrder) -
-    providerPriority(b.providerTitle.provider, providerOrder);
+  const providerPriorityDelta = providerPriority(a.providerMetadata.providerSource, providerOrder) -
+    providerPriority(b.providerMetadata.providerSource, providerOrder);
   if (providerPriorityDelta !== 0) return providerPriorityDelta;
 
   const now = Date.now();
-  const aFresh = providerPayloadFresh(a.providerTitle, now);
-  const bFresh = providerPayloadFresh(b.providerTitle, now);
+  const aFresh = providerPayloadFresh(a.providerMetadata, now);
+  const bFresh = providerPayloadFresh(b.providerMetadata, now);
   if (aFresh !== bFresh) return aFresh ? -1 : 1;
 
   const payloadTimeDelta = providerPayloadTime(b) - providerPayloadTime(a);
   if (payloadTimeDelta !== 0) return payloadTimeDelta;
 
-  return stableProviderKey(a.providerTitle).localeCompare(stableProviderKey(b.providerTitle));
+  return stableProviderKey(a.providerMetadata).localeCompare(stableProviderKey(b.providerMetadata));
 }
 
 function providerMatchesMediaType(providerTitle: any, mediaType?: string | null) {
@@ -323,15 +347,15 @@ function providerPayloadFresh(providerTitle: any, now: number) {
 }
 
 function providerPayloadTime(input: {
-  providerTitle: any;
+  providerMetadata: any;
   linkUpdatedAt?: unknown;
   linkCreatedAt?: unknown;
 }) {
   return Math.max(
-    timeValue(input.providerTitle?.fetchedAt),
-    timeValue(input.providerTitle?.updatedAt),
+    timeValue(input.providerMetadata?.fetchedAt),
+    timeValue(input.providerMetadata?.updatedAt),
     timeValue(input.linkUpdatedAt),
-    timeValue(input.providerTitle?.createdAt),
+    timeValue(input.providerMetadata?.createdAt),
     timeValue(input.linkCreatedAt)
   );
 }
@@ -343,29 +367,31 @@ function timeValue(value: unknown) {
   return Number.isFinite(time) ? time : 0;
 }
 
-function stableProviderKey(providerTitle: any) {
+function stableProviderKey(providerMetadata: any) {
+  const ref = serializeProviderRef(providerMetadata);
   return [
-    providerTitle.provider ?? "",
-    providerTitle.providerEntityType ?? "",
-    providerTitle.providerId ?? "",
-    providerTitle.id ?? ""
+    providerMetadata.providerSource ?? "",
+    ref?.provider ?? "",
+    providerMetadata.providerEntityType ?? "",
+    ref?.providerId ?? "",
+    providerMetadata.id ?? ""
   ].join(":");
 }
 
-function serializeRating(providerTitle: any): RatingDto | undefined {
-  const source = serializeProviderRef(providerTitle);
-  const type = ratingType(providerTitle?.ratingType);
+function serializeRating(providerMetadata: any): RatingDto | undefined {
+  const source = serializeProviderRef(providerMetadata);
+  const type = ratingType(providerMetadata?.ratingType);
   if (!source || !type) return undefined;
-  if (typeof providerTitle.ratingValue !== "number" || typeof providerTitle.ratingScale !== "number") {
+  if (typeof providerMetadata.ratingValue !== "number" || typeof providerMetadata.ratingScale !== "number") {
     return undefined;
   }
-  if (providerTitle.ratingScale <= 0) return undefined;
+  if (providerMetadata.ratingScale <= 0) return undefined;
   return {
     ...source,
-    value: providerTitle.ratingValue,
-    scale: providerTitle.ratingScale,
-    normalized: providerTitle.ratingValue / providerTitle.ratingScale,
-    voteCount: providerTitle.ratingVoteCount,
+    value: providerMetadata.ratingValue,
+    scale: providerMetadata.ratingScale,
+    normalized: providerMetadata.ratingValue / providerMetadata.ratingScale,
+    voteCount: providerMetadata.ratingVoteCount,
     type
   };
 }
@@ -392,6 +418,26 @@ function providerImageUrl(provider: string | undefined, path: string | null | un
   if (/^https?:\/\//i.test(path)) return path;
   if (provider === "tmdb") return `https://image.tmdb.org/t/p/${size}${path}`;
   return path;
+}
+
+function attachIdentity(metadata: any, identity: any) {
+  return metadata?.mediaProviderIdentity ? metadata : {
+    ...metadata,
+    mediaProviderIdentity: identity
+  };
+}
+
+function providerTitleToMetadata(providerTitle: any) {
+  if (!providerTitle) return undefined;
+  return {
+    ...providerTitle,
+    providerSource: providerTitle.providerSource ?? providerTitle.provider,
+    mediaProviderIdentity: {
+      provider: providerTitle.provider,
+      providerId: providerTitle.providerId,
+      mediaType: providerTitle.mediaType
+    }
+  };
 }
 
 export function legacyKindFromMediaType(mediaType?: string | null) {

@@ -1,6 +1,7 @@
 export type MediaType = "MOVIE" | "TV_SERIES";
 export type ParsedMediaType = MediaType | "UNKNOWN";
 export type MediaProvider = "tmdb" | "tvdb" | "ptgen" | "imdb" | "douban" | "wikidata" | "trakt" | "musicbrainz";
+export type ProviderSource = "tmdb_api" | "tvdb_api" | "ptgen_imdb" | "ptgen_douban";
 export type ProviderEntityType = `${MediaProvider}_${string}`;
 export type RatingType = "user_score" | "critic_score" | "popularity";
 export type ProviderRatingType = RatingType;
@@ -8,6 +9,9 @@ export type RatingComparison = "gte" | "lte" | "gt" | "lt" | "eq";
 
 export type ParsedRelease = {
   title: string;
+  titleCandidates?: string[];
+  providerSearchTitles?: string[];
+  primarySearchTitle?: string;
   year?: number;
   mediaType: ParsedMediaType;
   season?: number;
@@ -24,16 +28,19 @@ export type ParsedRelease = {
 
 export type ProviderTitleResult = {
   provider: MediaProvider;
+  providerSource?: ProviderSource;
   providerEntityType: ProviderEntityType;
   providerId: string;
   mediaType: MediaType;
   title: string;
   normalizedTitle: string;
   originalTitle?: string;
+  titleAliases?: string[];
   releaseYear?: number;
   endYear?: number;
   language?: string;
   region?: string;
+  localeKey?: string;
   payload: unknown;
   ratingValue?: number;
   ratingScale?: number;
@@ -114,7 +121,8 @@ export type ProviderRatingFilter = {
 export type ProviderTitleRuleView = {
   providerTitleId: string;
   provider: string;
-  providerEntityType: string;
+  providerSource?: string | null;
+  providerEntityType?: string | null;
   providerId: string;
   mediaType: MediaType;
   ratingValue?: number | null;

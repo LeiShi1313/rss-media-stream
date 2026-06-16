@@ -1,6 +1,7 @@
 import Parser from "rss-parser";
 import type { Prisma } from "@prisma/client";
 import { parseReleaseTitle } from "@rss-media/shared/releaseParser";
+import { buildReleaseSignature } from "@rss-media/shared/releaseSignature";
 import { redactSecrets } from "@rss-media/shared/redact";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
@@ -81,18 +82,22 @@ type FeedRefreshResult = {
   };
 };
 
+type FeedRequestHeaders = Record<string, string>;
+
 export type FeedResponse = {
   id: string;
   name: string;
-  urlPreview: string;
+  urlPreview: string | null;
+  hasRequestHeaders: boolean;
   enabled: boolean;
   pollIntervalSeconds: number;
   lastPolledAt?: string | null;
   lastError?: string | null;
+  deletedAt?: string | null;
   itemCount: number;
 };
 
-const parser = new Parser<Record<string, never>, RssParserItem>({
+const parserOptions = {
   customFields: {
     item: [
       ["torrent:contentLength", "torrentContentLength"],
@@ -101,11 +106,11 @@ const parser = new Parser<Record<string, never>, RssParserItem>({
       ["category", "category"]
     ]
   }
-});
+} satisfies ConstructorParameters<typeof Parser>[0];
 
 export async function listFeeds(tenantId: string): Promise<FeedResponse[]> {
   const feeds = await prisma.rssFeed.findMany({
-    where: { tenantId },
+    where: { tenantId, deletedAt: null },
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { items: true } } }
   });
@@ -118,7 +123,7 @@ export async function getFeed(
   feedId: string
 ): Promise<FeedResponse> {
   const feed = await prisma.rssFeed.findFirst({
-    where: { id: feedId, tenantId },
+    where: { id: feedId, tenantId, deletedAt: null },
     include: { _count: { select: { items: true } } }
   });
 
@@ -137,6 +142,7 @@ export async function createFeed(
       name: input.name,
       encryptedUrl: encryptAead(input.url),
       urlHash: hmacSecret(input.url),
+      encryptedRequestHeadersJson: requestHeadersJson(input.requestHeaders),
       pollIntervalSeconds: input.pollIntervalSeconds,
       enabled: input.enabled
     },
@@ -149,7 +155,7 @@ export async function updateFeed(input: {
   feedId: string;
   patch: PatchFeedInput;
 }): Promise<FeedResponse> {
-  await assertFeedInTenant(input.tenantId, input.feedId);
+  await assertFeedInTenant(input.tenantId, input.feedId, { activeOnly: true });
 
   const feed = await prisma.rssFeed.update({
     where: { id_tenantId: { id: input.feedId, tenantId: input.tenantId } },
@@ -157,6 +163,9 @@ export async function updateFeed(input: {
       name: input.patch.name,
       encryptedUrl: input.patch.url ? encryptAead(input.patch.url) : undefined,
       urlHash: input.patch.url ? hmacSecret(input.patch.url) : undefined,
+      encryptedRequestHeadersJson: input.patch.requestHeaders === undefined
+        ? undefined
+        : requestHeadersJson(input.patch.requestHeaders),
       pollIntervalSeconds: input.patch.pollIntervalSeconds,
       enabled: input.patch.enabled
     },
@@ -168,8 +177,16 @@ export async function updateFeed(input: {
 
 export async function deleteFeed(tenantId: string, feedId: string) {
   await assertFeedInTenant(tenantId, feedId);
-  await prisma.rssFeed.delete({
-    where: { id_tenantId: { id: feedId, tenantId } }
+  await prisma.rssFeed.update({
+    where: { id_tenantId: { id: feedId, tenantId } },
+    data: {
+      encryptedUrl: null,
+      urlHash: null,
+      encryptedRequestHeadersJson: null,
+      enabled: false,
+      deletedAt: new Date(),
+      lastError: null
+    }
   });
   return { id: feedId };
 }
@@ -189,13 +206,20 @@ export async function refreshFeed(
   options: FeedRefreshOptions = {}
 ): Promise<FeedRefreshResult> {
   const feed = await prisma.rssFeed.findFirst({
-    where: { id: feedId, tenantId: ctx.tenantId, enabled: true }
+    where: {
+      id: feedId,
+      tenantId: ctx.tenantId,
+      enabled: true,
+      deletedAt: null,
+      encryptedUrl: { not: null }
+    }
   });
   if (!feed) return emptyRefreshResult();
 
   try {
+    if (!feed.encryptedUrl) return emptyRefreshResult();
     const url = decryptAead(feed.encryptedUrl);
-    const parsed = await parser.parseURL(url);
+    const parsed = await createParser(feedRequestHeaders(feed.encryptedRequestHeadersJson)).parseURL(url);
 
     let created = 0;
     let updated = 0;
@@ -211,9 +235,9 @@ export async function refreshFeed(
         continue;
       }
 
-      const dedupe = chooseDedupeKey(item);
-      const safeRaw = safeRawPayload(raw);
       const release = parseReleaseTitle(item.rawTitle);
+      const dedupe = chooseDedupeKey(item, release);
+      const safeRaw = safeRawPayload(raw);
       const infoHash = item.infoHash ? hmacSecret(item.infoHash.toLowerCase()) : null;
       const guidHash = item.guid ? hmacSecret(item.guid) : null;
       const linkHash = hmacSecret(item.torrentUrl);
@@ -438,6 +462,13 @@ function emptyRefreshResult(): FeedRefreshResult {
   };
 }
 
+function createParser(headers: FeedRequestHeaders = {}) {
+  return new Parser<Record<string, never>, RssParserItem>({
+    ...parserOptions,
+    headers
+  });
+}
+
 function emptyEnrichmentSummary(): FeedRefreshResult["enrichment"] {
   return {
     attempted: 0,
@@ -461,7 +492,10 @@ function countReason(reasons: Record<string, number>, reason: string) {
   reasons[reason] = (reasons[reason] ?? 0) + 1;
 }
 
-export function chooseDedupeKey(item: ParsedFeedItem): DedupeKey {
+export function chooseDedupeKey(
+  item: ParsedFeedItem,
+  release = parseReleaseTitle(item.rawTitle)
+): DedupeKey {
   if (item.infoHash) {
     return {
       type: "INFO_HASH",
@@ -469,7 +503,6 @@ export function chooseDedupeKey(item: ParsedFeedItem): DedupeKey {
     };
   }
 
-  const release = parseReleaseTitle(item.rawTitle);
   const signature = buildReleaseSignature(release, item.sizeBytes);
   if (signature) {
     return {
@@ -544,13 +577,55 @@ async function findExistingFeedItem(input: {
   });
 }
 
-export function urlPreview(encryptedUrl: string): string {
+export function urlPreview(encryptedUrl: string | null): string | null {
+  if (!encryptedUrl) return null;
   return redactSecrets(decryptAead(encryptedUrl));
 }
 
-async function assertFeedInTenant(tenantId: string, feedId: string) {
+function requestHeadersJson(headers?: FeedRequestHeaders | null) {
+  const sanitized = sanitizeRequestHeaders(headers);
+  return sanitized ? encryptAead(JSON.stringify(sanitized)) : null;
+}
+
+function feedRequestHeaders(encryptedRequestHeadersJson?: string | null): FeedRequestHeaders {
+  if (!encryptedRequestHeadersJson) return {};
+  return sanitizeRequestHeaders(
+    JSON.parse(decryptAead(encryptedRequestHeadersJson)) as Record<string, unknown>
+  ) ?? {};
+}
+
+function sanitizeRequestHeaders(headers?: Record<string, unknown> | null): FeedRequestHeaders | null {
+  if (!headers) return null;
+
+  const sanitized: FeedRequestHeaders = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof value !== "string") continue;
+    const headerName = normalizedRequestHeaderName(key);
+    const headerValue = value.trim();
+    if (headerName && headerValue) sanitized[headerName] = headerValue;
+  }
+
+  return Object.keys(sanitized).length ? sanitized : null;
+}
+
+function normalizedRequestHeaderName(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "cookie") return "Cookie";
+  if (normalized === "user-agent") return "User-Agent";
+  return null;
+}
+
+async function assertFeedInTenant(
+  tenantId: string,
+  feedId: string,
+  options: { activeOnly?: boolean } = {}
+) {
   const feed = await prisma.rssFeed.findFirst({
-    where: { id: feedId, tenantId },
+    where: {
+      id: feedId,
+      tenantId,
+      deletedAt: options.activeOnly ? null : undefined
+    },
     select: { id: true }
   });
 
@@ -561,21 +636,25 @@ async function assertFeedInTenant(tenantId: string, feedId: string) {
 function serializeFeed(feed: {
   id: string;
   name: string;
-  encryptedUrl: string;
+  encryptedUrl: string | null;
+  encryptedRequestHeadersJson?: string | null;
   enabled: boolean;
   pollIntervalSeconds: number;
   lastPolledAt: Date | null;
   lastError: string | null;
+  deletedAt?: Date | null;
   _count: { items: number };
 }): FeedResponse {
   return {
     id: feed.id,
     name: feed.name,
     urlPreview: urlPreview(feed.encryptedUrl),
+    hasRequestHeaders: Boolean(feed.encryptedRequestHeadersJson),
     enabled: feed.enabled,
     pollIntervalSeconds: feed.pollIntervalSeconds,
     lastPolledAt: feed.lastPolledAt?.toISOString() ?? null,
     lastError: feed.lastError ? redactSecrets(feed.lastError) : null,
+    deletedAt: feed.deletedAt?.toISOString() ?? null,
     itemCount: feed._count.items
   };
 }
@@ -634,44 +713,21 @@ function parseSize(value?: string | number): bigint | undefined {
   return parsed > 0n ? parsed : undefined;
 }
 
-function buildReleaseSignature(
-  release: ReturnType<typeof parseReleaseTitle>,
-  sizeBytes?: bigint
-): string | undefined {
-  if (!release.title) return undefined;
-
-  return [
-    ["title", normalizeSignaturePart(release.title)],
-    ["mediaType", release.mediaType],
-    ["year", release.year],
-    ["season", release.season],
-    ["episode", release.episode],
-    ["episodeEnd", release.episodeEnd],
-    ["quality", release.quality],
-    ["source", release.source],
-    ["codec", release.codec],
-    ["audio", release.audio],
-    ["group", release.releaseGroup],
-    ["size", sizeBytes?.toString()]
-  ]
-    .map(([key, value]) => `${key}=${normalizeSignaturePart(value)}`)
-    .join("|");
-}
-
 function parsedReleaseData(release: ReturnType<typeof parseReleaseTitle>) {
   return {
     title: release.title,
-    year: release.year,
+    providerSearchTitles: release.providerSearchTitles ?? [],
+    year: release.year ?? null,
     mediaType: release.mediaType,
-    season: release.season,
-    episode: release.episode,
-    episodeEnd: release.episodeEnd,
-    resolution: release.resolution,
-    quality: release.quality,
-    source: release.source,
-    codec: release.codec,
-    audio: release.audio,
-    releaseGroup: release.releaseGroup,
+    season: release.season ?? null,
+    episode: release.episode ?? null,
+    episodeEnd: release.episodeEnd ?? null,
+    resolution: release.resolution ?? null,
+    quality: release.quality ?? null,
+    source: release.source ?? null,
+    codec: release.codec ?? null,
+    audio: release.audio ?? null,
+    releaseGroup: release.releaseGroup ?? null,
     parseConfidence: release.parseConfidence,
     parsedAt: new Date()
   };
@@ -681,6 +737,7 @@ function parsedReleaseComparisonSelect() {
   return {
     id: true,
     title: true,
+    providerSearchTitles: true,
     year: true,
     mediaType: true,
     season: true,
@@ -702,6 +759,7 @@ function parsedReleaseChanged(
 ) {
   return [
     previous.title !== next.title,
+    !stringArraysEqual(previous.providerSearchTitles, next.providerSearchTitles ?? []),
     previous.year !== (next.year ?? null),
     previous.mediaType !== next.mediaType,
     previous.season !== (next.season ?? null),
@@ -717,11 +775,11 @@ function parsedReleaseChanged(
   ].some(Boolean);
 }
 
-function normalizeSignaturePart(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+function stringArraysEqual(left: string[] | null | undefined, right: string[] | null | undefined) {
+  const leftValues = left ?? [];
+  const rightValues = right ?? [];
+  return leftValues.length === rightValues.length &&
+    leftValues.every((value, index) => value === rightValues[index]);
 }
 
 function readString(value: unknown): string | undefined {

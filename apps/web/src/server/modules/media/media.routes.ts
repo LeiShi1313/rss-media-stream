@@ -103,7 +103,8 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
 
       await audit(request, "media_match.run", "item", itemId, {
         status: match.status,
-        providerTitleId: match.providerTitleId,
+        mediaProviderIdentityId: match.mediaProviderIdentityId,
+        providerMediaMetadataId: match.providerMediaMetadataId,
         mediaTitleId: match.mediaTitleId,
         reason: match.reason
       });
@@ -118,7 +119,8 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
         id: match.id,
         status: match.status,
         mediaTitleId: match.mediaTitleId,
-        providerTitleId: match.providerTitleId,
+        mediaProviderIdentityId: match.mediaProviderIdentityId,
+        providerMediaMetadataId: match.providerMediaMetadataId,
         reason: match.reason
       };
     }
@@ -139,9 +141,10 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
 
       await audit(request, "media_match.manual_provider", "item", itemId, {
         itemId,
-        provider: input.provider,
+        providerSource: input.providerSource,
         providerId: input.providerId,
-        providerTitleId: match.providerTitleId,
+        mediaProviderIdentityId: match.mediaProviderIdentityId,
+        providerMediaMetadataId: match.providerMediaMetadataId,
         mediaTitleId: match.mediaTitleId,
         mediaType: input.mediaType
       });
@@ -156,7 +159,8 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
         id: match.id,
         status: match.status,
         mediaTitleId: match.mediaTitleId,
-        providerTitleId: match.providerTitleId,
+        mediaProviderIdentityId: match.mediaProviderIdentityId,
+        providerMediaMetadataId: match.providerMediaMetadataId,
         reason: match.reason
       };
     }

@@ -3,6 +3,13 @@ import { z } from "zod";
 export const mediaTypeSchema = z.enum(["MOVIE", "TV_SERIES"]);
 export const parsedMediaTypeSchema = z.enum(["MOVIE", "TV_SERIES", "UNKNOWN"]);
 export const providerSchema = z.enum(["tmdb", "tvdb", "ptgen"]);
+export const providerSourceSchema = z.enum(["tmdb_api", "tvdb_api", "ptgen_imdb", "ptgen_douban"]);
+const providerSourceInputSchema = z.union([providerSourceSchema, providerSchema]).transform((provider) => {
+  if (provider === "tmdb") return "tmdb_api" as const;
+  if (provider === "tvdb") return "tvdb_api" as const;
+  if (provider === "ptgen") return "ptgen_imdb" as const;
+  return provider;
+});
 export const providerEntityTypeSchema = z.string().trim().min(1).max(80);
 
 const providerEntityTypeFor = (provider: "tmdb" | "tvdb", mediaType: "MOVIE" | "TV_SERIES") => {
@@ -24,22 +31,27 @@ const searchableMediaTypeFromRequest = z.preprocess(
 
 export const mediaSearchQuerySchema = z.object({
   q: z.string().trim().min(1).max(200),
-  provider: providerSchema.optional(),
+  providerSource: providerSourceInputSchema.optional(),
+  provider: providerSourceInputSchema.optional(),
   mediaType: searchableMediaTypeFromRequest.default("MOVIE"),
   year: z.coerce.number().int().min(1900).max(2100).optional()
 }).transform((query) => ({
   ...query,
+  providerSource: query.providerSource ?? query.provider,
   kind: query.mediaType === "TV_SERIES" ? "TV" : query.mediaType
 }));
 
 export const smartProviderTitleSearchSchema = z.object({
   input: z.string().trim().min(1).max(500),
+  providerSource: providerSourceInputSchema.optional(),
+  provider: providerSourceInputSchema.optional(),
   mediaType: searchableMediaTypeFromRequest.optional(),
   kind: searchableMediaTypeFromRequest.optional(),
   providerEntityType: providerEntityTypeSchema.optional(),
   year: z.coerce.number().int().min(1900).max(2100).optional()
 }).transform((input) => ({
   input: input.input,
+  providerSource: input.providerSource ?? input.provider,
   mediaType: input.mediaType ?? input.kind,
   providerEntityType: input.providerEntityType,
   year: input.year
@@ -70,45 +82,53 @@ export const itemParamsSchema = z.object({
 
 export const manualProviderMatchSchema = z
   .object({
-    provider: providerSchema.default("tmdb"),
+    providerSource: providerSourceInputSchema.optional(),
+    provider: providerSourceInputSchema.optional(),
     providerEntityType: providerEntityTypeSchema.optional(),
     providerId: z.string().trim().min(1).max(80),
     mediaType: searchableMediaTypeFromRequest.optional(),
     kind: searchableMediaTypeFromRequest.optional()
   })
-  .transform((input) => ({
-    provider: input.provider,
-    providerEntityType: input.providerEntityType,
-    providerId: input.provider === "ptgen" && input.providerEntityType === "ptgen_imdb"
-      ? input.providerId.toLowerCase()
-      : input.providerId,
-    mediaType: input.mediaType ?? input.kind ?? "MOVIE"
-  }))
+  .transform((input) => {
+    const providerSource = input.providerSource ??
+      (input.provider === "ptgen_imdb" && input.providerEntityType === "ptgen_douban"
+        ? "ptgen_douban"
+        : input.provider) ??
+      "tmdb_api";
+    return {
+      providerSource,
+      providerEntityType: input.providerEntityType,
+      providerId: providerSource.startsWith("ptgen_")
+        ? input.providerId.toLowerCase()
+        : input.providerId,
+      mediaType: input.mediaType ?? input.kind ?? "MOVIE"
+    };
+  })
   .refine(
-    (input) => input.provider !== "tmdb" || /^\d+$/.test(input.providerId),
+    (input) => input.providerSource !== "tmdb_api" || /^\d+$/.test(input.providerId),
     { message: "provider ID must be numeric for TMDB" }
   )
   .refine(
-    (input) => input.provider !== "tvdb" || /^\d+$/.test(input.providerId),
+    (input) => input.providerSource !== "tvdb_api" || /^\d+$/.test(input.providerId),
     { message: "provider ID must be numeric for TVDB" }
   )
   .refine(
-    (input) => input.provider !== "ptgen" || ptgenEntityTypes.has(input.providerEntityType ?? ""),
-    { message: "PtGen providerEntityType must be ptgen_imdb or ptgen_douban" }
+    (input) => !input.providerSource.startsWith("ptgen_") || !input.providerEntityType || ptgenEntityTypes.has(input.providerEntityType ?? ""),
+    { message: "PTGen providerEntityType must be ptgen_imdb or ptgen_douban when provided" }
   )
   .refine(
-    (input) => input.provider !== "ptgen" || input.providerEntityType !== "ptgen_imdb" || /^tt\d+$/i.test(input.providerId),
-    { message: "provider ID must be an IMDb tt ID for PtGen IMDb" }
+    (input) => input.providerSource !== "ptgen_imdb" || /^(?:imdb-)?tt\d+$/i.test(input.providerId),
+    { message: "provider ID must be tt... for PTGen IMDb" }
   )
   .refine(
-    (input) => input.provider !== "ptgen" || input.providerEntityType !== "ptgen_douban" || /^\d+$/.test(input.providerId),
-    { message: "provider ID must be numeric for PtGen Douban" }
+    (input) => input.providerSource !== "ptgen_douban" || /^(?:douban-)?\d+$/i.test(input.providerId),
+    { message: "provider ID must be numeric for PTGen Douban" }
   )
   .refine(
-    (input) => input.provider === "ptgen" || providerEntityTypeFor(input.provider, input.mediaType) !== undefined,
-    { message: "provider does not support this media type" }
+    (input) => !input.providerSource.startsWith("ptgen_") || input.providerEntityType === undefined || input.providerEntityType === input.providerSource,
+    { message: "PTGen providerEntityType must match providerSource" }
   )
   .refine(
-    (input) => input.provider === "ptgen" || !input.providerEntityType || input.providerEntityType === providerEntityTypeFor(input.provider, input.mediaType),
+    (input) => input.providerSource.startsWith("ptgen_") || !input.providerEntityType || input.providerEntityType === providerEntityTypeFor(input.providerSource === "tmdb_api" ? "tmdb" : "tvdb", input.mediaType),
     { message: "providerEntityType must match provider and media type" }
   );

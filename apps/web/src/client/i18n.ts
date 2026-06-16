@@ -122,7 +122,7 @@ const en = {
     },
     settings: {
       title: "Settings",
-      summary: "Provider credentials, media language, and web language"
+      summary: "Provider credentials, metadata language, and matching priority"
     }
   },
   overview: {
@@ -185,7 +185,7 @@ const en = {
       chooseTitleLead: "Search metadata only when the title shown here is missing or wrong.",
       smartSearchPlaceholder: "Search title or paste provider link",
       noTitleResults: "No matching titles found.",
-      providerLinkHint: "Use tmdb:603, tvdb:movie:169, tvdb:series:121361, imdb:tt0133093, douban:1291843, or paste a full provider URL.",
+      providerLinkHint: "Use tmdb:603, tvdb:movie:169, tvdb:series:121361, imdb-tt0133093, douban-1291843, or paste a full provider URL.",
       searchOptions: "Search options",
       useParsedType: "Use parsed media type",
       candidates: "Candidates",
@@ -229,6 +229,12 @@ const en = {
     noFeeds: "No RSS feeds configured",
     itemPoll: "{{count}} items · poll every {{seconds}}s",
     refreshFeed: "Refresh feed",
+    deleteFeed: "Delete feed",
+    deleteFeedTitle: "Delete {{name}}",
+    deleteFeedBody: "This removes the private RSS URL and stops future polling for {{name}}.",
+    deleteFeedKeepsItems: "{{count}} existing RSS items remain available.",
+    confirmDeleteFeed: "Delete Feed",
+    removedUrl: "RSS URL removed",
     addRssFeed: "Add RSS Feed",
     editRssFeed: "Edit RSS Feed",
     feedName: "Feed name",
@@ -502,7 +508,7 @@ const zh = {
     },
     settings: {
       title: "设置",
-      summary: "提供方凭据、媒体语言和网页语言"
+      summary: "提供方凭据、元数据语言和匹配优先级"
     }
   },
   overview: {
@@ -565,7 +571,7 @@ const zh = {
       chooseTitleLead: "只有当前标题缺失或不正确时才搜索元数据。",
       smartSearchPlaceholder: "搜索标题或粘贴提供方链接",
       noTitleResults: "没有找到匹配的标题。",
-      providerLinkHint: "使用 tmdb:603、tvdb:movie:169、tvdb:series:121361、imdb:tt0133093、douban:1291843，或粘贴完整提供方链接。",
+      providerLinkHint: "使用 tmdb:603、tvdb:movie:169、tvdb:series:121361、imdb-tt0133093、douban-1291843，或粘贴完整提供方链接。",
       searchOptions: "搜索选项",
       useParsedType: "使用解析出的媒体类型",
       candidates: "候选项",
@@ -609,6 +615,12 @@ const zh = {
     noFeeds: "未配置 RSS Feed",
     itemPoll: "{{count}} 个条目 · 每 {{seconds}} 秒轮询",
     refreshFeed: "刷新 Feed",
+    deleteFeed: "删除 Feed",
+    deleteFeedTitle: "删除 {{name}}",
+    deleteFeedBody: "这会移除 {{name}} 的私有 RSS URL，并停止后续轮询。",
+    deleteFeedKeepsItems: "{{count}} 个已有 RSS 条目会继续保留。",
+    confirmDeleteFeed: "删除 Feed",
+    removedUrl: "RSS URL 已移除",
     addRssFeed: "添加 RSS Feed",
     editRssFeed: "编辑 RSS Feed",
     feedName: "Feed 名称",

@@ -40,11 +40,10 @@ const subscriptionInclude = {
     select: {
       id: true,
       mediaType: true,
-      canonicalTitle: true,
-      originalTitle: true,
+      title: true,
       releaseYear: true,
-      providerLinks: {
-        include: { providerTitle: true }
+      providerIdentities: {
+        include: { metadata: true }
       }
     }
   },
@@ -278,8 +277,10 @@ export async function evaluateAutoDownloadsForItem(input: {
             take: 1,
             include: {
               mediaTitle: {
-                include: { providerLinks: { include: { providerTitle: true } } }
+                include: { providerIdentities: { include: { metadata: true } } }
               },
+              mediaProviderIdentity: true,
+              providerMediaMetadata: { include: { mediaProviderIdentity: true } },
               providerTitle: true
             },
             orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
@@ -527,7 +528,8 @@ function ruleFromRow(rule: any, subscriptionMediaTitleId?: string | null): Subsc
 }
 
 function activeMatchFromRow(match: any): CandidateInput["activeMatch"] {
-  if (!match?.mediaTitle || !match.providerTitle) return null;
+  const selectedMetadata = match?.providerMediaMetadata ?? match?.providerTitle;
+  if (!match?.mediaTitle || !selectedMetadata) return null;
   return {
     id: match.id,
     status: match.status,
@@ -536,24 +538,35 @@ function activeMatchFromRow(match: any): CandidateInput["activeMatch"] {
     mediaTitle: {
       id: match.mediaTitle.id,
       mediaType: match.mediaTitle.mediaType,
-      canonicalTitle: match.mediaTitle.canonicalTitle,
+      canonicalTitle: match.mediaTitle.title ?? match.mediaTitle.canonicalTitle,
       releaseYear: match.mediaTitle.releaseYear ?? null
     },
-    selectedProviderTitle: providerTitleRuleView(match.providerTitle),
-    linkedProviderTitles: (match.mediaTitle.providerLinks ?? [])
-      .map((link: any) => link.providerTitle)
+    selectedProviderTitle: providerTitleRuleView(selectedMetadata),
+    linkedProviderTitles: providerMetadataRows(match.mediaTitle)
       .filter(Boolean)
       .map(providerTitleRuleView)
   };
 }
 
+function providerMetadataRows(mediaTitle: any) {
+  return (mediaTitle.providerIdentities ?? [])
+    .flatMap((identity: any) =>
+      (identity.metadata ?? []).map((metadata: any) => ({
+        ...metadata,
+        mediaProviderIdentity: metadata.mediaProviderIdentity ?? identity
+      }))
+    );
+}
+
 function providerTitleRuleView(providerTitle: any): ProviderTitleRuleView {
+  const identity = providerTitle.mediaProviderIdentity;
   return {
     providerTitleId: providerTitle.id,
-    provider: providerTitle.provider,
+    provider: identity?.provider ?? providerTitle.provider,
+    providerSource: providerTitle.providerSource,
     providerEntityType: providerTitle.providerEntityType,
-    providerId: providerTitle.providerId,
-    mediaType: providerTitle.mediaType,
+    providerId: identity?.providerId ?? providerTitle.providerId,
+    mediaType: identity?.mediaType ?? providerTitle.mediaType,
     ratingValue: providerTitle.ratingValue ?? null,
     ratingScale: providerTitle.ratingScale ?? null,
     ratingVoteCount: providerTitle.ratingVoteCount ?? null,
@@ -600,7 +613,7 @@ export function serializeSubscription(subscription: any, presentationOrders: Pre
   const mediaPresentation = subscription.mediaTitle
     ? serializeMediaPresentation({
         mediaTitle: subscription.mediaTitle,
-        providerLinks: subscription.mediaTitle.providerLinks
+        providerIdentities: subscription.mediaTitle.providerIdentities
       }, {
         providerOrder: providerOrderForMediaType(presentationOrders, subscription.mediaTitle.mediaType)
       })
@@ -613,11 +626,12 @@ export function serializeSubscription(subscription: any, presentationOrders: Pre
       ? {
           id: subscription.mediaTitle.id,
           provider: mediaPresentation?.displaySource?.provider ?? "internal",
+          providerSource: mediaPresentation?.displaySource?.providerSource,
           providerEntityType: mediaPresentation?.displaySource?.providerEntityType,
           providerId: mediaPresentation?.displaySource?.providerId ?? subscription.mediaTitle.id,
           kind: legacyKindFromMediaType(subscription.mediaTitle.mediaType),
           mediaType: subscription.mediaTitle.mediaType,
-          title: mediaPresentation?.title ?? subscription.mediaTitle.canonicalTitle,
+          title: mediaPresentation?.title ?? subscription.mediaTitle.title,
           year: mediaPresentation?.releaseYear ?? subscription.mediaTitle.releaseYear,
           posterUrl: mediaPresentation?.posterUrl,
           hasCover: mediaPresentation?.hasCover ?? false

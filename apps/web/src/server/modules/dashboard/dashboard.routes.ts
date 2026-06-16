@@ -44,8 +44,10 @@ export function registerDashboardRoutes(app: FastifyInstance) {
                 take: 1,
                 include: {
                   mediaTitle: {
-                    include: { providerLinks: { include: { providerTitle: true } } }
+                    include: { providerIdentities: { include: { metadata: true } } }
                   },
+                  mediaProviderIdentity: true,
+                  providerMediaMetadata: { include: { mediaProviderIdentity: true } },
                   providerTitle: true
                 },
                 orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
@@ -63,7 +65,7 @@ export function registerDashboardRoutes(app: FastifyInstance) {
         const match = item.parsedRelease?.matches[0];
         const presentation = serializeMediaPresentation({
           mediaTitle: match?.mediaTitle,
-          providerTitle: match?.providerTitle,
+          providerMetadata: match?.providerMediaMetadata,
           release: item.parsedRelease,
           rawTitle: item.rawTitle
         }, {
@@ -99,14 +101,16 @@ export function registerDashboardRoutes(app: FastifyInstance) {
           tenantId: request.tenantId!,
           status: "MATCHED",
           invalidatedAt: null,
-          providerTitleId: { not: null }
+          providerMediaMetadataId: { not: null }
         },
         orderBy: { updatedAt: "desc" },
         take: 40,
         include: {
           mediaTitle: {
-            include: { providerLinks: { include: { providerTitle: true } } }
+            include: { providerIdentities: { include: { metadata: true } } }
           },
+          mediaProviderIdentity: true,
+          providerMediaMetadata: { include: { mediaProviderIdentity: true } },
           providerTitle: true,
           parsedRelease: { include: { item: true } }
         }
@@ -116,7 +120,7 @@ export function registerDashboardRoutes(app: FastifyInstance) {
         .map((match) => {
           const presentation = serializeMediaPresentation({
             mediaTitle: match.mediaTitle,
-            providerTitle: match.providerTitle,
+            providerMetadata: match.providerMediaMetadata,
             release: match.parsedRelease,
             rawTitle: match.parsedRelease.item.rawTitle
           }, {

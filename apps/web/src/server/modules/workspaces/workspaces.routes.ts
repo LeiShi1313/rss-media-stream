@@ -30,7 +30,7 @@ const updateWorkspaceSchema = z.object({
 
 const mediaLanguageSchema = z.enum(["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"]);
 const webLanguageSchema = z.enum(["en-US", "zh-CN"]);
-const providerSchema = z.enum(["tmdb", "tvdb", "ptgen"]);
+const providerSourceSchema = z.enum(["tmdb_api", "tvdb_api", "ptgen_imdb", "ptgen_douban"]);
 const concreteMediaTypeSchema = z.enum(["MOVIE", "TV_SERIES"]);
 
 const updateSettingsSchema = z.object({
@@ -38,7 +38,7 @@ const updateSettingsSchema = z.object({
 });
 
 const providerParamsSchema = z.object({
-  provider: providerSchema
+  provider: providerSourceSchema
 });
 
 const providerSettingsUpdateSchema = z.object({
@@ -53,12 +53,21 @@ const providerSettingsUpdateSchema = z.object({
 const providerPolicyUpdateSchema = z.object({
   mediaType: concreteMediaTypeSchema,
   policies: z.array(z.object({
-    provider: providerSchema,
+    providerSource: providerSourceSchema.optional(),
+    provider: providerSourceSchema.optional(),
     enabledForMatching: z.boolean(),
     enabledForPresentation: z.boolean(),
     matchingPriority: z.coerce.number().int().positive(),
     presentationPriority: z.coerce.number().int().positive()
-  }))
+  }).refine((policy) => policy.providerSource || policy.provider, {
+    message: "providerSource is required"
+  }).transform((policy) => ({
+    providerSource: policy.providerSource ?? policy.provider!,
+    enabledForMatching: policy.enabledForMatching,
+    enabledForPresentation: policy.enabledForPresentation,
+    matchingPriority: policy.matchingPriority,
+    presentationPriority: policy.presentationPriority
+  })))
 });
 
 export async function registerWorkspaceRoutes(app: FastifyInstance, config: AppConfig) {
@@ -157,7 +166,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, config: AppC
       await upsertProviderSettings({
         config,
         tenantId: request.tenantId!,
-        provider,
+        providerSource: provider,
         ...input
       });
       await audit(request, "settings.provider.update", "tenant", request.tenantId!, {

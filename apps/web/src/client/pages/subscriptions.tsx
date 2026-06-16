@@ -547,7 +547,7 @@ function providerOptions(t: (key: string) => string) {
     { value: "", label: t("common.anyProvider") },
     { value: "tmdb", label: "TMDB" },
     { value: "tvdb", label: "TVDB" },
-    { value: "ptgen", label: "PtGen" },
+    { value: "ptgen", label: "PTGen" },
     { value: "imdb", label: "IMDb" },
     { value: "douban", label: "Douban" },
     { value: "wikidata", label: "Wikidata" },

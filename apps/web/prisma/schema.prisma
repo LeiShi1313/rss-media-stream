@@ -44,6 +44,13 @@ enum MediaTitleProviderLinkSource {
   IMPORT
 }
 
+enum MediaProviderIdentityLinkSource {
+  MANUAL
+  PROVIDER_CROSSREF
+  SEARCH_MATCH
+  IMPORT
+}
+
 enum ProviderRatingType {
   USER_SCORE
   CRITIC_SCORE
@@ -85,6 +92,8 @@ model Tenant {
   settings             TenantSettings?
   providerConfigs      TenantProviderConfig[]
   providerPolicies     TenantMediaProviderPolicy[]
+  providerSourceConfigs TenantProviderSourceConfig[]
+  providerSourcePolicies TenantProviderSourcePolicy[]
   memberships          TenantMembership[]
   feeds                RssFeed[]
   items                RssItem[]
@@ -144,6 +153,43 @@ model TenantMediaProviderPolicy {
   @@index([tenantId, mediaType])
 }
 
+model TenantProviderSourceConfig {
+  id                   String    @id @default(cuid())
+  tenantId             String
+  providerSource       String
+  enabled              Boolean   @default(true)
+  encryptedSecretsJson String?   @db.Text
+  configuredAt         DateTime?
+  lastValidatedAt      DateTime?
+  lastError            String?
+  metadataLanguage     String?
+  region               String?
+  baseUrl              String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, providerSource])
+  @@index([tenantId])
+}
+
+model TenantProviderSourcePolicy {
+  id                       String    @id @default(cuid())
+  tenantId                 String
+  mediaType                MediaType
+  providerSource           String
+  enabledForMatching       Boolean   @default(true)
+  enabledForPresentation   Boolean   @default(true)
+  matchingPriority         Int
+  presentationPriority     Int
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  tenant                   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, mediaType, providerSource])
+  @@index([tenantId, mediaType])
+}
+
 model User {
   id                   String             @id @default(cuid())
   email                String             @unique
@@ -174,21 +220,23 @@ model TenantMembership {
 }
 
 model RssFeed {
-  id                  String    @id @default(cuid())
-  tenantId            String
-  createdByUserId     String
-  name                String
-  encryptedUrl        String    @db.Text
-  urlHash             String
-  pollIntervalSeconds Int       @default(600)
-  enabled             Boolean   @default(true)
-  lastPolledAt        DateTime?
-  lastError           String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  createdBy           User      @relation("FeedCreator", fields: [createdByUserId], references: [id])
-  items               RssItem[]
+  id                          String    @id @default(cuid())
+  tenantId                    String
+  createdByUserId             String
+  name                        String
+  encryptedUrl                String?   @db.Text
+  urlHash                     String?
+  encryptedRequestHeadersJson String?   @db.Text
+  pollIntervalSeconds         Int       @default(600)
+  enabled                     Boolean   @default(true)
+  lastPolledAt                DateTime?
+  lastError                   String?
+  deletedAt                   DateTime?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  tenant                      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy                   User      @relation("FeedCreator", fields: [createdByUserId], references: [id])
+  items                       RssItem[]
 
   @@unique([id, tenantId])
   @@index([tenantId, enabled])
@@ -236,6 +284,7 @@ model ParsedRelease {
   tenantId        String
   rssItemId       String
   title           String
+  providerSearchTitles String[]             @default([])
   year            Int?
   mediaType       MediaType            @default(UNKNOWN)
   season          Int?
@@ -260,22 +309,95 @@ model ParsedRelease {
 }
 
 model MediaTitle {
-  id              String    @id @default(cuid())
-  mediaType       MediaType
-  canonicalTitle  String
-  normalizedTitle String
-  originalTitle   String?
-  releaseYear     Int?
-  endYear         Int?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  supersededById String?
+  mediaType      MediaType
+  title          String    @map("canonicalTitle")
+  titleKey       String    @map("normalizedTitle")
+  originalTitle  String?
+  releaseYear    Int?
+  endYear        Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  providerLinks  MediaTitleProviderLink[]
-  releaseMatches ParsedReleaseMatch[]
-  subscriptions  Subscription[]
+  supersededBy       MediaTitle?               @relation("MediaTitleSupersession", fields: [supersededById], references: [id], onDelete: Restrict)
+  supersedes         MediaTitle[]              @relation("MediaTitleSupersession")
+  providerIdentities MediaProviderIdentity[]
+  providerLinks      MediaTitleProviderLink[]
+  releaseMatches     ParsedReleaseMatch[]
+  subscriptions      Subscription[]
+  sourceMerges       MediaTitleMerge[]         @relation("MediaTitleMergeSource")
+  targetMerges       MediaTitleMerge[]         @relation("MediaTitleMergeTarget")
 
   @@unique([id, mediaType])
-  @@index([mediaType, normalizedTitle])
+  @@index([mediaType, titleKey])
+  @@index([supersededById])
+}
+
+model MediaTitleMerge {
+  id                 String     @id @default(cuid())
+  sourceMediaTitleId String
+  targetMediaTitleId String
+  reason             String
+  evidenceJson       Json?
+  mergedAt           DateTime   @default(now())
+  mergedBy           String?
+  algorithmVersion   String?
+  sourceMediaTitle   MediaTitle @relation("MediaTitleMergeSource", fields: [sourceMediaTitleId], references: [id], onDelete: Restrict)
+  targetMediaTitle   MediaTitle @relation("MediaTitleMergeTarget", fields: [targetMediaTitleId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceMediaTitleId, targetMediaTitleId])
+  @@index([targetMediaTitleId])
+}
+
+model MediaProviderIdentity {
+  id             String                          @id @default(cuid())
+  mediaTitleId   String
+  provider       String
+  providerId     String
+  mediaType      MediaType
+  linkConfidence Float
+  linkSource     MediaProviderIdentityLinkSource
+  confirmedAt    DateTime
+  createdAt      DateTime                        @default(now())
+  updatedAt      DateTime                        @updatedAt
+
+  mediaTitle     MediaTitle              @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  metadata       ProviderMediaMetadata[]
+  releaseMatches ParsedReleaseMatch[]
+
+  @@unique([provider, providerId, mediaType])
+  @@index([mediaTitleId])
+  @@index([provider, mediaType])
+}
+
+model ProviderMediaMetadata {
+  id                      String              @id @default(cuid())
+  mediaProviderIdentityId String
+  providerSource          String
+  localeKey               String
+  title                   String
+  originalTitle           String?
+  titleAliases            String[]            @default([])
+  titleKey                String
+  releaseYear             Int?
+  endYear                 Int?
+  payload                 Json
+  payloadHash             String
+  ratingValue             Float?
+  ratingScale             Float?
+  ratingVoteCount         Int?
+  ratingType              ProviderRatingType?
+  fetchedAt               DateTime            @default(now())
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  mediaProviderIdentity MediaProviderIdentity @relation(fields: [mediaProviderIdentityId], references: [id], onDelete: Cascade)
+  releaseMatches        ParsedReleaseMatch[]
+
+  @@unique([mediaProviderIdentityId, providerSource, localeKey])
+  @@index([providerSource, titleKey, releaseYear])
+  @@index([mediaProviderIdentityId])
 }
 
 model ProviderTitle {
@@ -336,6 +458,8 @@ model ParsedReleaseMatch {
   parsedReleaseId   String
   mediaTitleId      String?
   providerTitleId   String?
+  mediaProviderIdentityId String?
+  providerMediaMetadataId String?
   mediaType         MediaType?
   status            ParsedReleaseMatchStatus
   source            ParsedReleaseMatchSource
@@ -353,6 +477,8 @@ model ParsedReleaseMatch {
   parsedRelease   ParsedRelease        @relation(fields: [parsedReleaseId, tenantId], references: [id, tenantId], onDelete: Cascade)
   mediaTitle      MediaTitle?          @relation(fields: [mediaTitleId], references: [id], onDelete: Restrict)
   providerTitle   ProviderTitle?       @relation(fields: [providerTitleId], references: [id], onDelete: Restrict)
+  mediaProviderIdentity MediaProviderIdentity? @relation(fields: [mediaProviderIdentityId], references: [id], onDelete: Restrict)
+  providerMediaMetadata ProviderMediaMetadata? @relation(fields: [providerMediaMetadataId], references: [id], onDelete: Restrict)
   replacedByMatch ParsedReleaseMatch?  @relation("ParsedReleaseMatchReplacement", fields: [replacedByMatchId], references: [id])
   replaces        ParsedReleaseMatch[] @relation("ParsedReleaseMatchReplacement")
 
@@ -360,6 +486,8 @@ model ParsedReleaseMatch {
   @@index([tenantId, parsedReleaseId, status, invalidatedAt])
   @@index([tenantId, mediaTitleId, status])
   @@index([tenantId, providerTitleId])
+  @@index([tenantId, mediaProviderIdentityId])
+  @@index([tenantId, providerMediaMetadataId])
 }
 
 model Downloader {

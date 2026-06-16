@@ -28,11 +28,13 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 export type Feed = {
   id: string;
   name: string;
-  urlPreview: string;
+  urlPreview: string | null;
+  hasRequestHeaders: boolean;
   pollIntervalSeconds: number;
   enabled: boolean;
   lastPolledAt?: string;
   lastError?: string;
+  deletedAt?: string | null;
   itemCount: number;
 };
 
@@ -73,7 +75,8 @@ export type ProviderBaseUrlOption = {
 };
 
 export type ProviderSettings = {
-  id: "tmdb" | "tvdb" | "ptgen";
+  id: "tmdb_api" | "tvdb_api" | "ptgen_imdb" | "ptgen_douban";
+  provider: string;
   label: string;
   supportedMediaTypes: Array<"MOVIE" | "TV_SERIES">;
   authFields: ProviderAuthField[];
@@ -96,7 +99,8 @@ export type ProviderSettingsResponse = {
 };
 
 export type MediaProviderPolicy = {
-  provider: "tmdb" | "tvdb" | "ptgen";
+  providerSource: "tmdb_api" | "tvdb_api" | "ptgen_imdb" | "ptgen_douban";
+  provider: string;
   label: string;
   mediaType: "MOVIE" | "TV_SERIES";
   enabledForMatching: boolean;
@@ -119,7 +123,8 @@ export type MatchSource = "AUTO" | "MANUAL";
 
 export type ProviderRefDto = {
   provider: string;
-  providerEntityType: string;
+  providerSource?: string;
+  providerEntityType?: string;
   providerId: string;
 };
 
@@ -268,6 +273,7 @@ export type Downloader = {
 
 export type MediaSearchResult = {
   provider: string;
+  providerSource?: string;
   providerEntityType?: ProviderEntityType;
   providerId: string;
   mediaType: Exclude<MediaType, "UNKNOWN">;
@@ -290,6 +296,7 @@ export type Subscription = {
   media?: {
     id: string;
     provider: string;
+    providerSource?: string;
     providerEntityType?: ProviderEntityType;
     providerId: string;
     kind: "MOVIE" | "TV" | "UNKNOWN";

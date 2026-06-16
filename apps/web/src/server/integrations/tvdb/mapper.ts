@@ -1,15 +1,18 @@
+import { normalizeTitleKey } from "@rss-media/shared/titleNormalization";
 import type { ProviderTitleResult } from "@rss-media/shared/types";
+import { scoreProviderCandidate } from "../providers/scoring.js";
 import type { TvdbMovieRecord, TvdbSearchResult, TvdbSeriesRecord, TvdbTranslationRecord } from "./types.js";
 
 export function tvdbSearchResultToTitleResult(
   result: TvdbSearchResult,
-  input: { title: string; language?: string; region?: string }
+  input: { title: string; year?: number; season?: number; episode?: number; language?: string; region?: string }
 ): ProviderTitleResult | null {
   const providerId = result.tvdb_id ?? result.id;
   const title = result.name;
   if (!providerId || !title) return null;
   const searchScore = normalizeTvdbScore(result.score);
   const mediaType = result.type?.toLowerCase() === "movie" ? "MOVIE" : "TV_SERIES";
+  const releaseYear = yearFromValue(result.year);
 
   return {
     provider: "tvdb",
@@ -17,8 +20,8 @@ export function tvdbSearchResultToTitleResult(
     providerId: String(providerId),
     mediaType,
     title,
-    normalizedTitle: normalizeTitle(title),
-    releaseYear: yearFromValue(result.year),
+    normalizedTitle: normalizeTitleKey(title),
+    releaseYear,
     language: input.language,
     region: input.region,
     payload: {
@@ -32,7 +35,14 @@ export function tvdbSearchResultToTitleResult(
       aliases: result.aliases,
       raw: result
     },
-    matchConfidence: searchScore,
+    matchConfidence: scoreProviderCandidate({
+      query: input.title,
+      candidateTitles: [title, ...(result.aliases ?? [])],
+      mediaType,
+      expectedYear: input.year,
+      actualYear: releaseYear,
+      season: input.season
+    }),
     externalUrl: tvdbExternalUrl(mediaType, result.slug)
   };
 }
@@ -51,7 +61,7 @@ export function tvdbSeriesToTitleResult(
     providerId,
     mediaType: "TV_SERIES",
     title,
-    normalizedTitle: normalizeTitle(title),
+    normalizedTitle: normalizeTitleKey(title),
     releaseYear: yearFromValue(series.year ?? series.firstAired),
     language: input.language,
     region: input.region,
@@ -88,7 +98,7 @@ export function tvdbMovieToTitleResult(
     providerId,
     mediaType: "MOVIE",
     title,
-    normalizedTitle: normalizeTitle(title),
+    normalizedTitle: normalizeTitleKey(title),
     releaseYear: yearFromValue(movie.year ?? movie.first_release?.date),
     language: input.language,
     region: input.region,
@@ -115,10 +125,6 @@ function normalizeTvdbScore(score?: number) {
   if (!Number.isFinite(score)) return 0.7;
   if (score! > 1) return Math.max(0, Math.min(1, score! / 100));
   return Math.max(0, Math.min(1, score!));
-}
-
-function normalizeTitle(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function tvdbExternalUrl(mediaType: "MOVIE" | "TV_SERIES", slug?: string) {

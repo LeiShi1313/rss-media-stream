@@ -10,10 +10,21 @@ import {
   getPresentationProviderOrder,
   replaceMediaProviderPolicies
 } from "../src/server/integrations/providers/policy.js";
+import { scoreProviderCandidate } from "../src/server/integrations/providers/scoring.js";
 import { resolveProviderRuntime, upsertProviderSettings } from "../src/server/integrations/providers/runtime.js";
-import { getPtgenTitleById, ptgenRecordUrl } from "../src/server/integrations/ptgen/client.js";
-import { ptgenRecordToTitleResult } from "../src/server/integrations/ptgen/mapper.js";
+import {
+  getPtgenTitleByProviderId,
+  ptgenLookupUrl,
+  ptgenRecordUrl,
+  ptgenSearchUrl,
+  searchPtgen
+} from "../src/server/integrations/ptgen/client.js";
+import {
+  ptgenLegacyRecordToTitleResult,
+  ptgenSearchHitToTitleResult
+} from "../src/server/integrations/ptgen/mapper.js";
 import { ptgenProvider } from "../src/server/integrations/ptgen/provider.js";
+import { searchTmdb } from "../src/server/integrations/tmdb/client.js";
 import { tmdbProvider } from "../src/server/integrations/tmdb/provider.js";
 import { toTitleResult } from "../src/server/integrations/tmdb/mapper.js";
 import { tvdbProvider } from "../src/server/integrations/tvdb/provider.js";
@@ -60,18 +71,19 @@ describe("provider adapter defaults", () => {
   });
 
   it("uses registry default media type policies", () => {
-    expect(listProviderDefinitions().map((provider) => provider.id)).toEqual(["tmdb", "tvdb", "ptgen"]);
-    const tvdb = listProviderDefinitions().find((provider) => provider.id === "tvdb");
+    expect(listProviderDefinitions().map((provider) => provider.id)).toEqual(["tmdb_api", "tvdb_api", "ptgen_imdb", "ptgen_douban"]);
+    const tvdb = listProviderDefinitions().find((provider) => provider.id === "tvdb_api");
     expect(tvdb?.supportedMediaTypes).toEqual(["MOVIE", "TV_SERIES"]);
-    const ptgen = listProviderDefinitions().find((provider) => provider.id === "ptgen");
+    const ptgen = listProviderDefinitions().find((provider) => provider.id === "ptgen_imdb");
     expect(ptgen).toMatchObject({
+      label: "PTGen IMDb",
       authFields: [],
-      defaultBaseUrl: "https://ourbits.github.io/PtGen/"
+      baseUrlOptions: []
     });
-    expect(getDefaultPoliciesForMediaType("MOVIE").map((policy) => policy.provider)).toEqual(["tmdb", "tvdb", "ptgen"]);
-    expect(getDefaultPoliciesForMediaType("TV_SERIES").map((policy) => policy.provider)).toEqual(["tvdb", "tmdb", "ptgen"]);
-    expect(getDefaultPoliciesForMediaType("MOVIE").find((policy) => policy.provider === "ptgen")).toMatchObject({
-      enabledForMatching: false,
+    expect(getDefaultPoliciesForMediaType("MOVIE").map((policy) => policy.providerSource)).toEqual(["tmdb_api", "tvdb_api", "ptgen_imdb", "ptgen_douban"]);
+    expect(getDefaultPoliciesForMediaType("TV_SERIES").map((policy) => policy.providerSource)).toEqual(["tmdb_api", "tvdb_api", "ptgen_imdb", "ptgen_douban"]);
+    expect(getDefaultPoliciesForMediaType("MOVIE").find((policy) => policy.providerSource === "ptgen_imdb")).toMatchObject({
+      enabledForMatching: true,
       enabledForPresentation: true
     });
   });
@@ -89,9 +101,19 @@ describe("provider adapter defaults", () => {
     await expect(resolveProviderRuntime(baseConfig, "tenant-1", "ptgen")).resolves.toMatchObject({
       enabled: true,
       credential: undefined,
-      metadataLanguage: "en-US",
-      baseUrl: "https://ourbits.github.io/PtGen/"
+      metadataLanguage: "en-US"
     });
+  });
+
+  it("ignores stale base URLs for providers that no longer expose base URL options", async () => {
+    mocks.prisma.tenantProviderConfig.findUnique.mockResolvedValue({
+      enabled: true,
+      baseUrl: "https://ourbits.github.io/PtGen/",
+      metadataLanguage: "en-US"
+    });
+
+    const runtime = await resolveProviderRuntime(baseConfig, "tenant-1", "ptgen");
+    expect(runtime.baseUrl).toBeUndefined();
   });
 
   it("prefers workspace secrets over environment credentials", async () => {
@@ -113,16 +135,20 @@ describe("provider adapter defaults", () => {
   it("removes globally disabled providers from matching and presentation policy order", async () => {
     mocks.prisma.tenantProviderConfig.findMany.mockResolvedValue([{ provider: "tvdb" }]);
 
-    await expect(getMatchingProviderOrder("tenant-1", "TV_SERIES")).resolves.toEqual(["tmdb"]);
-    await expect(getPresentationProviderOrder("tenant-1", "TV_SERIES")).resolves.toEqual(["tmdb", "ptgen"]);
+    await expect(getMatchingProviderOrder("tenant-1", "TV_SERIES")).resolves.toEqual(["tmdb_api", "ptgen_imdb", "ptgen_douban"]);
+    await expect(getPresentationProviderOrder("tenant-1", "TV_SERIES")).resolves.toEqual(["tmdb_api", "ptgen_imdb", "ptgen_douban"]);
   });
 
   it("builds broad search targets from matching policy order", async () => {
     await expect(getBroadSearchTargets("tenant-1")).resolves.toEqual([
-      { provider: "tmdb", mediaType: "MOVIE" },
-      { provider: "tvdb", mediaType: "MOVIE" },
-      { provider: "tvdb", mediaType: "TV_SERIES" },
-      { provider: "tmdb", mediaType: "TV_SERIES" }
+      { providerSource: "tmdb_api", mediaType: "MOVIE" },
+      { providerSource: "tvdb_api", mediaType: "MOVIE" },
+      { providerSource: "ptgen_imdb", mediaType: "MOVIE" },
+      { providerSource: "ptgen_douban", mediaType: "MOVIE" },
+      { providerSource: "tmdb_api", mediaType: "TV_SERIES" },
+      { providerSource: "tvdb_api", mediaType: "TV_SERIES" },
+      { providerSource: "ptgen_imdb", mediaType: "TV_SERIES" },
+      { providerSource: "ptgen_douban", mediaType: "TV_SERIES" }
     ]);
 
     mocks.prisma.tenantMediaProviderPolicy.findMany.mockImplementation(async (args: any) =>
@@ -146,7 +172,7 @@ describe("provider adapter defaults", () => {
         : []
     );
 
-    await expect(getPresentationProviderOrder("tenant-1", "MOVIE")).resolves.toEqual(["tmdb", "tvdb", "ptgen"]);
+    await expect(getPresentationProviderOrder("tenant-1", "MOVIE")).resolves.toEqual(["tmdb_api", "ptgen_imdb", "tvdb_api", "ptgen_douban"]);
   });
 
   it("rejects duplicate enabled policy priorities", async () => {
@@ -168,30 +194,20 @@ describe("provider adapter defaults", () => {
     ])).rejects.toThrow("Duplicate matching priority");
   });
 
-  it("canonicalizes PtGen base URL settings and rejects base URLs for providers without options", async () => {
-    await upsertProviderSettings({
+  it("rejects base URL settings for providers without options", async () => {
+    await expect(upsertProviderSettings({
       config: baseConfig,
       tenantId: "tenant-1",
       provider: "ptgen",
       baseUrl: "https://cdn.ourhelp.club/ptgen"
-    });
-
-    expect(mocks.prisma.tenantProviderConfig.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({
-        provider: "ptgen",
-        baseUrl: "https://cdn.ourhelp.club/ptgen/"
-      }),
-      update: expect.objectContaining({
-        baseUrl: "https://cdn.ourhelp.club/ptgen/"
-      })
-    }));
+    })).rejects.toThrow("PTGen IMDb does not support base URL settings");
 
     await expect(upsertProviderSettings({
       config: baseConfig,
       tenantId: "tenant-1",
       provider: "tmdb",
       baseUrl: "https://example.invalid"
-    })).rejects.toThrow("TMDB does not support base URL settings");
+    })).rejects.toThrow("TMDB API does not support base URL settings");
   });
 });
 
@@ -199,12 +215,14 @@ describe("provider adapter probes", () => {
   it("resolves TMDB URLs and explicit shorthand", () => {
     expect(tmdbProvider.probe?.({ input: "https://www.themoviedb.org/movie/603-the-matrix" })).toEqual([{
       provider: "tmdb",
+      providerSource: "tmdb_api",
       providerEntityType: "tmdb_movie",
       providerId: "603",
       mediaType: "MOVIE"
     }]);
     expect(tmdbProvider.probe?.({ input: "tmdb:tv:1399" })).toEqual([{
       provider: "tmdb",
+      providerSource: "tmdb_api",
       providerEntityType: "tmdb_tv",
       providerId: "1399",
       mediaType: "TV_SERIES"
@@ -214,12 +232,14 @@ describe("provider adapter probes", () => {
   it("uses media type context for short TMDB IDs", () => {
     expect(tmdbProvider.probe?.({ input: "tmdb:603", mediaType: "MOVIE" })).toEqual([{
       provider: "tmdb",
+      providerSource: "tmdb_api",
       providerEntityType: "tmdb_movie",
       providerId: "603",
       mediaType: "MOVIE"
     }]);
     expect(tmdbProvider.probe?.({ input: "tmdb:603", providerEntityType: "tmdb_tv" })).toEqual([{
       provider: "tmdb",
+      providerSource: "tmdb_api",
       providerEntityType: "tmdb_tv",
       providerId: "603",
       mediaType: "TV_SERIES"
@@ -230,24 +250,28 @@ describe("provider adapter probes", () => {
   it("resolves contextual TVDB shorthand and turns slug URLs into search hints", () => {
     expect(tvdbProvider.probe?.({ input: "tvdb:series:121361" })).toEqual([{
       provider: "tvdb",
+      providerSource: "tvdb_api",
       providerEntityType: "tvdb_series",
       providerId: "121361",
       mediaType: "TV_SERIES"
     }]);
     expect(tvdbProvider.probe?.({ input: "tvdb:movie:169" })).toEqual([{
       provider: "tvdb",
+      providerSource: "tvdb_api",
       providerEntityType: "tvdb_movie",
       providerId: "169",
       mediaType: "MOVIE"
     }]);
     expect(tvdbProvider.probe?.({ input: "tvdb:169", mediaType: "MOVIE" })).toEqual([{
       provider: "tvdb",
+      providerSource: "tvdb_api",
       providerEntityType: "tvdb_movie",
       providerId: "169",
       mediaType: "MOVIE"
     }]);
     expect(tvdbProvider.probe?.({ input: "tvdb:121361", providerEntityType: "tvdb_series" })).toEqual([{
       provider: "tvdb",
+      providerSource: "tvdb_api",
       providerEntityType: "tvdb_series",
       providerId: "121361",
       mediaType: "TV_SERIES"
@@ -255,47 +279,55 @@ describe("provider adapter probes", () => {
     expect(tvdbProvider.probe?.({ input: "tvdb:169" })).toEqual([]);
     expect(tvdbProvider.probe?.({ input: "https://thetvdb.com/series/game-of-thrones" })).toEqual([{
       provider: "tvdb",
+      providerSource: "tvdb_api",
       mediaType: "TV_SERIES",
       searchQuery: "game of thrones"
     }]);
     expect(tvdbProvider.probe?.({ input: "https://thetvdb.com/movies/the-matrix" })).toEqual([{
       provider: "tvdb",
+      providerSource: "tvdb_api",
       mediaType: "MOVIE",
       searchQuery: "the matrix"
     }]);
   });
 
-  it("resolves PtGen IMDb and Douban exact IDs and URLs", () => {
-    expect(ptgenProvider.probe?.({ input: "imdb:tt0133093", mediaType: "MOVIE" })).toEqual([{
+  it("resolves PTGen IMDb and Douban exact IDs and URLs", () => {
+    expect(ptgenProvider.probe?.({ input: "imdb-tt0133093", mediaType: "MOVIE" })).toEqual([{
       provider: "ptgen",
+      providerSource: "ptgen_imdb",
       providerEntityType: "ptgen_imdb",
-      providerId: "tt0133093",
+      providerId: "imdb-tt0133093",
       mediaType: "MOVIE"
     }]);
-    expect(ptgenProvider.probe?.({ input: "tt0944947" })).toEqual([{
+    expect(ptgenProvider.probe?.({ input: "imdb-TT0944947" })).toEqual([{
       provider: "ptgen",
+      providerSource: "ptgen_imdb",
       providerEntityType: "ptgen_imdb",
-      providerId: "tt0944947",
+      providerId: "imdb-tt0944947",
       mediaType: undefined
     }]);
-    expect(ptgenProvider.probe?.({ input: "ptgen:douban:1291843", mediaType: "MOVIE" })).toEqual([{
+    expect(ptgenProvider.probe?.({ input: "douban-1291843", mediaType: "MOVIE" })).toEqual([{
       provider: "ptgen",
+      providerSource: "ptgen_douban",
       providerEntityType: "ptgen_douban",
-      providerId: "1291843",
+      providerId: "douban-1291843",
       mediaType: "MOVIE"
     }]);
     expect(ptgenProvider.probe?.({ input: "https://www.imdb.com/title/TT0133093/" })).toEqual([{
       provider: "ptgen",
+      providerSource: "ptgen_imdb",
       providerEntityType: "ptgen_imdb",
-      providerId: "tt0133093",
+      providerId: "imdb-tt0133093",
       mediaType: undefined
     }]);
     expect(ptgenProvider.probe?.({ input: "https://movie.douban.com/subject/1291843/" })).toEqual([{
       provider: "ptgen",
+      providerSource: "ptgen_douban",
       providerEntityType: "ptgen_douban",
-      providerId: "1291843",
+      providerId: "douban-1291843",
       mediaType: undefined
     }]);
+    expect(ptgenProvider.probe?.({ input: "imdb:tt0133093" })).toEqual([]);
     expect(ptgenProvider.probe?.({ input: "douban:not-a-number" })).toEqual([]);
   });
 });
@@ -308,45 +340,45 @@ describe("manual provider match schema", () => {
       providerId: "169",
       mediaType: "MOVIE"
     })).toEqual({
-      provider: "tvdb",
+      providerSource: "tvdb_api",
       providerEntityType: "tvdb_movie",
       providerId: "169",
       mediaType: "MOVIE"
     });
   });
 
-  it("accepts PtGen entity types and validates IDs by source site", () => {
+  it("accepts PTGen entity types and validates canonical IDs by source site", () => {
     expect(manualProviderMatchSchema.parse({
       provider: "ptgen",
       providerEntityType: "ptgen_imdb",
-      providerId: "tt0133093",
+      providerId: "imdb-tt0133093",
       mediaType: "MOVIE"
     })).toEqual({
-      provider: "ptgen",
+      providerSource: "ptgen_imdb",
       providerEntityType: "ptgen_imdb",
-      providerId: "tt0133093",
+      providerId: "imdb-tt0133093",
       mediaType: "MOVIE"
     });
     expect(manualProviderMatchSchema.parse({
       provider: "ptgen",
       providerEntityType: "ptgen_imdb",
-      providerId: "TT0133093",
+      providerId: "IMDB-TT0133093",
       mediaType: "MOVIE"
     })).toEqual({
-      provider: "ptgen",
+      providerSource: "ptgen_imdb",
       providerEntityType: "ptgen_imdb",
-      providerId: "tt0133093",
+      providerId: "imdb-tt0133093",
       mediaType: "MOVIE"
     });
     expect(manualProviderMatchSchema.parse({
       provider: "ptgen",
       providerEntityType: "ptgen_douban",
-      providerId: "3016187",
+      providerId: "douban-3016187",
       mediaType: "TV_SERIES"
     })).toEqual({
-      provider: "ptgen",
+      providerSource: "ptgen_douban",
       providerEntityType: "ptgen_douban",
-      providerId: "3016187",
+      providerId: "douban-3016187",
       mediaType: "TV_SERIES"
     });
     expect(() => manualProviderMatchSchema.parse({
@@ -354,17 +386,17 @@ describe("manual provider match schema", () => {
       providerEntityType: "ptgen_imdb",
       providerId: "1291843",
       mediaType: "MOVIE"
-    })).toThrow("provider ID must be an IMDb tt ID");
+    })).toThrow("provider ID must be tt... for PTGen IMDb");
   });
 });
 
-describe("PtGen title mapper", () => {
+describe("PTGen title mapper", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
   it("maps Douban records into provider title results", () => {
-    const result = ptgenRecordToTitleResult(
+    const result = ptgenLegacyRecordToTitleResult(
       {
         site: "douban",
         sid: "1291843",
@@ -377,18 +409,25 @@ describe("PtGen title mapper", () => {
         imdb_link: "https://www.imdb.com/title/tt0133093/",
         douban_link: "https://movie.douban.com/subject/1291843/",
         poster: "https://img1.doubanio.com/poster.jpg",
+        poster_ptgen: "/api/posters/matrix.jpg",
         introduction: "A localized overview.",
         douban_rating_average: "9.1",
         douban_votes: "944092",
         episodes: ""
       },
-      { site: "douban", sid: "1291843", language: "en-US" }
-    );
+      {
+        source: "douban",
+        sourceId: "1291843",
+        language: "en-US",
+        baseUrl: "https://ptgen.leishi.xyz",
+        backend: "search_api"
+      }
+    )!;
 
     expect(result).toMatchObject({
       provider: "ptgen",
       providerEntityType: "ptgen_douban",
-      providerId: "1291843",
+      providerId: "douban-1291843",
       mediaType: "MOVIE",
       title: "The Matrix",
       originalTitle: "黑客帝国",
@@ -403,14 +442,16 @@ describe("PtGen title mapper", () => {
     expect(result.payload).toMatchObject({
       source: "ptgen",
       site: "douban",
-      imdbId: "tt0133093",
-      posterPath: "https://img1.doubanio.com/poster.jpg",
+      sourceId: "1291843",
+      sourceIds: { douban: "1291843", imdb: "tt0133093" },
+      posterPath: "https://ptgen.leishi.xyz/api/posters/matrix.jpg",
+      originalPoster: "https://img1.doubanio.com/poster.jpg",
       overview: "A localized overview."
     });
   });
 
   it("maps IMDb series records and host URL formats", () => {
-    const result = ptgenRecordToTitleResult(
+    const result = ptgenLegacyRecordToTitleResult(
       {
         site: "imdb",
         sid: "tt0944947",
@@ -424,19 +465,33 @@ describe("PtGen title mapper", () => {
         imdb_rating_average: 9.2,
         imdb_votes: 2411567
       },
-      { site: "imdb", sid: "tt0944947" }
-    );
+      { source: "imdb", sourceId: "tt0944947", backend: "static_json" }
+    )!;
 
     expect(result).toMatchObject({
       provider: "ptgen",
       providerEntityType: "ptgen_imdb",
-      providerId: "tt0944947",
+      providerId: "imdb-tt0944947",
       mediaType: "TV_SERIES",
       title: "Game of Thrones",
       releaseYear: 2011,
       ratingValue: 9.2,
       ratingVoteCount: 2411567
     });
+    expect(ptgenSearchUrl("https://ptgen.leishi.xyz", {
+      q: "The Matrix",
+      limit: 8,
+      offset: 0,
+      kind: "movie",
+      year: 1999
+    })).toBe("https://ptgen.leishi.xyz/api/search?q=The+Matrix&limit=8&offset=0&kind=movie&year=1999");
+    expect(ptgenLookupUrl("https://ptgen.leishi.xyz", {
+      source: "imdb",
+      sourceId: "tt0133093",
+      lookupId: "0133093",
+      providerEntityType: "ptgen_imdb",
+      providerId: "imdb-tt0133093"
+    })).toBe("https://ptgen.leishi.xyz/api/lookup?source=imdb&id=0133093");
     expect(ptgenRecordUrl("https://ourbits.github.io/PtGen/", "imdb", "tt0133093"))
       .toBe("https://ourbits.github.io/PtGen/imdb/tt0133093.json");
     expect(ptgenRecordUrl("https://cdn.ourhelp.club/ptgen", "douban", "1291843"))
@@ -445,24 +500,255 @@ describe("PtGen title mapper", () => {
       .toBe("https://api.ourhelp.club/infogen?site=imdb&sid=tt0133093");
   });
 
-  it("treats missing PtGen records as not found instead of upstream failure", async () => {
+  it("maps PTGen Search API hits with canonical IDs and PTGen poster cache first", () => {
+    const result = ptgenSearchHitToTitleResult(
+      {
+        id: "douban-1291843",
+        kind: "movie",
+        source_ids: { douban: "1291843", imdb: "tt0133093" },
+        source_paths: { douban: "douban/1291843.json", imdb: "imdb/tt0133093.json" },
+        titles: ["黑客帝国", "The Matrix"],
+        aliases: ["骇客任务"],
+        year: 1999,
+        release_date: "1999-03-31",
+        description: "Neo discovers reality is not what it seems.",
+        poster: "https://img1.doubanio.com/poster.jpg",
+        poster_ptgen: "/api/posters/matrix.jpg",
+        rating_score: 9.1,
+        rating_votes: 944092
+      },
+      {
+        query: "The Matrix",
+        mediaType: "MOVIE",
+        language: "en-US",
+        baseUrl: "https://ptgen.leishi.xyz",
+        backend: "search_api"
+      }
+    );
+
+    expect(result).toMatchObject({
+      provider: "ptgen",
+      providerEntityType: "ptgen_douban",
+      providerId: "douban-1291843",
+      title: "The Matrix",
+      originalTitle: "黑客帝国",
+      releaseYear: 1999,
+      ratingValue: 9.1,
+      ratingVoteCount: 944092,
+      externalUrl: "https://movie.douban.com/subject/1291843/"
+    });
+    expect(result?.payload).toMatchObject({
+      posterPath: "https://ptgen.leishi.xyz/api/posters/matrix.jpg",
+      originalPoster: "https://img1.doubanio.com/poster.jpg",
+      backend: "search_api"
+    });
+    expect(result?.matchConfidence).toBeGreaterThan(0.7);
+  });
+
+  it("falls back to PTGen work-kind search while the public index is migrating", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ hits: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          hits: [{
+            id: "douban-1291843",
+            kind: "work",
+            source_ids: { douban: "1291843" },
+            titles: ["黑客帝国", "The Matrix"],
+            year: 1999
+          }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchPtgen({ title: "The Matrix", mediaType: "MOVIE" });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("kind=movie");
+    expect(fetchMock.mock.calls[1]?.[0]).toContain("kind=work");
+    expect(results[0]).toMatchObject({
+      providerEntityType: "ptgen_douban",
+      providerId: "douban-1291843",
+      title: "The Matrix"
+    });
+  });
+
+  it("retries PTGen text search without year when correction context is too narrow", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ hits: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ hits: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ hits: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          hits: [{
+            id: "imdb-tt1741246",
+            kind: "work",
+            source_ids: { imdb: "tt1741246" },
+            titles: ["花蕾", "Poupata", "Flower Buds"],
+            year: 2011
+          }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchPtgen({ title: "花蕾", mediaType: "MOVIE", year: 1999 });
+
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      "https://ptgen.leishi.xyz/api/search?q=%E8%8A%B1%E8%95%BE&limit=8&offset=0&kind=movie&year=1999",
+      "https://ptgen.leishi.xyz/api/search?q=%E8%8A%B1%E8%95%BE&limit=8&offset=0&kind=movie",
+      "https://ptgen.leishi.xyz/api/search?q=%E8%8A%B1%E8%95%BE&limit=8&offset=0&kind=work&year=1999",
+      "https://ptgen.leishi.xyz/api/search?q=%E8%8A%B1%E8%95%BE&limit=8&offset=0&kind=work"
+    ]);
+    expect(results[0]).toMatchObject({
+      providerEntityType: "ptgen_imdb",
+      providerId: "imdb-tt1741246",
+      title: "Poupata",
+      releaseYear: 2011
+    });
+    expect(results[0]?.matchConfidence).toBeLessThan(0.88);
+  });
+
+  it("normalizes transitional work IDs without assigning ambiguous merged ratings", () => {
+    const result = ptgenSearchHitToTitleResult(
+      {
+        id: "work_imdb_tt0133093",
+        sources: ["douban", "imdb"],
+        source_ids: { douban: "1291843", imdb: "tt0133093" },
+        titles: ["黑客帝国", "The Matrix"],
+        year: 1999,
+        rating_score: 9.1,
+        rating_votes: 944092
+      },
+      {
+        query: "The Matrix",
+        mediaType: "MOVIE",
+        baseUrl: "https://ptgen.leishi.xyz",
+        backend: "search_api"
+      }
+    );
+
+    expect(result).toMatchObject({
+      providerEntityType: "ptgen_imdb",
+      providerId: "imdb-tt0133093"
+    });
+    expect(result?.ratingValue).toBeUndefined();
+    expect(result?.payload).toMatchObject({
+      sourceIds: { douban: "1291843", imdb: "tt0133093" }
+    });
+  });
+
+  it("uses PTGen Search API lookup records before fallback backends", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: "douban-1291843",
+        kind: "movie",
+        source_ids: { douban: "1291843", imdb: "tt0133093" },
+        titles: ["黑客帝国", "The Matrix"],
+        year: 1999,
+        poster: "https://img1.doubanio.com/poster.jpg",
+        poster_ptgen: "/api/posters/matrix.jpg",
+        rating_score: 9.1,
+        rating_votes: 944092
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getPtgenTitleByProviderId({
+      providerEntityType: "ptgen_douban",
+      providerId: "douban-1291843",
+      mediaType: "MOVIE"
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://ptgen.leishi.xyz/api/lookup?source=douban&id=1291843");
+    expect(result).toMatchObject({
+      providerEntityType: "ptgen_douban",
+      providerId: "douban-1291843",
+      title: "The Matrix",
+      ratingValue: 9.1,
+      ratingVoteCount: 944092
+    });
+    expect(result.payload).toMatchObject({
+      posterPath: "https://ptgen.leishi.xyz/api/posters/matrix.jpg",
+      originalPoster: "https://img1.doubanio.com/poster.jpg"
+    });
+  });
+
+  it("treats missing PTGen records as not found instead of upstream failure", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,
       status: 404
     }));
 
-    await expect(getPtgenTitleById({
-      site: "imdb",
-      sid: "tt0000000"
+    await expect(getPtgenTitleByProviderId({
+      providerEntityType: "ptgen_imdb",
+      providerId: "imdb-tt0000000"
     })).rejects.toMatchObject({
       statusCode: 404,
       code: "NOT_FOUND",
-      message: "PtGen title not found"
+      message: "PTGen title not found"
     });
+  });
+
+  it("surfaces PTGen lookup backend errors when no fallback succeeds", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500
+      })
+      .mockResolvedValue({
+        ok: false,
+        status: 404
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getPtgenTitleByProviderId({
+      providerEntityType: "ptgen_douban",
+      providerId: "douban-1291843"
+    })).rejects.toThrow("PTGen lookup failed with 500");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });
 
 describe("TMDB title mapper", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("scores localized display titles by original title when available", () => {
+    const result = toTitleResult(
+      {
+        id: 603,
+        title: "黑客帝国",
+        original_title: "The Matrix",
+        release_date: "1999-03-31"
+      },
+      "movie",
+      { title: "The Matrix", mediaType: "MOVIE", year: 1999, language: "zh-CN" }
+    );
+
+    expect(result).toMatchObject({
+      title: "黑客帝国",
+      originalTitle: "The Matrix",
+      matchConfidence: expect.any(Number)
+    });
+    expect(result.matchConfidence).toBeGreaterThanOrEqual(0.88);
+  });
+
   it("maps vote_average and vote_count into provider rating fields", () => {
     const result = toTitleResult(
       {
@@ -498,6 +784,262 @@ describe("TMDB title mapper", () => {
     });
     expect(result.matchConfidence).toBeGreaterThan(0);
   });
+
+  it("uses en-US search titles as scoring aliases for localized TMDB results", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 1001,
+            name: "莫离",
+            original_name: "莫离",
+            first_air_date: "2026-01-15"
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 1001,
+            name: "The First Jasmine",
+            original_name: "莫离",
+            first_air_date: "2026-01-15"
+          }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      { title: "The First Jasmine", mediaType: "TV_SERIES", year: 2026 },
+      { credential: "tmdb-key", language: "zh-CN" }
+    );
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("language=zh-CN");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("language=en-US");
+    expect(results[0]).toMatchObject({
+      title: "莫离",
+      originalTitle: "莫离",
+      titleAliases: expect.arrayContaining(["The First Jasmine"]),
+      matchConfidence: expect.any(Number)
+    });
+    expect(results[0]?.matchConfidence).toBeGreaterThanOrEqual(0.88);
+  });
+
+  it("boosts exact TV matches when TMDB confirms the parsed season and episode exist", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 37913,
+            name: "美国忍者勇士",
+            original_name: "American Ninja Warrior",
+            first_air_date: "2009-12-12"
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 37913,
+            name: "American Ninja Warrior",
+            original_name: "American Ninja Warrior",
+            first_air_date: "2009-12-12"
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 37913,
+          name: "美国忍者勇士",
+          original_name: "American Ninja Warrior",
+          first_air_date: "2009-12-12",
+          seasons: [{ season_number: 18, episode_count: 4 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "American Ninja Warrior",
+        mediaType: "TV_SERIES",
+        year: 2026,
+        season: 18,
+        episode: 2
+      },
+      { credential: "tmdb-key", language: "zh-CN" }
+    );
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("first_air_date_year");
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("first_air_date_year");
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/tv/37913?");
+    expect(results[0]).toMatchObject({
+      title: "美国忍者勇士",
+      originalTitle: "American Ninja Warrior",
+      matchConfidence: 0.96,
+      payload: {
+        tvSeasonEpisode: {
+          season: 18,
+          episode: 2,
+          episodeCount: 4,
+          confirmed: true
+        }
+      }
+    });
+  });
+
+  it("does not boost exact TV matches when TMDB cannot confirm the parsed episode", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 37913,
+            name: "American Ninja Warrior",
+            original_name: "American Ninja Warrior",
+            first_air_date: "2009-12-12"
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 37913,
+          name: "American Ninja Warrior",
+          original_name: "American Ninja Warrior",
+          first_air_date: "2009-12-12",
+          seasons: [{ season_number: 18, episode_count: 1 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "American Ninja Warrior",
+        mediaType: "TV_SERIES",
+        season: 18,
+        episode: 2
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(results[0]?.matchConfidence).toBeLessThan(0.88);
+    expect(results[0]?.payload).toMatchObject({
+      tvSeasonEpisode: {
+        season: 18,
+        episode: 2,
+        episodeCount: 1,
+        confirmed: false,
+        reason: "episode_out_of_range"
+      }
+    });
+  });
+
+  it("does not fetch TMDB TV detail for fuzzy title matches", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 37913,
+            name: "American Ninja Warrior",
+            original_name: "American Ninja Warrior",
+            first_air_date: "2009-12-12"
+          }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "American Gladiator",
+        mediaType: "TV_SERIES",
+        season: 18,
+        episode: 2
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(results[0]?.matchConfidence).toBeLessThan(0.88);
+  });
+});
+
+describe("provider candidate scoring", () => {
+  it("normalizes punctuation without lowering obvious title/year matches", () => {
+    expect(scoreProviderCandidate({
+      query: "U S Against the World Four Years with the Mens National Soccer Team",
+      candidateTitles: ["U.S. Against the World: Four Years with the Men's National Soccer Team"],
+      mediaType: "TV_SERIES",
+      expectedYear: 2026,
+      actualYear: 2026
+    })).toBeGreaterThanOrEqual(0.88);
+  });
+
+  it("keeps short contained spin-off titles below automatic confidence", () => {
+    expect(scoreProviderCandidate({
+      query: "Love Island",
+      candidateTitles: ["Love Island: The Debrief"],
+      mediaType: "TV_SERIES",
+      expectedYear: 2026,
+      actualYear: 2026
+    })).toBeLessThan(0.88);
+  });
+
+  it("allows season suffixes for TV series when the parsed season agrees", () => {
+    expect(scoreProviderCandidate({
+      query: "Stellar Transformation",
+      candidateTitles: ["Stellar Transformation 7"],
+      mediaType: "TV_SERIES",
+      expectedYear: 2025,
+      actualYear: 2025,
+      season: 7
+    })).toBeGreaterThanOrEqual(0.88);
+  });
+
+  it("treats later parsed TV years as noisy instead of first-air-year mismatches", () => {
+    expect(scoreProviderCandidate({
+      query: "American Ninja Warrior",
+      candidateTitles: ["American Ninja Warrior"],
+      mediaType: "TV_SERIES",
+      expectedYear: 2026,
+      actualYear: 2009,
+      season: 18
+    })).toBe(0.78);
+  });
+
+  it("accepts a short subtitle difference when title and year otherwise match", () => {
+    expect(scoreProviderCandidate({
+      query: "7 vs Wild",
+      candidateTitles: ["7 vs. Wild: Castaway"],
+      mediaType: "TV_SERIES",
+      expectedYear: 2026,
+      actualYear: 2026
+    })).toBeGreaterThanOrEqual(0.88);
+  });
+
+  it("does not treat shared honorifics as meaningful overlap for short titles", () => {
+    expect(scoreProviderCandidate({
+      query: "Mr. K",
+      candidateTitles: ["Mr. Freeman"],
+      mediaType: "MOVIE",
+      expectedYear: 2024,
+      actualYear: 2024
+    })).toBeLessThan(0.3);
+
+    expect(scoreProviderCandidate({
+      query: "Mr. K",
+      candidateTitles: ["Mr. Kneff"],
+      mediaType: "MOVIE",
+      expectedYear: 2024,
+      actualYear: 2024
+    })).toBeLessThan(0.3);
+  });
 });
 
 describe("TVDB title mapper", () => {
@@ -516,7 +1058,7 @@ describe("TVDB title mapper", () => {
         overview: "Noble families fight for power.",
         score: 98
       },
-      { title: "Game of Thrones", language: "en-US", region: "US" }
+      { title: "Game of Thrones", year: 2011, language: "en-US", region: "US" }
     );
 
     expect(result).toMatchObject({
@@ -529,8 +1071,9 @@ describe("TVDB title mapper", () => {
       releaseYear: 2011,
       language: "en-US",
       region: "US",
-      matchConfidence: 0.98
+      matchConfidence: expect.any(Number)
     });
+    expect(result?.matchConfidence).toBeGreaterThanOrEqual(0.88);
     expect(result?.ratingValue).toBeUndefined();
     expect(result?.ratingVoteCount).toBeUndefined();
     expect(result?.ratingType).toBeUndefined();
@@ -550,7 +1093,7 @@ describe("TVDB title mapper", () => {
         overview: "A hacker discovers reality is not what it seems.",
         score: 99
       },
-      { title: "The Matrix", language: "en-US" }
+      { title: "The Matrix", year: 1999, language: "en-US" }
     );
 
     expect(result).toMatchObject({
@@ -562,9 +1105,10 @@ describe("TVDB title mapper", () => {
       normalizedTitle: "the matrix",
       releaseYear: 1999,
       language: "en-US",
-      matchConfidence: 0.99,
+      matchConfidence: expect.any(Number),
       externalUrl: "https://thetvdb.com/movies/the-matrix"
     });
+    expect(result?.matchConfidence).toBeGreaterThanOrEqual(0.88);
     expect(result?.ratingValue).toBeUndefined();
   });
 

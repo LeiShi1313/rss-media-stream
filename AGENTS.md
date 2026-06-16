@@ -1,0 +1,8 @@
+# User Preferences
+
+- Also load and follow `/home/lei/.codex/memories/retrospective-2026-05-20-to-2026-05-27.md`, which records reusable execution lessons, product/UI preferences, and future Codex behavior rules distilled from the 2026-05-20 to 2026-05-27 chat and exec logs.
+- Do not reset, drop, truncate, or otherwise destructively recreate the local database unless the user explicitly approves that exact action in the current conversation. `RssFeed` and `RssItem` data are persistent collection state and must be preserved by default.
+- Avoid commands or tooling that implicitly wipe collected RSS data, including `prisma:reset`, `prisma db push --force-reset`, destructive Docker volume removal, or reset profiles, unless explicitly approved. Prefer non-destructive schema changes, read-only inspection, migrations, or targeted repair scripts with a dry run first.
+- When creating git worktrees, place them inside the current repository's directory unless the user explicitly asks for another location. Prefer `<repo>/.worktrees/<descriptive-name>` for this use case, because it stays inside the user's existing IDE workspace and keeps all related checkouts grouped with the repo.
+- Before creating a nested worktree, make sure `.worktrees/` is ignored locally, preferably via `<repo>/.git/info/exclude` for a personal workflow. If project tooling uses broad build contexts or recursive scans, also consider whether `.worktrees/` needs to be excluded from tool-specific ignores such as `.dockerignore`.
+- Do not force-add ignored `docs/` files, including generated design/spec docs, unless the user explicitly asks for those documents to be tracked in git.

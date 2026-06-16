@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Activity, Clock3, Pencil, Plus, RefreshCw, ServerCog } from "lucide-react";
+import { Activity, Clock3, Pencil, Plus, RefreshCw, ServerCog, Trash2 } from "lucide-react";
 import { api, type Feed } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, UiButton } from "../components/ui/index.js";
@@ -22,6 +22,7 @@ export function RssPage({
 }) {
   const { t } = useTranslation();
   const [feedModal, setFeedModal] = useState<Feed | "new" | null>(null);
+  const [deleteFeed, setDeleteFeed] = useState<Feed | null>(null);
 
   return (
     <div className="page-stack">
@@ -66,7 +67,7 @@ export function RssPage({
             <article className="row-card feed-card" key={feed.id}>
               <div>
                 <strong>{feed.name}</strong>
-                <code>{feed.urlPreview}</code>
+                <code>{feed.urlPreview ?? t("rss.removedUrl")}</code>
                 <span>{t("rss.itemPoll", { count: feed.itemCount, seconds: feed.pollIntervalSeconds })}</span>
                 {feed.lastError && <p className="error">{feed.lastError}</p>}
               </div>
@@ -83,6 +84,14 @@ export function RssPage({
                   title={t("rss.refreshFeed")}
                 >
                   <RefreshCw size={17} />
+                </UiButton>
+                <UiButton
+                  className="icon-button danger"
+                  disabled={busy}
+                  onClick={() => setDeleteFeed(feed)}
+                  title={t("rss.deleteFeed")}
+                >
+                  <Trash2 size={17} />
                 </UiButton>
               </div>
             </article>
@@ -112,6 +121,64 @@ export function RssPage({
           />
         </Modal>
       )}
+      {deleteFeed && (
+        <Modal
+          title={t("rss.deleteFeedTitle", { name: deleteFeed.name })}
+          onClose={() => setDeleteFeed(null)}
+        >
+          <DeleteFeedConfirmation
+            busy={busy}
+            feed={deleteFeed}
+            onCancel={() => setDeleteFeed(null)}
+            onConfirm={async () => {
+              const result = await runAction(() => api(`/api/feeds/${deleteFeed.id}`, { method: "DELETE" }));
+              if (result.ok) setDeleteFeed(null);
+              return result;
+            }}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function DeleteFeedConfirmation({
+  busy,
+  feed,
+  onCancel,
+  onConfirm
+}: {
+  busy: boolean;
+  feed: Feed;
+  onCancel: () => void;
+  onConfirm: () => Promise<ActionResult>;
+}) {
+  const { t } = useTranslation();
+  const [submitError, setSubmitError] = useState("");
+
+  return (
+    <div className="modal-form">
+      <p className="modal-copy">{t("rss.deleteFeedBody", { name: feed.name })}</p>
+      <p className="modal-copy muted">{t("rss.deleteFeedKeepsItems", { count: feed.itemCount })}</p>
+      {submitError && <p className="modal-feedback error">{submitError}</p>}
+      <div className="modal-actions">
+        <UiButton className="secondary" onClick={onCancel} type="button">
+          {t("common.cancel")}
+        </UiButton>
+        <UiButton
+          className="primary danger"
+          disabled={busy}
+          onClick={async () => {
+            setSubmitError("");
+            const result = await onConfirm();
+            if (!result.ok) setSubmitError(result.message);
+          }}
+          type="button"
+        >
+          <Trash2 size={17} />
+          {t("rss.confirmDeleteFeed")}
+        </UiButton>
+      </div>
     </div>
   );
 }

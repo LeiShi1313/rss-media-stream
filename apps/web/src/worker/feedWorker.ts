@@ -6,7 +6,11 @@ import { refreshFeed } from "../server/modules/feeds/feeds.service.js";
 export async function pollDueFeeds(config: AppConfig) {
   const now = new Date();
   const feeds = await prisma.rssFeed.findMany({
-    where: { enabled: true },
+    where: {
+      enabled: true,
+      deletedAt: null,
+      encryptedUrl: { not: null }
+    },
     orderBy: [{ lastPolledAt: "asc" }, { createdAt: "asc" }],
     take: 20,
     select: {

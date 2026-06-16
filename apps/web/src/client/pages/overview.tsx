@@ -426,6 +426,7 @@ function ReleaseInspectorModal({
   const [titleSearchError, setTitleSearchError] = useState("");
   const [titleSearchSubmitted, setTitleSearchSubmitted] = useState(false);
   const [titleSearchMediaType, setTitleSearchMediaType] = useState<"" | "MOVIE" | "TV_SERIES">("");
+  const [titleSearchProvider, setTitleSearchProvider] = useState<"" | "tmdb" | "tvdb" | "ptgen">("");
   const initializedItemId = useRef(item.id);
 
   const inferredSearchMediaType =
@@ -441,6 +442,7 @@ function ReleaseInspectorModal({
     setTitleSearchError("");
     setTitleSearchSubmitted(false);
     setTitleSearchMediaType("");
+    setTitleSearchProvider("");
   }, [enrichmentPending, identity, item.id, item.parsedRelease?.kind, item.parsedRelease?.title, title]);
 
   async function searchTitles(event: FormEvent<HTMLFormElement>) {
@@ -455,6 +457,7 @@ function ReleaseInspectorModal({
         method: "POST",
         body: JSON.stringify({
           input: q,
+          provider: titleSearchProvider || undefined,
           mediaType: effectiveSearchMediaType,
           year: item.parsedRelease?.year ?? presentation?.releaseYear ?? undefined
         })
@@ -584,16 +587,29 @@ function ReleaseInspectorModal({
           )}
           <details className="release-id-fallback">
             <summary>{t("overview.inspector.searchOptions")}</summary>
-            <SelectField
-              disabled={busy || titleSearchBusy}
-              onValueChange={(value) => setTitleSearchMediaType(value as "" | "MOVIE" | "TV_SERIES")}
-              options={[
-                { value: "", label: inferredSearchMediaType ? t("overview.inspector.useParsedType") : t("common.anyKind") },
-                { value: "MOVIE", label: t("common.movie") },
-                { value: "TV_SERIES", label: t("common.tv") }
-              ]}
-              value={titleSearchMediaType}
-            />
+            <div className="title-search-options-row">
+              <SelectField
+                disabled={busy || titleSearchBusy}
+                onValueChange={(value) => setTitleSearchProvider(value as "" | "tmdb" | "tvdb" | "ptgen")}
+                options={[
+                  { value: "", label: t("common.anyProvider") },
+                  { value: "tmdb", label: "TMDB" },
+                  { value: "tvdb", label: "TVDB" },
+                  { value: "ptgen", label: "PTGen" }
+                ]}
+                value={titleSearchProvider}
+              />
+              <SelectField
+                disabled={busy || titleSearchBusy}
+                onValueChange={(value) => setTitleSearchMediaType(value as "" | "MOVIE" | "TV_SERIES")}
+                options={[
+                  { value: "", label: inferredSearchMediaType ? t("overview.inspector.useParsedType") : t("common.anyKind") },
+                  { value: "MOVIE", label: t("common.movie") },
+                  { value: "TV_SERIES", label: t("common.tv") }
+                ]}
+                value={titleSearchMediaType}
+              />
+            </div>
           </details>
           {titleSearchResults.length > 0 && (
             <div className="title-result-grid">
@@ -606,7 +622,12 @@ function ReleaseInspectorModal({
                   )}
                   <div>
                     <strong>{result.title}</strong>
-                    <span>{[providerLabel(result.provider), legacyKindFromMediaType(result.mediaType), result.year].filter(Boolean).join(" · ") || t("common.unknown")}</span>
+                    <span>{[searchResultSourceLabel(result), legacyKindFromMediaType(result.mediaType), result.year, searchResultBackendLabel(result)].filter(Boolean).join(" · ") || t("common.unknown")}</span>
+                    {result.presentation?.rating && (
+                      <span className="title-result-rating">
+                        {formatSearchRating(result)}
+                      </span>
+                    )}
                   </div>
                   <div className="title-result-actions">
                     {result.externalUrl && (
@@ -668,7 +689,7 @@ function ReleaseInspectorModal({
             <h4>{t("overview.inspector.identityDetail")}</h4>
             <ReleaseInlineFact label={t("common.provider")} value={item.match?.providerTitle?.provider ?? t("common.missing")} />
             <ReleaseInlineFact label={t("common.providerId")} value={item.match?.providerTitle?.providerId ?? t("common.missing")} />
-            <ReleaseInlineFact label={t("overview.inspector.reason")} value={item.match?.reason ?? t("overview.inspector.noMatchReason")} />
+            <ReleaseInlineFact label={t("common.reason")} value={item.match?.reason ?? t("overview.inspector.noMatchReason")} />
           </div>
           <div>
             <h4>{t("overview.inspector.sourceAndTarget")}</h4>
@@ -742,18 +763,24 @@ function MediaInspectorModal({
           {releases.length === 0 && <Empty label={t("overview.inspector.noReleaseVersions")} />}
           {releases.map((release) => (
             <article className="media-release-row" key={release.id}>
-              <div>
-                <strong>{releaseTitle(release)}</strong>
-                <span>{release.feed?.name ?? t("common.feed")} · {relativeTime(release.firstSeenAt)}</span>
+              <div className="media-release-copy">
+                <div>
+                  <strong>{releaseTitle(release)}</strong>
+                  <span>{release.feed?.name ?? t("common.feed")} · {relativeTime(release.firstSeenAt)}</span>
+                </div>
+                <details className="media-release-origin">
+                  <summary>{t("overview.inspector.originalRssTitle")}</summary>
+                  <p>{release.rawTitle}</p>
+                </details>
               </div>
               <div className="token-row">
+                {releaseEpisodeLabel(release) && <Pill>{releaseEpisodeLabel(release)}</Pill>}
                 {release.parsedRelease?.releaseGroup && <Pill>{release.parsedRelease.releaseGroup}</Pill>}
                 {release.parsedRelease?.quality && <Pill>{release.parsedRelease.quality}</Pill>}
                 {release.parsedRelease?.source && <Pill>{release.parsedRelease.source}</Pill>}
                 {release.parsedRelease?.codec && <Pill>{release.parsedRelease.codec}</Pill>}
                 {release.parsedRelease?.audio && <Pill>{release.parsedRelease.audio}</Pill>}
                 {release.sizeBytes && <Pill>{formatBytes(release.sizeBytes)}</Pill>}
-                <StatusPill ok={releaseStatus(release).ok}>{t(releaseStatus(release).labelKey, { defaultValue: releaseStatus(release).label })}</StatusPill>
               </div>
               <div className="media-release-actions">
                 {release.sourceUrl && (
@@ -886,6 +913,52 @@ function episodeLabel(item: Item, unknownLabel = "Unknown") {
   const presentationKind = legacyKindFromMediaType(item.match?.presentation?.mediaType);
   if (item.parsedRelease?.kind !== "TV") return presentationKind ?? item.parsedRelease?.kind ?? unknownLabel;
   return `S${item.parsedRelease.season ?? "?"}E${item.parsedRelease.episode ?? "?"}`;
+}
+
+function releaseEpisodeLabel(item: Item) {
+  const parsed = item.parsedRelease;
+  if (parsed?.kind !== "TV") return undefined;
+
+  const season = parsed.season == null ? "?" : String(parsed.season).padStart(2, "0");
+  const episode = parsed.episode == null ? "?" : String(parsed.episode).padStart(2, "0");
+  const episodeEnd = parsed.episodeEnd == null ? undefined : String(parsed.episodeEnd).padStart(2, "0");
+  return episodeEnd && episodeEnd !== episode
+    ? `S${season}E${episode}-E${episodeEnd}`
+    : `S${season}E${episode}`;
+}
+
+function formatSearchRating(result: MediaSearchResult) {
+  const rating = result.presentation?.rating;
+  if (!rating) return "";
+  const source = searchResultSourceLabel(result);
+  const score = formatRatingNumber(rating.value);
+  const scale = formatRatingNumber(rating.scale);
+  const votes = rating.voteCount
+    ? ` · ${new Intl.NumberFormat(undefined, { notation: "compact" }).format(rating.voteCount)} votes`
+    : "";
+  return `${source ? `${source} ` : ""}${score}/${scale}${votes}`;
+}
+
+function formatRatingNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function searchResultSourceLabel(result: MediaSearchResult) {
+  if (result.provider === "ptgen") {
+    return ptgenSourceLabel(result) ?? "PTGen";
+  }
+  return providerLabel(result.provider);
+}
+
+function searchResultBackendLabel(result: MediaSearchResult) {
+  return result.provider === "ptgen" ? "via PTGen" : undefined;
+}
+
+function ptgenSourceLabel(result: MediaSearchResult) {
+  const identity = `${result.providerEntityType ?? ""}:${result.providerId}`.toLowerCase();
+  if (identity.includes("ptgen_douban") || result.providerId.toLowerCase().startsWith("douban-")) return "Douban";
+  if (identity.includes("ptgen_imdb") || result.providerId.toLowerCase().startsWith("imdb-")) return "IMDb";
+  return undefined;
 }
 
 function legacyKindFromMediaType(mediaType?: "MOVIE" | "TV_SERIES" | "UNKNOWN") {

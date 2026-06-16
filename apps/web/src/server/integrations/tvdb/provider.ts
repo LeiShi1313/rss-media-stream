@@ -10,6 +10,8 @@ export const tvdbProvider: MetadataProvider = {
           title: input.title,
           mediaType: input.mediaType,
           year: input.year,
+          season: input.season,
+          episode: input.episode,
           language: input.language,
           region: input.region
         },
@@ -26,6 +28,8 @@ export const tvdbProvider: MetadataProvider = {
         title: input.title,
         mediaType: input.mediaType,
         year: input.year,
+        season: input.season,
+        episode: input.episode,
         language: input.language,
         region: input.region
       },
@@ -43,6 +47,7 @@ export const tvdbProvider: MetadataProvider = {
       const mediaType = explicit[1].toLowerCase() === "movie" ? "MOVIE" : "TV_SERIES";
       return [{
         provider: "tvdb",
+        providerSource: "tvdb_api",
         providerEntityType: mediaType === "MOVIE" ? "tvdb_movie" : "tvdb_series",
         providerId: explicit[2],
         mediaType
@@ -55,6 +60,7 @@ export const tvdbProvider: MetadataProvider = {
       if (!mediaType) return [];
       return [{
         provider: "tvdb",
+        providerSource: "tvdb_api",
         providerEntityType: mediaType === "MOVIE" ? "tvdb_movie" : "tvdb_series",
         providerId: contextual[1],
         mediaType
@@ -126,6 +132,7 @@ function probeTvdbUrl(input: string): ProviderProbeResult | undefined {
   if (numericId) {
     return {
       provider: "tvdb" as const,
+      providerSource: "tvdb_api",
       providerEntityType: mediaType === "MOVIE" ? "tvdb_movie" : "tvdb_series",
       providerId: numericId,
       mediaType
@@ -137,6 +144,7 @@ function probeTvdbUrl(input: string): ProviderProbeResult | undefined {
 
   return {
     provider: "tvdb" as const,
+    providerSource: "tvdb_api",
     mediaType,
     searchQuery
   };

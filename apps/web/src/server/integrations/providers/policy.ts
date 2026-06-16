@@ -1,14 +1,16 @@
-import type { MediaProvider, MediaType, ParsedMediaType } from "@rss-media/shared/types";
+import type { MediaProvider, MediaType, ParsedMediaType, ProviderSource } from "@rss-media/shared/types";
 import { badRequest } from "../../core/errors.js";
 import { prisma } from "../../db.js";
 import {
-  getDefaultPoliciesForMediaType,
-  getProviderDefinition,
-  providerSupportsMediaType
+  getProviderSourceDefinition,
+  providerSourceForLegacyProvider,
+  providerSourceSupportsMediaType
 } from "./index.js";
+import { getDefaultProviderSourcePoliciesForMediaType } from "./sources.js";
 import type { ProviderDefaultPolicy } from "./types.js";
 
 export type ProviderPolicyDto = {
+  providerSource: ProviderSource;
   provider: MediaProvider;
   label: string;
   mediaType: MediaType;
@@ -19,7 +21,8 @@ export type ProviderPolicyDto = {
 };
 
 export type ProviderPolicyInput = {
-  provider: MediaProvider;
+  providerSource?: ProviderSource | string;
+  provider?: MediaProvider | string;
   enabledForMatching: boolean;
   enabledForPresentation: boolean;
   matchingPriority: number;
@@ -27,7 +30,7 @@ export type ProviderPolicyInput = {
 };
 
 export type BroadSearchTarget = {
-  provider: MediaProvider;
+  providerSource: ProviderSource;
   mediaType: MediaType;
 };
 
@@ -46,33 +49,33 @@ export async function getProviderPolicies(tenantId: string) {
 export async function getMatchingProviderOrder(
   tenantId: string,
   mediaType: ParsedMediaType
-): Promise<MediaProvider[]> {
+): Promise<ProviderSource[]> {
   assertConcreteMediaType(mediaType);
-  const disabled = await disabledProviders(tenantId);
+  const disabled = await disabledProviderSources(tenantId);
   return (await getPoliciesForMediaType(tenantId, mediaType))
-    .filter((policy) => policy.enabledForMatching && !disabled.has(policy.provider))
+    .filter((policy) => policy.enabledForMatching && !disabled.has(policy.providerSource))
     .sort((a, b) => a.matchingPriority - b.matchingPriority)
-    .map((policy) => policy.provider);
+    .map((policy) => policy.providerSource);
 }
 
 export async function getPresentationProviderOrder(
   tenantId: string,
   mediaType: ParsedMediaType
-): Promise<MediaProvider[]> {
+): Promise<ProviderSource[]> {
   assertConcreteMediaType(mediaType);
-  const disabled = await disabledProviders(tenantId);
+  const disabled = await disabledProviderSources(tenantId);
   return (await getPoliciesForMediaType(tenantId, mediaType))
-    .filter((policy) => policy.enabledForPresentation && !disabled.has(policy.provider))
+    .filter((policy) => policy.enabledForPresentation && !disabled.has(policy.providerSource))
     .sort((a, b) => a.presentationPriority - b.presentationPriority)
-    .map((policy) => policy.provider);
+    .map((policy) => policy.providerSource);
 }
 
 export async function getBroadSearchTargets(tenantId: string): Promise<BroadSearchTarget[]> {
   const mediaTypes = ["MOVIE", "TV_SERIES"] as const satisfies readonly MediaType[];
   const targets = await Promise.all(
     mediaTypes.map(async (mediaType) =>
-      (await getMatchingProviderOrder(tenantId, mediaType)).map((provider) => ({
-        provider,
+      (await getMatchingProviderOrder(tenantId, mediaType)).map((providerSource) => ({
+        providerSource,
         mediaType
       }))
     )
@@ -89,13 +92,14 @@ export async function replaceMediaProviderPolicies(
   validatePolicyRows(mediaType, policies);
 
   await prisma.$transaction(async (tx) => {
-    await tx.tenantMediaProviderPolicy.deleteMany({ where: { tenantId, mediaType } });
+    const sourcePolicyModel = (tx as any).tenantProviderSourcePolicy ?? (tx as any).tenantMediaProviderPolicy;
+    await sourcePolicyModel.deleteMany({ where: { tenantId, mediaType } });
     if (policies.length === 0) return;
-    await tx.tenantMediaProviderPolicy.createMany({
+    await sourcePolicyModel.createMany({
       data: policies.map((policy) => ({
         tenantId,
         mediaType,
-        provider: policy.provider,
+        ...policyProviderPersistence(policy),
         enabledForMatching: policy.enabledForMatching,
         enabledForPresentation: policy.enabledForPresentation,
         matchingPriority: policy.matchingPriority,
@@ -110,19 +114,21 @@ async function getPoliciesForMediaType(
   mediaType: MediaType
 ): Promise<ProviderPolicyDto[]> {
   assertConcreteMediaType(mediaType);
-  const rows = await prisma.tenantMediaProviderPolicy.findMany({
+  const sourcePolicyModel = (prisma as any).tenantProviderSourcePolicy ?? prisma.tenantMediaProviderPolicy;
+  const rows = await sourcePolicyModel.findMany({
     where: { tenantId, mediaType },
-    orderBy: [{ matchingPriority: "asc" }, { presentationPriority: "asc" }, { provider: "asc" }]
+    orderBy: [{ matchingPriority: "asc" }, { presentationPriority: "asc" }, { providerSource: "asc" }]
   });
-  const defaults = getDefaultPoliciesForMediaType(mediaType);
+  const defaults = getDefaultProviderSourcePoliciesForMediaType(mediaType);
   const source = rows.length > 0
-    ? mergeMissingDefaultPolicies(rows, defaults)
+    ? mergeMissingDefaultPolicies(rows.map(normalizePolicyRow), defaults)
     : defaults;
 
   return source.map((policy) => {
-    const definition = getProviderDefinition(policy.provider);
+    const definition = getProviderSourceDefinition(policy.providerSource);
     return {
-      provider: policy.provider as MediaProvider,
+      providerSource: policy.providerSource as ProviderSource,
+      provider: definition.provider as MediaProvider,
       label: definition.label,
       mediaType,
       enabledForMatching: policy.enabledForMatching,
@@ -135,44 +141,56 @@ async function getPoliciesForMediaType(
 
 function mergeMissingDefaultPolicies(
   rows: Array<{
-    provider: string;
+    providerSource: string;
     enabledForMatching: boolean;
     enabledForPresentation: boolean;
     matchingPriority: number;
     presentationPriority: number;
   }>,
-  defaults: Array<ProviderDefaultPolicy & { provider: MediaProvider }>
+  defaults: Array<ProviderDefaultPolicy & { providerSource: ProviderSource }>
 ) {
-  const seen = new Set(rows.map((row) => row.provider));
+  const seen = new Set(rows.map((row) => row.providerSource));
   return [
     ...rows,
-    ...defaults.filter((policy) => !seen.has(policy.provider))
+    ...defaults.filter((policy) => !seen.has(policy.providerSource))
   ].sort((a, b) =>
     a.matchingPriority - b.matchingPriority ||
     a.presentationPriority - b.presentationPriority ||
-    a.provider.localeCompare(b.provider)
+    a.providerSource.localeCompare(b.providerSource)
   );
 }
 
-async function disabledProviders(tenantId: string) {
-  const rows = await prisma.tenantProviderConfig.findMany({
+async function disabledProviderSources(tenantId: string) {
+  const rows: Array<{ providerSource: string }> = await ((prisma as any).tenantProviderSourceConfig?.findMany?.({
+    where: { tenantId, enabled: false },
+    select: { providerSource: true }
+  }) ?? []);
+  const disabled = new Set(rows.map((row) => row.providerSource as ProviderSource));
+
+  const legacyRows = await prisma.tenantProviderConfig.findMany({
     where: { tenantId, enabled: false },
     select: { provider: true }
   });
-  return new Set(rows.map((row) => row.provider as MediaProvider));
+  for (const row of legacyRows) {
+    const source = providerSourceForLegacyProvider(row.provider);
+    if (source) disabled.add(source);
+    if (row.provider === "ptgen") disabled.add("ptgen_douban");
+  }
+  return disabled;
 }
 
 function validatePolicyRows(mediaType: MediaType, policies: ProviderPolicyInput[]) {
-  const providers = new Set<string>();
+  const providerSources = new Set<string>();
   for (const policy of policies) {
-    getProviderDefinition(policy.provider);
-    if (!providerSupportsMediaType(policy.provider, mediaType)) {
-      throw badRequest(`${policy.provider} does not support ${mediaType}`);
+    const providerSource = normalizePolicyProviderSource(policy);
+    getProviderSourceDefinition(providerSource);
+    if (!providerSourceSupportsMediaType(providerSource, mediaType)) {
+      throw badRequest(`${providerSource} does not support ${mediaType}`);
     }
-    if (providers.has(policy.provider)) {
-      throw badRequest(`Duplicate ${policy.provider} policy for ${mediaType}`);
+    if (providerSources.has(providerSource)) {
+      throw badRequest(`Duplicate ${providerSource} policy for ${mediaType}`);
     }
-    providers.add(policy.provider);
+    providerSources.add(providerSource);
   }
 
   rejectDuplicateEnabledPriority(policies, "enabledForMatching", "matchingPriority", "matching");
@@ -196,11 +214,38 @@ function rejectDuplicateEnabledPriority(
     const existing = seen.get(policy[priorityKey]);
     if (existing) {
       throw badRequest(
-        `Duplicate ${label} priority ${policy[priorityKey]} for ${existing} and ${policy.provider}`
+        `Duplicate ${label} priority ${policy[priorityKey]} for ${existing} and ${normalizePolicyProviderSource(policy)}`
       );
     }
-    seen.set(policy[priorityKey], policy.provider);
+    seen.set(policy[priorityKey], normalizePolicyProviderSource(policy));
   }
+}
+
+function normalizePolicyProviderSource(policy: ProviderPolicyInput | { providerSource?: string; provider?: string }) {
+  const providerSource = providerSourceForLegacyProvider(policy.providerSource ?? "") ??
+    providerSourceForLegacyProvider(policy.provider ?? "") ??
+    policy.providerSource;
+  return getProviderSourceDefinition(providerSource ?? "").id;
+}
+
+function normalizePolicyRow(row: {
+  providerSource?: string;
+  provider?: string;
+  enabledForMatching: boolean;
+  enabledForPresentation: boolean;
+  matchingPriority: number;
+  presentationPriority: number;
+}) {
+  return {
+    ...row,
+    providerSource: normalizePolicyProviderSource(row)
+  };
+}
+
+function policyProviderPersistence(policy: ProviderPolicyInput) {
+  const providerSource = normalizePolicyProviderSource(policy);
+  if ((prisma as any).tenantProviderSourcePolicy) return { providerSource };
+  return { provider: providerSourceForLegacyProvider(providerSource) ?? providerSource };
 }
 
 function assertConcreteMediaType(mediaType: ParsedMediaType): asserts mediaType is MediaType {
