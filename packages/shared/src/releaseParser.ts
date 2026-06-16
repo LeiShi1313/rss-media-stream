@@ -13,6 +13,7 @@ const SEASON_WORD_PACK_RE = /\bSeason[ ._-]?(\d{1,2})\b/i;
 const AKA_RE = /\b(?:AKA|ALIAS)\b/i;
 const SIZE_SEGMENT_RE = /^\d+(?:\.\d+)?\s*(?:gib|gb|mib|mb|tib|tb)$/i;
 const CATEGORY_SEGMENT_RE = /^(?:(?:movies?|movie|tv(?:\s*series)?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花))(?:\s+(?:(?:movies?|movie|tv(?:\s*series)?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花)))*$/i;
+const UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE = /^(?:music(?:s)?(?:\s+(?:videos?|mv|lossless))?(?:\s*\([^)]*\))?(?:\s*\/\s*音乐\s*mv)?|sports?(?:\s+\d{3,4}[pi])?|音乐\s*(?:cd|mv|短片)?(?:\s*\([^)]*\))?)$/iu;
 const EXTRA_INFO_RE = /类型|主演|类别|字幕|国语|中字|导演|演员|简繁|第\d|全\d|日语|英语|粤语|内封|内嵌|\|/i;
 const METADATA_INFO_FIELD_RE = /^(?:类型|类别|字幕|导演|主演|演员|语言|音频|视频|格式|地区|年份|年代|上映|首播|播出|国语|中字|简繁|简中|繁中|日语|英语|粤语|汉语普通话|网络收费短剧|4k|1080p|1080i|720p|2160p|uhd|hdr)$/i;
 const METADATA_TITLE_PREFIX_RE = /^(?:(?:\d{1,2}|[一二三四五六七八九十两]{1,3})\s*月\s*新番|(?:陸劇|陆剧|港劇|港剧|日劇|日剧|韓劇|韩剧|美劇|美剧|英劇|英剧|台劇|台剧|劇集|剧集|电视剧|電視劇|綜藝|综艺|動畫|动画|動漫|动漫|電影|电影|国漫|國漫|日漫))\s*[:：]?\s*/iu;
@@ -27,6 +28,7 @@ const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,3})(?
 export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const cleanedRawTitle = stripMediaExtension(rawTitle);
   const parseInput = stripMediaExtension(releaseParseInput(rawTitle));
+  const unsupportedMediaCategory = hasUnsupportedLeadingMediaCategory(rawTitle);
   const releaseGroup = extractReleaseGroup(parseInput);
   const normalized = normalizeReleaseText(parseInput);
   const rawNormalized = normalizeReleaseText(cleanedRawTitle);
@@ -73,7 +75,13 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     fallbackTitle
   });
   const title = titleInfo.title;
-  const mediaType = tv || episodeOnly || seasonPack || chineseSeason || chineseEpisode ? "TV_SERIES" : year ? "MOVIE" : "UNKNOWN";
+  const mediaType = unsupportedMediaCategory
+    ? "UNKNOWN"
+    : tv || episodeOnly || seasonPack || chineseSeason || chineseEpisode
+      ? "TV_SERIES"
+      : year
+        ? "MOVIE"
+        : "UNKNOWN";
   const season = tv ? Number(tv[1]) : seasonPack ? Number(seasonPack[1]) : chineseSeason?.season ?? (episodeOnly || chineseEpisode ? 1 : undefined);
   const episode = tv ? Number(tv[2]) : episodeOnly ? Number(episodeOnly[1]) : chineseEpisode?.episode;
   const episodeEnd = tv?.[3] ? Number(tv[3]) : episodeOnly?.[2] ? Number(episodeOnly[2]) : chineseEpisode?.episodeEnd;
@@ -164,7 +172,7 @@ function titleSegments(rawTitle: string) {
 }
 
 function scoreReleaseLikeSegment(segment: string): number {
-  if (!segment || SIZE_SEGMENT_RE.test(segment) || CATEGORY_SEGMENT_RE.test(segment)) return 0;
+  if (!segment || SIZE_SEGMENT_RE.test(segment) || CATEGORY_SEGMENT_RE.test(segment) || unsupportedMediaCategorySegment(segment)) return 0;
   let score = 0;
   if (TV_RE.test(segment)) score += 5;
   if (SEASON_PACK_RE.test(segment) || SEASON_WORD_PACK_RE.test(segment)) score += 3;
@@ -180,7 +188,7 @@ function scoreReleaseLikeSegment(segment: string): number {
 }
 
 function isReleaseLikeSegment(segment: string) {
-  if (!segment || SIZE_SEGMENT_RE.test(segment) || CATEGORY_SEGMENT_RE.test(segment)) return false;
+  if (!segment || SIZE_SEGMENT_RE.test(segment) || CATEGORY_SEGMENT_RE.test(segment) || unsupportedMediaCategorySegment(segment)) return false;
   const hasQuality = QUALITY_RE.test(segment) || DIMENSION_RE.test(segment);
   const hasTech = SOURCE_RE.test(segment) || CODEC_RE.test(segment) || AUDIO_RE.test(segment);
   const looksLikeSceneFilename = YEAR_RE.test(segment) &&
@@ -197,6 +205,18 @@ function isReleaseLikeSegment(segment: string) {
     Boolean(extractReleaseGroup(segment)) ||
     (segment.match(/[._]/g) ?? []).length >= 2;
   return looksLikeSceneFilename || looksLikeEpisodeFilename || (hasQuality && hasTech && hasIdentitySignal);
+}
+
+function hasUnsupportedLeadingMediaCategory(rawTitle: string) {
+  const trimmed = rawTitle.trim();
+  const bracketed = trimmed.match(/^\[([^\]]+)\]/)?.[1];
+  if (bracketed && unsupportedMediaCategorySegment(bracketed)) return true;
+  const leadingWord = trimmed.match(/^([^\s[\]:：]+)/u)?.[1];
+  return Boolean(leadingWord && unsupportedMediaCategorySegment(leadingWord));
+}
+
+function unsupportedMediaCategorySegment(segment: string) {
+  return UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE.test(segment.trim());
 }
 
 function extractReleaseGroup(input: string): string | undefined {

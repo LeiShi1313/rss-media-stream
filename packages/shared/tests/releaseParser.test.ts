@@ -442,4 +442,62 @@ describe("parseReleaseTitle", () => {
     expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["连载", "WEB DL"]));
     expect(release.primarySearchTitle).toBe("斗罗大陆Ⅱ绝世唐门");
   });
+
+  it("classifies leading music category releases as unsupported instead of movies", () => {
+    const release = parseReleaseTitle(
+      "[Music]Torkil Bye & Helge Myhren - The Sound of Gold and Palladium Flutes (2026) - FLAC - CHDMusic[专辑 | Torkil Bye & Helge Myhren - The Sound of Gold and Palladium Flutes | Classical | WEB | 24bit 192khz][1.60 GB][anonymous]"
+    );
+
+    expect(release.mediaType).toBe("UNKNOWN");
+  });
+
+  it("classifies leading Chinese music category releases as unsupported instead of movies", () => {
+    const release = parseReleaseTitle(
+      "[音乐]Heart - Red Velvet Car (2010) [FLAC][252.58 MB][anonymous]"
+    );
+
+    expect(release.mediaType).toBe("UNKNOWN");
+  });
+
+  it("classifies leading sports category releases as unsupported instead of movies", () => {
+    const release = parseReleaseTitle(
+      "[Sports]2019 WTT German Open WEB-DL 1080P H264 AAC[2019WTT德国公开赛部分比赛合集][51.22 GB][N/A]"
+    );
+
+    expect(release.mediaType).toBe("UNKNOWN");
+  });
+
+  it("classifies leading sports categories with quality suffixes as unsupported", () => {
+    const release = parseReleaseTitle(
+      "[Sports 1080i]HOY TV FIVB Women's Volleyball Nations League 2025 Hong Kong 1080i HDTV H264 DD2.0 2Audio-HDHTV[HOY 76&77 FIVB世界女排联赛2025-香港站 6月20-22日部分赛事 粤/英双语旁述 无字幕][37.88 GB][suandsu]"
+    );
+
+    expect(release.mediaType).toBe("UNKNOWN");
+  });
+
+  it("classifies leading music-video categories as unsupported", () => {
+    const release = parseReleaseTitle(
+      "[Music Videos/音乐MV]LE SSERAFIM-2023 LE SSERAFIM TOUR 'FLAME RISES' IN JAPAN Blu-ray 1080i AVC LPCM 2.0[2023 年 Le Sserafim 日本巡演“火焰崛起”][52.55 GB][anonymous]"
+    );
+
+    expect(release.mediaType).toBe("UNKNOWN");
+  });
+
+  it("classifies leading Chinese music-video categories as unsupported", () => {
+    const release = parseReleaseTitle(
+      "[音乐短片 (MV)]Ava Max - Maybe You're The Problem 2022 2160p WEB-DL ProRes PCM-PTerMV[Ava Max - Maybe You're The Problem][15.27 GB][anonymous][Free]"
+    );
+
+    expect(release.mediaType).toBe("UNKNOWN");
+  });
+
+  it("does not treat music as unsupported when it is part of a normal movie title", () => {
+    const release = parseReleaseTitle("The.Sound.of.Music.1965.1080p.BluRay.x264-GROUP");
+
+    expect(release).toMatchObject({
+      title: "The Sound of Music",
+      year: 1965,
+      mediaType: "MOVIE"
+    });
+  });
 });
