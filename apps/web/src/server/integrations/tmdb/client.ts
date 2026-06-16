@@ -196,7 +196,7 @@ async function maybeFetchTvSeasonEpisodeEvidence(input: {
   language: string;
   region?: string;
 }): Promise<TmdbTvSeasonEpisodeEvidence | undefined> {
-  if (input.kind !== "tv" || !input.input.season || !input.input.episode) return undefined;
+  if (input.kind !== "tv" || !input.input.season) return undefined;
   if (!exactTmdbTitleMatch(input.input.title, input.result, input.kind, input.extraCandidateTitles)) {
     return undefined;
   }
@@ -252,7 +252,7 @@ function exactTmdbTitleMatch(
 
 function tvSeasonEpisodeEvidence(
   result: TmdbResult,
-  input: { season: number; episode: number }
+  input: { season: number; episode?: number }
 ): TmdbTvSeasonEpisodeEvidence {
   const season = result.seasons?.find((candidate) => candidate.season_number === input.season);
   if (!season) {
@@ -261,6 +261,14 @@ function tvSeasonEpisodeEvidence(
       episode: input.episode,
       confirmed: false,
       reason: "missing_season"
+    };
+  }
+  if (input.episode == null) {
+    return {
+      season: input.season,
+      episodeCount: season.episode_count,
+      confirmed: true,
+      reason: "season_confirmed"
     };
   }
   if (season.episode_count == null) {

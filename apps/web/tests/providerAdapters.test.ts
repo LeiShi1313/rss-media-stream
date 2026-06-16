@@ -892,6 +892,67 @@ describe("TMDB title mapper", () => {
     });
   });
 
+  it("boosts exact TV season-pack matches when TMDB confirms the parsed season exists", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 39898,
+            name: "功夫熊猫：盖世传奇",
+            original_name: "Kung Fu Panda: Legends of Awesomeness",
+            first_air_date: "2011-09-19"
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 39898,
+            name: "Kung Fu Panda: Legends of Awesomeness",
+            original_name: "Kung Fu Panda: Legends of Awesomeness",
+            first_air_date: "2011-09-19"
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 39898,
+          name: "功夫熊猫：盖世传奇",
+          original_name: "Kung Fu Panda: Legends of Awesomeness",
+          first_air_date: "2011-09-19",
+          seasons: [{ season_number: 1, episode_count: 26 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "Kung Fu Panda: Legends of Awesomeness",
+        mediaType: "TV_SERIES",
+        season: 1
+      },
+      { credential: "tmdb-key", language: "zh-CN" }
+    );
+
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/tv/39898?");
+    expect(results[0]).toMatchObject({
+      title: "功夫熊猫：盖世传奇",
+      originalTitle: "Kung Fu Panda: Legends of Awesomeness",
+      matchConfidence: 0.93,
+      payload: {
+        tvSeasonEpisode: {
+          season: 1,
+          episodeCount: 26,
+          confirmed: true,
+          reason: "season_confirmed"
+        }
+      }
+    });
+  });
+
   it("does not boost exact TV matches when TMDB cannot confirm the parsed episode", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
@@ -936,6 +997,51 @@ describe("TMDB title mapper", () => {
         episodeCount: 1,
         confirmed: false,
         reason: "episode_out_of_range"
+      }
+    });
+  });
+
+  it("does not boost exact TV season-pack matches when TMDB cannot confirm the parsed season", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 39898,
+            name: "Kung Fu Panda: Legends of Awesomeness",
+            original_name: "Kung Fu Panda: Legends of Awesomeness",
+            first_air_date: "2011-09-19"
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 39898,
+          name: "Kung Fu Panda: Legends of Awesomeness",
+          original_name: "Kung Fu Panda: Legends of Awesomeness",
+          first_air_date: "2011-09-19",
+          seasons: [{ season_number: 2, episode_count: 26 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "Kung Fu Panda: Legends of Awesomeness",
+        mediaType: "TV_SERIES",
+        season: 1
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(results[0]?.matchConfidence).toBeLessThan(0.88);
+    expect(results[0]?.payload).toMatchObject({
+      tvSeasonEpisode: {
+        season: 1,
+        confirmed: false,
+        reason: "missing_season"
       }
     });
   });

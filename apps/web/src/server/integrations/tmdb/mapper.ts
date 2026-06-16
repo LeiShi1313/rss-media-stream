@@ -87,11 +87,10 @@ function scoreTmdbCandidate(input: {
   if (
     input.endpoint === "tv" &&
     input.input.season &&
-    input.input.episode &&
     input.seasonEpisodeEvidence?.confirmed &&
     exactTitleMatch(input.input.title, input.candidateTitles)
   ) {
-    return Math.max(baseScore, 0.96);
+    return Math.max(baseScore, input.input.episode ? 0.96 : 0.93);
   }
   return baseScore;
 }

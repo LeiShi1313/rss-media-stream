@@ -41,8 +41,8 @@ export type TmdbSearchInput = {
 
 export type TmdbTvSeasonEpisodeEvidence = {
   season: number;
-  episode: number;
+  episode?: number;
   episodeCount?: number;
   confirmed: boolean;
-  reason: "season_episode_confirmed" | "missing_season" | "missing_episode_count" | "episode_out_of_range";
+  reason: "season_confirmed" | "season_episode_confirmed" | "missing_season" | "missing_episode_count" | "episode_out_of_range";
 };
