@@ -10,6 +10,7 @@ const TV_RE = /\bS(\d{1,2})[ ._-]?E(\d{1,3})(?:[- ._]?E?(\d{1,3}))?\b/i;
 const EPISODE_ONLY_RE = /\bEP?(\d{1,3})(?:[- ._]?EP?(\d{1,3}))?\b/i;
 const SEASON_PACK_RE = /\bS(\d{1,2})(?:\b|[- .])(?!E\d)/i;
 const SEASON_WORD_PACK_RE = /\bSeason[ ._-]?(\d{1,2})\b/i;
+const COMPLETE_WORD_RE = /\bComplete\b/i;
 const AKA_RE = /\b(?:AKA|ALIAS)\b/i;
 const SIZE_SEGMENT_RE = /^\d+(?:\.\d+)?\s*(?:gib|gb|mib|mb|tib|tb)$/i;
 const CATEGORY_SEGMENT_RE = /^(?:(?:movies?|movie|tv(?:\s*series)?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花))(?:\s+(?:(?:movies?|movie|tv(?:\s*series)?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花)))*$/i;
@@ -25,12 +26,14 @@ const LATIN_RE = /[A-Za-z]/;
 const SLASH_NUMERIC_TITLE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const CHINESE_SEASON_RE = /(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|([一二三四五六七八九十两\d]{1,3})\s*季)/u;
 const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,3})(?:\s*[-~至到－—]\s*([一二三四五六七八九十两\d]{1,3}))?\s*(?:集|话|話)/u;
+const WHOLE_SERIES_EPISODE_RE = /全\s*(?!0*1\s*(?:集|话|話)|一\s*(?:集|话|話))[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)/u;
 
 export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const cleanedRawTitle = stripMediaExtension(rawTitle);
   const parseInput = stripMediaExtension(releaseParseInput(rawTitle));
   const unsupportedMediaCategory = hasUnsupportedLeadingMediaCategory(rawTitle);
   const movieMediaCategory = hasMovieLeadingMediaCategory(rawTitle);
+  const tvCategoryWholeSeries = hasStrongTvLeadingMediaCategory(rawTitle) && hasWholeSeriesTvMarker(rawTitle);
   const releaseGroup = extractReleaseGroup(parseInput);
   const normalized = normalizeReleaseText(parseInput);
   const rawNormalized = normalizeReleaseText(cleanedRawTitle);
@@ -56,6 +59,8 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const codec = normalizeCodec((normalized.match(CODEC_RE) ?? rawNormalized.match(CODEC_RE))?.[1]);
   const audio = normalizeAudio((normalized.match(AUDIO_RE) ?? rawNormalized.match(AUDIO_RE))?.[1]);
   const year = yearMatch ? Number(yearMatch[1]) : inferMetadataYear(rawTitle);
+  const completeIndex = tvCategoryWholeSeries ? normalized.search(COMPLETE_WORD_RE) : -1;
+  const hasTvEvidence = Boolean(tv || episodeOnly || seasonPack || chineseSeason || chineseEpisode || tvCategoryWholeSeries);
 
   const titleStop = firstDefinedIndex(
     tv?.index,
@@ -63,6 +68,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     seasonPack?.index,
     chineseSeason?.source === "normalized" ? chineseSeason.index : undefined,
     chineseEpisode?.source === "normalized" ? chineseEpisode.index : undefined,
+    completeIndex,
     yearMatch?.index,
     normalized.search(QUALITY_RE),
     normalized.search(DIMENSION_RE),
@@ -79,7 +85,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const title = titleInfo.title;
   const mediaType = unsupportedMediaCategory
     ? "UNKNOWN"
-    : tv || episodeOnly || seasonPack || chineseSeason || chineseEpisode
+    : hasTvEvidence
       ? "TV_SERIES"
       : year
         ? "MOVIE"
@@ -92,7 +98,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     mediaType,
     hasYear: Boolean(year),
     hasQuality: Boolean(quality),
-    hasTv: Boolean(tv || episodeOnly || seasonPack || chineseSeason || chineseEpisode)
+    hasTv: hasTvEvidence
   });
 
   return {
@@ -222,10 +228,25 @@ function hasMovieLeadingMediaCategory(rawTitle: string) {
   return Boolean(bracketed && movieMediaCategorySegment(bracketed));
 }
 
+function hasStrongTvLeadingMediaCategory(rawTitle: string) {
+  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  return Boolean(bracketed && strongTvMediaCategorySegment(bracketed));
+}
+
 function movieMediaCategorySegment(segment: string) {
   const trimmed = segment.trim();
   return /^(?:电影|電影)/u.test(trimmed) ||
     /^movies?(?:\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
+}
+
+function strongTvMediaCategorySegment(segment: string) {
+  const trimmed = segment.trim();
+  return /^(?:电视剧|電視劇|剧集|劇集|综艺|綜藝)/u.test(trimmed) ||
+    /^(?:tv\s*series|series)(?:\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
+}
+
+function hasWholeSeriesTvMarker(rawTitle: string) {
+  return WHOLE_SERIES_EPISODE_RE.test(rawTitle) || COMPLETE_WORD_RE.test(rawTitle);
 }
 
 function unsupportedMediaCategorySegment(segment: string) {

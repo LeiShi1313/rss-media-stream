@@ -292,6 +292,44 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["本能2"]));
   });
 
+  it("uses strong TV categories with all-episode metadata as series evidence", () => {
+    const release = parseReleaseTitle(
+      "[TV Series/HD]Da Ming Feng Hua 2019 2160p 60FPS WEB-DL H265 10bit AAC-ADORE[大明风华 大明皇妃孙若微传 大明皇妃孙若微传 大明皇妃 六朝纪事 全62集 | 类型:古装 主演: 汤唯 / 朱亚文 / 邓家佳 / 乔振宇 / 王学圻 / 张艺兴][145.4 GB][N/A]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Da Ming Feng Hua",
+      year: 2019,
+      mediaType: "TV_SERIES",
+      season: undefined,
+      episode: undefined,
+      quality: "2160p",
+      source: "WEB-DL",
+      codec: "H.265",
+      audio: "AAC",
+      releaseGroup: "ADORE"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "大明风华 大明皇妃孙若微传 大明皇妃孙若微传 大明皇妃 六朝纪事"
+    ]));
+  });
+
+  it("does not treat a TV category alone as whole-series evidence", () => {
+    const release = parseReleaseTitle(
+      "[TV Series/HD]BBC News 2026 06 11 HDTV 1080p WEBRip H264 AAC-D0[BBC News 新闻片段 2026.06.11 英语听力口语 / 雅思托福练习 / 时政素材 / 自录][1.39 GB][N/A]"
+    );
+
+    expect(release.mediaType).toBe("MOVIE");
+  });
+
+  it("keeps one-episode TV-category specials out of the whole-series rule", () => {
+    const release = parseReleaseTitle(
+      "[电视剧]Sherlock The Abominable Bride 2016 1080p MYVIDEO WEB-DL AAC2 0 H264-HHWEB[神探夏洛克：可恶的新娘 / 神探夏洛克：2016新年特别篇 | 全1集 | 1080p | 类型: 剧情/悬疑/犯罪][2.93 GB][anonymous]"
+    );
+
+    expect(release.mediaType).toBe("MOVIE");
+  });
+
   it("still trusts explicit TV markers when a category label says movie", () => {
     const release = parseReleaseTitle(
       "[电影(Movie)]Example Show 2026 S01E02 1080p WEB-DL H264-GRP[错误分类 第10部][1.00 GB]"
