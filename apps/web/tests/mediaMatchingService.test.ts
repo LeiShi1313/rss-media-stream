@@ -982,6 +982,63 @@ describe("matchParsedReleaseForItem", () => {
     }));
   });
 
+  it("evaluates later results from the same provider search before accepting a low-confidence candidate", async () => {
+    mockItemRelease({
+      mediaType: "TV_SERIES",
+      title: "Deal Or No Deal Au",
+      year: 2026,
+      season: 14,
+      episode: 38
+    });
+    mocks.provider.search.mockResolvedValue([
+      providerResult({
+        provider: "tmdb",
+        providerEntityType: "tmdb_tv",
+        providerId: "2176",
+        mediaType: "TV_SERIES",
+        title: "Deal or No Deal",
+        normalizedTitle: "deal or no deal",
+        originalTitle: "Deal or No Deal",
+        releaseYear: 2003,
+        payload: { posterPath: "/deal-or-no-deal-au-old.jpg" },
+        matchConfidence: 0.69
+      }),
+      providerResult({
+        provider: "tmdb",
+        providerEntityType: "tmdb_tv",
+        providerId: "211249",
+        mediaType: "TV_SERIES",
+        title: "Deal or No Deal",
+        normalizedTitle: "deal or no deal",
+        originalTitle: "Deal or No Deal",
+        releaseYear: 2003,
+        payload: { posterPath: "/deal-or-no-deal-au.jpg" },
+        matchConfidence: 0.96
+      })
+    ]);
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-deal-or-no-deal-au",
+      mediaType: "TV_SERIES",
+      title: "Deal or No Deal",
+      titleKey: "deal or no deal",
+      releaseYear: 2003
+    });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({ id: "match-deal-or-no-deal-au", status: "MATCHED" });
+
+    await matchParsedReleaseForItem({ tenantId: "tenant-1", itemId: "item-1", config });
+
+    expect(mocks.prisma.parsedReleaseMatch.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "MATCHED",
+        reason: "automatic_match",
+        confidence: 0.96,
+        mediaProviderIdentityId: mediaProviderIdentityId("tmdb", "211249"),
+        providerMediaMetadataId: providerMediaMetadataId("tmdb_api", mediaProviderIdentityId("tmdb", "211249"))
+      })
+    }));
+  });
+
   it("creates provider_disabled_by_policy when no matching provider is enabled", async () => {
     mockItemRelease({ mediaType: "MOVIE" });
     const policy = await import("../src/server/integrations/providers/policy.js");

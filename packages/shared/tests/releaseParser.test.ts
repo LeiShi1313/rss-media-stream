@@ -101,6 +101,32 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("keeps slash-delimited numeric movie titles intact", () => {
+    const release = parseReleaseTitle("11/11/11 2011 UNCUT 1080p GER Blu-ray AVC DTS-HD MA 5.1-MAMA");
+
+    expect(release).toMatchObject({
+      title: "11/11/11",
+      year: 2011,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      audio: "DTS-HD",
+      releaseGroup: "MAMA"
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining(["11/11/11"]));
+  });
+
+  it("keeps repeated slash-delimited numeric horror titles intact", () => {
+    const release = parseReleaseTitle("13/13/13 2013 UNCUT 1080p GER Blu-ray AVC DTS-HD MA 5.1-MAMA");
+
+    expect(release).toMatchObject({
+      title: "13/13/13",
+      year: 2013,
+      mediaType: "MOVIE"
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining(["13/13/13"]));
+  });
+
   it("prefers bracketed scene filenames even when quality is only in PTP metadata", () => {
     const release = parseReleaseTitle(
       "Mr. K [2024] by Tallulah Hazekamp Schwab - BD50 / Blu-ray / m2ts / 1080p / Scene [ Mr.K.2024.COMPLETE.BLURAY-UNTOUCHED ]"

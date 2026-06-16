@@ -498,10 +498,10 @@ async function selectProviderTitleCandidate(input: {
     }
     configured += 1;
 
-    let result: ProviderMetadataCandidate | undefined;
     for (const title of searchTitles) {
+      let results: ProviderMetadataCandidate[];
       try {
-        [result] = await runProviderSearchWithRuntime(providerSource, runtime, {
+        results = await runProviderSearchWithRuntime(providerSource, runtime, {
           title,
           mediaType: input.mediaType,
           year: input.year,
@@ -512,30 +512,29 @@ async function selectProviderTitleCandidate(input: {
         providerFailed = true;
         break;
       }
-      if (!result) continue;
-      if (result.releaseYear == null) {
-        missingReleaseYear = true;
-        result = undefined;
-        continue;
-      }
-      if (releaseYearIncompatible(input.mediaType, input.year, result.releaseYear)) {
-        result = undefined;
-        continue;
-      }
-      if ((result.matchConfidence ?? 0) < MIN_AUTO_MATCH_CONFIDENCE) {
-        result = undefined;
-        continue;
-      }
-      if ((result.matchConfidence ?? 0) < LOW_CONFIDENCE_THRESHOLD) {
-        if (
-          !bestLowConfidenceResult ||
-          (result.matchConfidence ?? 0) > (bestLowConfidenceResult.matchConfidence ?? 0)
-        ) {
-          bestLowConfidenceResult = result;
+
+      for (const result of results) {
+        if (result.releaseYear == null) {
+          missingReleaseYear = true;
+          continue;
         }
-        continue;
+        if (releaseYearIncompatible(input.mediaType, input.year, result.releaseYear)) {
+          continue;
+        }
+        if ((result.matchConfidence ?? 0) < MIN_AUTO_MATCH_CONFIDENCE) {
+          continue;
+        }
+        if ((result.matchConfidence ?? 0) < LOW_CONFIDENCE_THRESHOLD) {
+          if (
+            !bestLowConfidenceResult ||
+            (result.matchConfidence ?? 0) > (bestLowConfidenceResult.matchConfidence ?? 0)
+          ) {
+            bestLowConfidenceResult = result;
+          }
+          continue;
+        }
+        return { result };
       }
-      return { result };
     }
   }
 
