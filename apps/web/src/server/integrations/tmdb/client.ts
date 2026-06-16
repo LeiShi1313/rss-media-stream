@@ -1,6 +1,5 @@
 import type { MediaType, TmdbTitleResult } from "@rss-media/shared/types";
-import { normalizeForScore } from "../providers/scoring.js";
-import { toTitleResult } from "./mapper.js";
+import { tmdbTitleSupportsSeasonEvidence, toTitleResult } from "./mapper.js";
 import type {
   TmdbResult,
   TmdbSearchInput,
@@ -197,7 +196,11 @@ async function maybeFetchTvSeasonEpisodeEvidence(input: {
   region?: string;
 }): Promise<TmdbTvSeasonEpisodeEvidence | undefined> {
   if (input.kind !== "tv" || !input.input.season) return undefined;
-  if (!exactTmdbTitleMatch(input.input.title, input.result, input.kind, input.extraCandidateTitles)) {
+  if (!tmdbTitleSupportsSeasonEvidence({
+    query: input.input.title,
+    candidateTitles: [...tmdbCandidateTitles(input.result, input.kind), ...input.extraCandidateTitles],
+    originCountries: input.result.origin_country
+  })) {
     return undefined;
   }
 
@@ -235,19 +238,6 @@ async function fetchTmdbDetail(input: {
     throw new Error(`TMDB detail lookup failed with ${response.status}`);
   }
   return (await response.json()) as TmdbResult;
-}
-
-function exactTmdbTitleMatch(
-  query: string,
-  result: TmdbResult,
-  kind: "movie" | "tv",
-  extraCandidateTitles: string[]
-) {
-  const queryKey = normalizeForScore(query);
-  if (!queryKey) return false;
-  return [...tmdbCandidateTitles(result, kind), ...extraCandidateTitles].some(
-    (title) => normalizeForScore(title) === queryKey
-  );
 }
 
 function tvSeasonEpisodeEvidence(

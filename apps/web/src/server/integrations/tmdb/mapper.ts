@@ -22,6 +22,7 @@ export function toTitleResult(
   const matchConfidence = scoreTmdbCandidate({
     endpoint,
     input,
+    result,
     candidateTitles,
     releaseYear,
     seasonEpisodeEvidence
@@ -38,7 +39,7 @@ export function toTitleResult(
     releaseYear,
     language: input.language,
     region: input.region,
-    payload: tmdbPayload(result, seasonEpisodeEvidence),
+    payload: tmdbPayload(result),
     ratingValue: result.vote_average,
     ratingScale: result.vote_average === undefined ? undefined : 10,
     ratingVoteCount: result.vote_count,
@@ -54,16 +55,12 @@ function extractYear(value?: string): number | undefined {
   return Number.isFinite(year) ? year : undefined;
 }
 
-function tmdbPayload(
-  result: TmdbResult,
-  seasonEpisodeEvidence?: TmdbTvSeasonEpisodeEvidence
-) {
+function tmdbPayload(result: TmdbResult) {
   return {
     posterPath: result.poster_path,
     backdropPath: result.backdrop_path,
     overview: result.overview,
     popularity: result.popularity,
-    tvSeasonEpisode: seasonEpisodeEvidence,
     raw: result
   };
 }
@@ -71,6 +68,7 @@ function tmdbPayload(
 function scoreTmdbCandidate(input: {
   endpoint: "movie" | "tv";
   input: TmdbSearchInput;
+  result: TmdbResult;
   candidateTitles: string[];
   releaseYear?: number;
   seasonEpisodeEvidence?: TmdbTvSeasonEpisodeEvidence;
@@ -88,17 +86,81 @@ function scoreTmdbCandidate(input: {
     input.endpoint === "tv" &&
     input.input.season &&
     input.seasonEpisodeEvidence?.confirmed &&
-    exactTitleMatch(input.input.title, input.candidateTitles)
+    tmdbTitleSupportsSeasonEvidence({
+      query: input.input.title,
+      candidateTitles: input.candidateTitles,
+      originCountries: input.result.origin_country
+    })
   ) {
     return Math.max(baseScore, input.input.episode ? 0.96 : 0.93);
   }
   return baseScore;
 }
 
-function exactTitleMatch(query: string, candidateTitles: string[]) {
-  const queryKey = normalizeForScore(query);
-  return Boolean(queryKey) && candidateTitles.some((candidate) => normalizeForScore(candidate) === queryKey);
+export function tmdbTitleSupportsSeasonEvidence(input: {
+  query: string;
+  candidateTitles: readonly string[];
+  originCountries?: readonly string[];
+}) {
+  const queryKey = normalizeForScore(input.query);
+  if (!queryKey) return false;
+  const candidateKeys = input.candidateTitles
+    .map((candidate) => normalizeForScore(candidate))
+    .filter(Boolean);
+  if (candidateKeys.some((candidate) => candidate === queryKey)) return true;
+
+  const queryRegional = stripQueryRegionalSuffix(input.query, queryKey);
+  if (!queryRegional) return false;
+  if (!originCountryMatches(input.originCountries, queryRegional.country)) return false;
+
+  return candidateKeys.some((candidate) => {
+    if (candidate === queryRegional.titleKey) return true;
+    const candidateRegional = stripRegionalSuffix(candidate);
+    return candidateRegional?.country === queryRegional.country &&
+      candidateRegional.titleKey === queryRegional.titleKey;
+  });
 }
+
+function originCountryMatches(
+  originCountries: readonly string[] | undefined,
+  expectedCountry: string
+) {
+  return originCountries?.some((country) => country.toUpperCase() === expectedCountry) ?? false;
+}
+
+function stripQueryRegionalSuffix(query: string, titleKey: string) {
+  const regional = stripRegionalSuffix(titleKey);
+  if (!regional) return undefined;
+  const rawSuffix = query.trim().match(/([\p{Letter}\p{Number}]+)$/u)?.[1];
+  if (regional.country === "US" && rawSuffix !== "US" && rawSuffix !== "USA") {
+    return undefined;
+  }
+  return regional;
+}
+
+function stripRegionalSuffix(titleKey: string) {
+  const tokens = titleKey.split(" ");
+  if (tokens.length < 2) return undefined;
+  const country = regionalSuffixCountries[tokens[tokens.length - 1] ?? ""];
+  if (!country) return undefined;
+  return {
+    titleKey: tokens.slice(0, -1).join(" "),
+    country
+  };
+}
+
+const regionalSuffixCountries: Record<string, string> = {
+  au: "AU",
+  aus: "AU",
+  australia: "AU",
+  us: "US",
+  usa: "US",
+  uk: "GB",
+  gb: "GB",
+  nz: "NZ",
+  ca: "CA",
+  canada: "CA"
+};
 
 function uniqueTitles(values: Array<string | undefined>) {
   const seen = new Set<string>();

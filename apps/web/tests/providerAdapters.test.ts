@@ -880,16 +880,9 @@ describe("TMDB title mapper", () => {
     expect(results[0]).toMatchObject({
       title: "美国忍者勇士",
       originalTitle: "American Ninja Warrior",
-      matchConfidence: 0.96,
-      payload: {
-        tvSeasonEpisode: {
-          season: 18,
-          episode: 2,
-          episodeCount: 4,
-          confirmed: true
-        }
-      }
+      matchConfidence: 0.96
     });
+    expect(results[0]?.payload).not.toHaveProperty("tvSeasonEpisode");
   });
 
   it("boosts exact TV season-pack matches when TMDB confirms the parsed season exists", async () => {
@@ -941,16 +934,155 @@ describe("TMDB title mapper", () => {
     expect(results[0]).toMatchObject({
       title: "功夫熊猫：盖世传奇",
       originalTitle: "Kung Fu Panda: Legends of Awesomeness",
-      matchConfidence: 0.93,
-      payload: {
-        tvSeasonEpisode: {
-          season: 1,
-          episodeCount: 26,
-          confirmed: true,
-          reason: "season_confirmed"
-        }
-      }
+      matchConfidence: 0.93
     });
+    expect(results[0]?.payload).not.toHaveProperty("tvSeasonEpisode");
+  });
+
+  it("boosts regional TV suffix matches when TMDB country and episode evidence agree", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 211249,
+            name: "Deal or No Deal",
+            original_name: "Deal or No Deal",
+            first_air_date: "2003-07-13",
+            origin_country: ["AU"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 211249,
+          name: "Deal or No Deal",
+          original_name: "Deal or No Deal",
+          first_air_date: "2003-07-13",
+          origin_country: ["AU"],
+          seasons: [{ season_number: 14, episode_count: 40 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "Deal Or No Deal Au",
+        mediaType: "TV_SERIES",
+        season: 14,
+        episode: 38
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/tv/211249?");
+    expect(results[0]).toMatchObject({
+      title: "Deal or No Deal",
+      matchConfidence: 0.96
+    });
+    expect(results[0]?.payload).not.toHaveProperty("tvSeasonEpisode");
+  });
+
+  it("treats US and USA regional TV suffixes as equivalent with TMDB country evidence", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 90521,
+            name: "Love Island USA",
+            original_name: "Love Island USA",
+            first_air_date: "2019-07-09",
+            origin_country: ["US"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 90521,
+          name: "Love Island USA",
+          original_name: "Love Island USA",
+          first_air_date: "2019-07-09",
+          origin_country: ["US"],
+          seasons: [{ season_number: 8, episode_count: 36 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "Love Island US",
+        mediaType: "TV_SERIES",
+        season: 8,
+        episode: 12
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/tv/90521?");
+    expect(results[0]?.matchConfidence).toBe(0.96);
+  });
+
+  it("does not boost regional TV suffix matches when TMDB country evidence disagrees", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 3771,
+            name: "Deal or No Deal",
+            original_name: "Deal or No Deal",
+            first_air_date: "2005-12-19",
+            origin_country: ["US"]
+          }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "Deal Or No Deal Au",
+        mediaType: "TV_SERIES",
+        season: 14,
+        episode: 38
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(results[0]?.matchConfidence).toBeLessThan(0.88);
+  });
+
+  it("does not treat title-cased Us as a regional TV suffix", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 1002,
+            name: "The Killer Among",
+            original_name: "The Killer Among",
+            first_air_date: "2026-06-01",
+            origin_country: ["US"]
+          }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "The Killer Among Us",
+        mediaType: "TV_SERIES",
+        season: 1,
+        episode: 3
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(results[0]?.matchConfidence).toBeLessThan(0.88);
   });
 
   it("does not boost exact TV matches when TMDB cannot confirm the parsed episode", async () => {
@@ -990,15 +1122,7 @@ describe("TMDB title mapper", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(results[0]?.matchConfidence).toBeLessThan(0.88);
-    expect(results[0]?.payload).toMatchObject({
-      tvSeasonEpisode: {
-        season: 18,
-        episode: 2,
-        episodeCount: 1,
-        confirmed: false,
-        reason: "episode_out_of_range"
-      }
-    });
+    expect(results[0]?.payload).not.toHaveProperty("tvSeasonEpisode");
   });
 
   it("does not boost exact TV season-pack matches when TMDB cannot confirm the parsed season", async () => {
@@ -1037,13 +1161,7 @@ describe("TMDB title mapper", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(results[0]?.matchConfidence).toBeLessThan(0.88);
-    expect(results[0]?.payload).toMatchObject({
-      tvSeasonEpisode: {
-        season: 1,
-        confirmed: false,
-        reason: "missing_season"
-      }
-    });
+    expect(results[0]?.payload).not.toHaveProperty("tvSeasonEpisode");
   });
 
   it("does not fetch TMDB TV detail for fuzzy title matches", async () => {

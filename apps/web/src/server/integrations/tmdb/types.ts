@@ -14,6 +14,7 @@ export type TmdbResult = {
   vote_average?: number;
   vote_count?: number;
   popularity?: number;
+  origin_country?: string[];
   seasons?: TmdbSeasonSummary[];
 };
 
