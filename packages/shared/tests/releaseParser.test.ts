@@ -891,6 +891,43 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("removes CJK diary section subtitles from provider search titles", () => {
+    const release = parseReleaseTitle(
+      "[综艺]Im So Into You S06E01 Diary 2026 2160p WEB-DL H265 AAC-ADWeb[喜欢你我也是 第六季 日记 喜欢你日记第01期上：女二暖心安慰男一 张馨予孔雪儿甜度爆表 | 喜欢你我也是 旅行季 *银河奇异果*][634.25 MB][anonymous][国语 | 中字 | 官方]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Im So Into You",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 6,
+      episode: 1
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["喜欢你我也是"]));
+    expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining([
+      "喜欢你我也是 日记 喜欢你日记"
+    ]));
+  });
+
+  it("removes CJK episode-count and technical suffixes from provider search titles", () => {
+    const release = parseReleaseTitle(
+      "[纪录片]SDTV-4K The Great Yellow River Delta 2026 S02 Complete 2160p 50fps UHDTV HEVC 10bit HLG DD5.1 2Audios-QHstudlo[山东卫视4K超高清频道 大河之州 第二季 2期全【4K HLG 10bit | 高帧率 | 高码率 | 杜比环绕音5.1】【导演：贾海宁 | 蒋超、李宁】QHstudIo小组录制作品][15.24 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Great Yellow River Delta",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 2
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["大河之州"]));
+    expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining([
+      "大河之州 2期全",
+      "大河之州 2期全 HLG 10bit",
+      "HLG 10bit"
+    ]));
+  });
+
   it("uses Chinese metadata episode ranges when the release segment only has a season pack", () => {
     const release = parseReleaseTitle(
       "[电视剧]Cang Yue Xing Lan S01 2026 1080p WEB-DL H264 AAC-HHWEB[沧月星澜 | 第19-23集 | 1080p  | 类型: 剧情/爱情/奇幻 | 导演: 钟大维 | 主演: 朱致灵/邵思涵/靳旺/罗予甜][913.03 MB][anonymous]"
