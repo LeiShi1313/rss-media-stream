@@ -21,7 +21,7 @@ const UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE = /^(?:music(?:s)?(?:\s+(?:videos?|m
 const EXTRA_INFO_RE = /类型|主演|类别|字幕|国语|中字|导演|演员|简繁|第\d|全\d|日语|英语|粤语|内封|内嵌|\|/i;
 const METADATA_INFO_FIELD_RE = /^(?:类型|类别|字幕|导演|主演|演员|语言|音频|视频|格式|地区|年份|年代|上映|首播|播出|国语|中字|简繁|简中|繁中|日语|英语|粤语|汉语普通话|网络收费短剧|4k|1080p|1080i|720p|2160p|uhd|hdr)$/i;
 const METADATA_TITLE_PREFIX_RE = /^(?:(?:\d{1,2}|[一二三四五六七八九十两]{1,3})\s*月\s*新番|(?:陸劇|陆剧|港劇|港剧|日劇|日剧|韓劇|韩剧|美劇|美剧|英劇|英剧|台劇|台剧|劇集|剧集|电视剧|電視劇|綜藝|综艺|動畫|动画|動漫|动漫|電影|电影|国漫|國漫|日漫))\s*[:：]?\s*/iu;
-const PROVIDER_ALIAS_NOISE_RE = /字幕|sub|中字|简繁|簡繁|简体|簡體|繁体|繁體|双语|雙語|国语|國語|粤语|粵語|英语|英語|日语|日語|韩语|韓語|内封|內封|内嵌|內嵌|多国|多國|类别|類別|类型|類型|导演|導演|主演|演员|演員|频道|頻道|高码率|高碼率|码率|碼率|杜比|源码|源碼|小组录制|小組錄製|出品|评论|評論|音轨|音軌|音频|音頻|花絮|特典|幕后|幕後|原盘|原盤|美版|港版|台版|日版|英版|加长版|加長版|完整版|导演剪辑|導演剪輯|官方|纪念版|紀念版|菜单|菜單|按钮|按鈕|原生|新增|shout\s*factory|生肉|自录|自錄|压缩包|壓縮包|破解|自动发种|自動發種|人工编辑|人工編輯/iu;
+const PROVIDER_ALIAS_NOISE_RE = /字幕|sub|中字|简繁|簡繁|简体|簡體|繁体|繁體|双语|雙語|国语|國語|粤语|粵語|英语|英語|日语|日語|韩语|韓語|内封|內封|内嵌|內嵌|多国|多國|类别|類別|类型|類型|导演|導演|主演|演员|演員|频道|頻道|高码率|高碼率|码率|碼率|杜比|dolby\s*vision|hdr10|hdr|sdr|菁彩\s*hdr|源码|源碼|小组录制|小組錄製|出品|评论|評論|音轨|音軌|音频|音頻|花絮|特典|幕后|幕後|原盘|原盤|美版|港版|台版|日版|英版|加长版|加長版|完整版|导演剪辑|導演剪輯|官方|纪念版|紀念版|菜单|菜單|按钮|按鈕|原生|新增|shout\s*factory|生肉|自录|自錄|压缩包|壓縮包|破解|自动发种|自動發種|人工编辑|人工編輯/iu;
 const PROVIDER_ALIAS_CATEGORY_PREFIX_RE = /^(?:动漫|動畫|动画|游戏|遊戲|電影|电影|电视剧|電視劇|剧集|劇集|(?:海外)?综艺|(?:海外)?綜藝|movie|movies|series|tv(?:\s+series)?|pc)\b/iu;
 const BROADCAST_CAPTURE_PREFIX_RE = /^(?:ZJTV[- .]?4K|GDTV[- .]?4K|JSWS[- .]?4K|HNTV[- .]?4K|SDTV[- .]?4K|BRTV[- .]?WS4K|CCTV[- .]?3|CWJDTV)[ ._-]+/i;
 const BROADCASTER_METADATA_PREFIX_RE = /^(?:(?:中央电视台|央视|北京卫视|浙江卫视|广东卫视|湖南卫视|江苏卫视|山东卫视)[^ ]*(?:频道)?|中国广电重温经典频道)\s+/u;
@@ -462,8 +462,13 @@ function deriveTitleInfo(input: {
 
   for (const segment of titleSegments(input.rawTitle)) {
     if (!hasNativeScript(segment) && !AKA_RE.test(segment) && !hasParenthesizedRegionalVariant(segment)) continue;
-    if (scoreReleaseLikeSegment(segment) >= 3 && segment !== input.rawName) continue;
-    for (const candidate of metadataTitleCandidatesFromSegment(segment)) {
+    const metadataCandidates = metadataTitleCandidatesFromSegment(segment);
+    if (
+      scoreReleaseLikeSegment(segment) >= 3 &&
+      segment !== input.rawName &&
+      !releaseLikeMetadataTitleSegment(segment)
+    ) continue;
+    for (const candidate of metadataCandidates) {
       addCandidate(candidate, { preservePunctuation: true });
     }
   }
@@ -619,6 +624,10 @@ function metadataTitleFields(segment: string) {
     .filter(Boolean);
 }
 
+function releaseLikeMetadataTitleSegment(segment: string) {
+  return /(?:^|\|)\s*(?:(?:19|20)\d{2}\s*年\s*)?\d{1,2}\s*月\s*新番/u.test(segment);
+}
+
 function cleanMetadataTitleField(field: string) {
   let cleaned = field;
   while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
@@ -656,8 +665,10 @@ function metadataInfoField(value: string) {
   if (/^(?:类型|類型|类别|類別)[:：]/u.test(cleaned)) return true;
   if (/^(?:英|中|简|簡|繁|日|韩|韓|粤|粵|国|國|台)$/u.test(cleaned)) return true;
   if (/^(?:[国國粤粵英日韩韓中简簡繁多]+(?:语|語|字|字幕|双语|雙語)|(?:简繁|簡繁|中字|英字|内封|內封|内嵌|內嵌).*)$/iu.test(cleaned)) return true;
+  if (/^\*?\s*(?:菁彩\s*hdr|hdr10\+?|hdr|sdr|dolby\s*vision|杜比视界|杜比視界)\s*\*?$/iu.test(cleaned)) return true;
   if (PROVIDER_ALIAS_NOISE_RE.test(cleaned) && !/[A-Za-z]{2,}/.test(cleaned.replace(/sub/ig, ""))) return true;
   if (/^(?:19|20)\d{2}\s*年?\s*(?:\d+\s*月)?\s*(?:新番)?$/i.test(cleaned)) return true;
+  if (/^(?:版|版本)$/u.test(cleaned)) return true;
   if (/^(?:第\s*)?[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)$/u.test(cleaned)) return true;
   if (/^(?:s|season\s*)\d{1,2}$/i.test(cleaned)) return true;
   if (/^\d{1,2}(?:st|nd|rd|th)\s+season$/i.test(cleaned)) return true;

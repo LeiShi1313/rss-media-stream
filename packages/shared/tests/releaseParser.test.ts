@@ -544,6 +544,57 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("钢之炼金术师FA");
   });
 
+  it("extracts anime title aliases from metadata fields with season headings", () => {
+    const release = parseReleaseTitle(
+      "[动漫]Tsue to Tsurugi no Wistoria S02 2026 2160p IQ WEB-DL H.265 AAC2.0-UBWEB[2026年4月新番 | 杖与剑的魔剑谭 第二季/Wistoria: Wand and Sword Season 2 | 全22集 [日语/多语字幕 | 4K版][10.59 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Tsue to Tsurugi no Wistoria",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 2
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining([
+      "杖与剑的魔剑谭",
+      "Wistoria: Wand and Sword Season 2"
+    ]));
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "杖与剑的魔剑谭",
+      "Wistoria: Wand and Sword Season 2"
+    ]));
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["版"]));
+    expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining(["版"]));
+    expect(release.primarySearchTitle).toBe("杖与剑的魔剑谭");
+  });
+
+  it("does not use quality-version labels as title aliases", () => {
+    const release = parseReleaseTitle(
+      "[动漫]Example Show S01 2160p WEB-DL H265-GRP[日语/多语字幕 | 4K版] *菁彩HDR*[1.00 GB]"
+    );
+
+    expect(release.title).toBe("Example Show");
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["版"]));
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["*菁彩HDR*"]));
+    expect(release.providerSearchTitles).toBeUndefined();
+  });
+
+  it("extracts anime title aliases after new-season headings without pipe delimiters", () => {
+    const release = parseReleaseTitle(
+      "[Animations]Wistoria Wand and Sword S02 1080p CR WEB-DL AAC2 0 H.264-CHDWEB[2026年4月新番 杖与剑的魔剑谭 第二季 第8-9集 /杖と剣のウィストリア Season 2 | 类型:动画/奇幻 | 主演:天崎滉平/关根明良][2.72 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Wistoria Wand and Sword",
+      mediaType: "TV_SERIES",
+      season: 2,
+      episode: 8,
+      episodeEnd: 9
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["杖与剑的魔剑谭"]));
+    expect(release.primarySearchTitle).toBe("杖与剑的魔剑谭");
+  });
+
   it("uses animation TV episode-range pack markers as series evidence", () => {
     const release = parseReleaseTitle(
       "[动漫(Animations)]Cat Ninden Teyandee 1990 BluRay 1080p x264 FLAC-jsum@U2[功夫猫党 TV 01-54 Fin+SP][80.24 GB][anonymous]"
