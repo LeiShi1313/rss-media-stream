@@ -6,8 +6,10 @@ const SOURCE_RE = /\b(WEB[- .]?DL|WEBRip|Blu[- .]?Ray|BDRip|HDTV|DVDRip|Remux|UH
 const CODEC_RE = /\b(x265|x264|h[ .]?265|h[ .]?264|hevc|avc|av1|mpeg[ .]?2)\b/i;
 const AUDIO_RE = /\b(DDP?[ .]?(?:5\.1|7\.1|2\.0)?|DD\+[ .]?(?:5\.1|7\.1|2\.0)?|DTS[- .]?HD|TrueHD|Atmos|AAC[ .]?(?:2\.0|5\.1)?|FLAC|OPUS[ .]?(?:2\.0|5\.1)?|LPCM[ .]?(?:2\.0|5\.1)?)\b/i;
 const YEAR_RE = /\b(19\d{2}|20\d{2})\b/;
-const TV_RE = /\bS(\d{1,2})[ ._-]?E(\d{1,3})(?:[- ._]?E?(\d{1,3}))?\b/i;
+const TV_RE = /\bS(\d{1,2})[ ._-]?E(\d{1,3})(?:(?:[- ._]+E?|E)(\d{1,3}))?\b/i;
+const LONG_TV_RE = /\bS(\d{1,2})[ ._-]?E(\d{4})(?:(?:[-_]+E?|[ .]+E|E)(\d{4}))?\b/i;
 const EPISODE_ONLY_RE = /\bEP?(\d{1,3})(?:[- ._]?EP?(\d{1,3}))?\b/i;
+const LONG_EPISODE_ONLY_RE = /\bEP?(\d{4})(?:[- ._]?EP?(\d{4}))?\b/i;
 const SEASON_PACK_RE = /\bS(\d{1,2})(?:\b|[- .])(?!E\d)/i;
 const SEASON_WORD_PACK_RE = /\bSeason[ ._-]?(\d{1,2})\b/i;
 const COMPLETE_WORD_RE = /\bComplete\b/i;
@@ -25,7 +27,7 @@ const NATIVE_SCRIPT_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\
 const LATIN_RE = /[A-Za-z]/;
 const SLASH_NUMERIC_TITLE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const CHINESE_SEASON_RE = /(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|([一二三四五六七八九十两\d]{1,3})\s*季)/u;
-const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,3})(?:\s*[-~至到－—]\s*([一二三四五六七八九十两\d]{1,3}))?\s*(?:集|话|話)/u;
+const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,4})(?:\s*[-~至到－—]\s*([一二三四五六七八九十两\d]{1,4}))?\s*(?:集|话|話)/u;
 const WHOLE_SERIES_EPISODE_RE = /全\s*(?!0*1\s*(?:集|话|話)|一\s*(?:集|话|話))[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)/u;
 
 export function parseReleaseTitle(rawTitle: string): ParsedRelease {
@@ -41,8 +43,11 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const rawNormalized = normalizeReleaseText(cleanedRawTitle);
   const parseInputHasBrackets = /[\[\]]/.test(parseInput);
 
-  const tv = normalized.match(TV_RE);
+  const tv = normalized.match(TV_RE) ?? normalized.match(LONG_TV_RE);
   const episodeOnly = tv ? undefined : normalized.match(EPISODE_ONLY_RE);
+  const longEpisodeOnly = tv || episodeOnly || !hasLongEpisodeOnlyTvEvidence(rawTitle)
+    ? undefined
+    : normalized.match(LONG_EPISODE_ONLY_RE);
   const seasonPack = normalized.match(SEASON_PACK_RE) ?? normalized.match(SEASON_WORD_PACK_RE);
   const normalizedChineseSeason = parseInputHasBrackets ? undefined : findChineseSeason(normalized, "normalized");
   const chineseSeason = normalizedChineseSeason ?? (movieMediaCategory ? undefined : findChineseSeason(rawTitle, "raw"));
@@ -62,11 +67,12 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const audio = normalizeAudio((normalized.match(AUDIO_RE) ?? rawNormalized.match(AUDIO_RE))?.[1]);
   const year = yearMatch ? Number(yearMatch[1]) : inferMetadataYear(rawTitle);
   const completeIndex = categorySeriesEvidence ? normalized.search(COMPLETE_WORD_RE) : -1;
-  const hasTvEvidence = Boolean(tv || episodeOnly || seasonPack || chineseSeason || chineseEpisode || categorySeriesEvidence);
+  const hasTvEvidence = Boolean(tv || episodeOnly || longEpisodeOnly || seasonPack || chineseSeason || chineseEpisode || categorySeriesEvidence);
 
   const titleStop = firstDefinedIndex(
     tv?.index,
     episodeOnly?.index,
+    longEpisodeOnly?.index,
     seasonPack?.index,
     chineseSeason?.source === "normalized" ? chineseSeason.index : undefined,
     chineseEpisode?.source === "normalized" ? chineseEpisode.index : undefined,
@@ -92,9 +98,9 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
       : year
         ? "MOVIE"
         : "UNKNOWN";
-  const season = tv ? Number(tv[1]) : seasonPack ? Number(seasonPack[1]) : chineseSeason?.season ?? (episodeOnly || chineseEpisode ? 1 : undefined);
-  const episode = tv ? Number(tv[2]) : episodeOnly ? Number(episodeOnly[1]) : chineseEpisode?.episode;
-  const episodeEnd = tv?.[3] ? Number(tv[3]) : episodeOnly?.[2] ? Number(episodeOnly[2]) : chineseEpisode?.episodeEnd;
+  const season = tv ? Number(tv[1]) : seasonPack ? Number(seasonPack[1]) : chineseSeason?.season ?? (episodeOnly || longEpisodeOnly || chineseEpisode ? 1 : undefined);
+  const episode = tv ? Number(tv[2]) : episodeOnly ? Number(episodeOnly[1]) : longEpisodeOnly ? Number(longEpisodeOnly[1]) : chineseEpisode?.episode;
+  const episodeEnd = tv?.[3] ? Number(tv[3]) : episodeOnly?.[2] ? Number(episodeOnly[2]) : longEpisodeOnly?.[2] ? Number(longEpisodeOnly[2]) : chineseEpisode?.episodeEnd;
   const parseConfidence = scoreConfidence({
     title,
     mediaType,
@@ -248,6 +254,11 @@ function hasAnimationSeriesEvidence(rawTitle: string) {
 function hasAnimationLeadingMediaCategory(rawTitle: string) {
   const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
   return Boolean(bracketed && animationMediaCategorySegment(bracketed));
+}
+
+function hasLongEpisodeOnlyTvEvidence(rawTitle: string) {
+  return hasStrongTvLeadingMediaCategory(rawTitle) ||
+    (hasAnimationLeadingMediaCategory(rawTitle) && !hasMangaBracketCategory(rawTitle));
 }
 
 function movieMediaCategorySegment(segment: string) {
@@ -506,7 +517,7 @@ function cleanMetadataTitleField(field: string) {
     .replace(/(?:导演|主演|演员)[:：].*$/u, " ")
     .replace(/(?:类型|类别|類型|類別)[:：].*$/u, " ")
     .replace(/^(?:中央电视台[^ ]*频道|北京卫视\S*频道)\s+/u, " ")
-    .replace(/\s*第\s*[一二三四五六七八九十两\d]{1,3}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,3})?\s*(?:集|话|話).*$/u, " ")
+    .replace(/\s*第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話).*$/u, " ")
     .replace(/\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)(?=\s|$)/u, " ")
     .replace(/\s+全\s*[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話).*$/u, " ")
     .replace(/(?:19|20)\d{2}\s*年?/g, " ")
@@ -528,8 +539,8 @@ function metadataInfoField(value: string) {
   if (/^(?:第\s*)?[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)$/u.test(cleaned)) return true;
   if (/^(?:s|season\s*)\d{1,2}$/i.test(cleaned)) return true;
   if (/^\d{1,2}(?:st|nd|rd|th)\s+season$/i.test(cleaned)) return true;
-  if (/^(?:第\s*)?[一二三四五六七八九十两\d]{1,3}\s*(?:[-~至到－—]\s*[一二三四五六七八九十两\d]{1,3})?\s*(?:集|话|話)$/u.test(cleaned)) return true;
-  if (/^(?:第\s*)?[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)\s+第\s*[一二三四五六七八九十两\d]{1,3}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,3})?\s*(?:集|话|話)$/u.test(cleaned)) return true;
+  if (/^(?:第\s*)?[一二三四五六七八九十两\d]{1,4}\s*(?:[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話)$/u.test(cleaned)) return true;
+  if (/^(?:第\s*)?[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)\s+第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話)$/u.test(cleaned)) return true;
   if (/^全\s*[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)$/u.test(cleaned)) return true;
   return false;
 }

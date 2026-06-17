@@ -410,6 +410,39 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("parses long-running episode-only TV releases under TV categories", () => {
+    const release = parseReleaseTitle(
+      "[TV Series]Jade Come Home Love：Lo And Behold Ep2826 20260610 HDTV 1080i H264-CHDHKTV[港劇:愛.回家之開心速遞(第2826集)[粤语][簡繁DVB字幕]][1.58 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Jade Come Home Love：Lo And Behold",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 2826,
+      quality: "1080i",
+      resolution: 1080,
+      source: "HDTV",
+      codec: "H.264",
+      releaseGroup: "CHDHKTV"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["愛.回家之開心速遞"]));
+  });
+
+  it("does not parse long E-number tokens as episodes outside TV categories", () => {
+    const release = parseReleaseTitle(
+      "[Game]Example E2026 1080p WEB-DL H264-GRP[示例游戏][1.00 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Example E2026",
+      mediaType: "UNKNOWN",
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264"
+    });
+  });
+
   it("parses dotted Sxx.Exx TV releases", () => {
     const release = parseReleaseTitle("Example.Show.S01.E03.2160p.NF.WEB-DL.DDP5.1.H.265-GROUP.mkv");
 
@@ -424,6 +457,48 @@ describe("parseReleaseTitle", () => {
       codec: "H.265",
       releaseGroup: "GROUP"
     });
+  });
+
+  it("parses four-digit SxxE episode numbers for long-running TV releases", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Come Home Love Lo and Behold S01E2826 2017 1080p MyTVSuper WEB-DL H265 AAC-ADWeb[爱·回家之开心速递 第2826集][639.35 MB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Come Home Love Lo and Behold",
+      mediaType: "TV_SERIES",
+      year: 2017,
+      season: 1,
+      episode: 2826,
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.265",
+      audio: "AAC",
+      releaseGroup: "ADWeb"
+    });
+    expect(release.episodeEnd).toBeUndefined();
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["爱·回家之开心速递"]));
+  });
+
+  it("parses four-digit SxxE episode ranges for long-running anime releases", () => {
+    const release = parseReleaseTitle(
+      "[Animations]One Piece S23E1162 E1163 1999 1080p CR WEB-DL AAC2.0 H.264-CHDWEB[航海王 第1162-1163集 / ワンピース][2.00 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "One Piece",
+      mediaType: "TV_SERIES",
+      year: 1999,
+      season: 23,
+      episode: 1162,
+      episodeEnd: 1163,
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      audio: "AAC2.0",
+      releaseGroup: "CHDWEB"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["航海王"]));
   });
 
   it("keeps complete when it is part of the title", () => {
