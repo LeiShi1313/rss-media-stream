@@ -106,6 +106,18 @@ function scoreTmdbCandidate(input: {
   ) {
     return Math.max(baseScore, 0.88);
   }
+  if (
+    input.endpoint === "tv" &&
+    input.input.season &&
+    input.input.episode &&
+    tmdbTitleHasChinaDisplayEvidence({
+      query: input.input.title,
+      displayTitle: input.result.name,
+      originCountries: input.result.origin_country
+    })
+  ) {
+    return Math.max(baseScore, 0.88);
+  }
   return baseScore;
 }
 
@@ -156,6 +168,19 @@ function tmdbTitleHasRegionalEvidence(input: {
   });
 }
 
+function tmdbTitleHasChinaDisplayEvidence(input: {
+  query: string;
+  displayTitle?: string;
+  originCountries?: readonly string[];
+}) {
+  if (!originCountryMatches(input.originCountries, "CN")) return false;
+  if (!containsCjk(input.query)) return false;
+
+  const queryKey = normalizeForScore(input.query);
+  const displayTitleKey = normalizeForScore(input.displayTitle ?? "");
+  return Boolean(queryKey && displayTitleKey && queryKey === displayTitleKey);
+}
+
 function originCountryMatches(
   originCountries: readonly string[] | undefined,
   expectedCountry: string
@@ -196,6 +221,10 @@ const regionalSuffixCountries: Record<string, string> = {
   ca: "CA",
   canada: "CA"
 };
+
+function containsCjk(value: string) {
+  return /[\u3400-\u9fff]/u.test(value);
+}
 
 function uniqueTitles(values: Array<string | undefined>) {
   const seen = new Set<string>();

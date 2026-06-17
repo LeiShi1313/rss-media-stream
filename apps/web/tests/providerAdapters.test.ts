@@ -1029,6 +1029,101 @@ describe("TMDB title mapper", () => {
     });
   });
 
+  it("accepts China-origin localized TV display title matches when episode detail is stale", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 303099,
+            name: "探索·发现",
+            original_name: "探索·发现",
+            first_air_date: "2001-07-09",
+            origin_country: ["CN"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 303099,
+          name: "探索·发现",
+          original_name: "探索·发现",
+          first_air_date: "2001-07-09",
+          origin_country: ["CN"],
+          seasons: [{ season_number: 1, episode_count: 20 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "探索·发现",
+        mediaType: "TV_SERIES",
+        year: 2026,
+        season: 1,
+        episode: 164
+      },
+      { credential: "tmdb-key", language: "zh-CN" }
+    );
+
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/tv/303099?");
+    expect(results[0]).toMatchObject({
+      title: "探索·发现",
+      matchConfidence: 0.88
+    });
+  });
+
+  it("does not boost non-China localized TV display title matches with stale episode detail", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 69881,
+            name: "出租女友",
+            original_name: "レンタルの恋",
+            first_air_date: "2017-01-19",
+            origin_country: ["JP"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 69881,
+          name: "出租女友",
+          original_name: "レンタルの恋",
+          first_air_date: "2017-01-19",
+          origin_country: ["JP"],
+          seasons: [{ season_number: 1, episode_count: 4 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "出租女友",
+        mediaType: "TV_SERIES",
+        year: 2026,
+        season: 5,
+        episode: 10
+      },
+      { credential: "tmdb-key", language: "zh-CN" }
+    );
+
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/tv/69881?");
+    expect(results[0]?.matchConfidence).toBeLessThan(0.88);
+  });
+
   it("treats US and USA regional TV suffixes as equivalent with TMDB country evidence", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
