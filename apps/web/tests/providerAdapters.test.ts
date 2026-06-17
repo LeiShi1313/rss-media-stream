@@ -1078,6 +1078,76 @@ describe("TMDB title mapper", () => {
     });
   });
 
+  it("accepts China-origin localized TV display title matches without season evidence", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 280632,
+            name: "成何体统",
+            original_name: "成何体统",
+            first_air_date: "2026-06-09",
+            origin_country: ["CN"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [] })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "成何体统",
+        mediaType: "TV_SERIES"
+      },
+      { credential: "tmdb-key", language: "zh-CN" }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(results[0]).toMatchObject({
+      title: "成何体统",
+      matchConfidence: 0.88
+    });
+  });
+
+  it("accepts Hong Kong localized TV display title matches without season evidence", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 277870,
+            name: "香港探秘地图",
+            original_name: "香港探秘地圖",
+            first_air_date: "2026-06-02",
+            origin_country: ["HK"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [] })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "香港探秘地图",
+        mediaType: "TV_SERIES"
+      },
+      { credential: "tmdb-key", language: "zh-CN" }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(results[0]).toMatchObject({
+      title: "香港探秘地图",
+      matchConfidence: 0.88
+    });
+  });
+
   it("does not boost non-China localized TV display title matches with stale episode detail", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({

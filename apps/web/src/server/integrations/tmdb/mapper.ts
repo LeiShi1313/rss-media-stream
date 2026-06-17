@@ -108,9 +108,7 @@ function scoreTmdbCandidate(input: {
   }
   if (
     input.endpoint === "tv" &&
-    input.input.season &&
-    input.input.episode &&
-    tmdbTitleHasChinaDisplayEvidence({
+    tmdbTitleHasChineseRegionDisplayEvidence({
       query: input.input.title,
       displayTitle: input.result.name,
       originCountries: input.result.origin_country
@@ -168,12 +166,14 @@ function tmdbTitleHasRegionalEvidence(input: {
   });
 }
 
-function tmdbTitleHasChinaDisplayEvidence(input: {
+function tmdbTitleHasChineseRegionDisplayEvidence(input: {
   query: string;
   displayTitle?: string;
   originCountries?: readonly string[];
 }) {
-  if (!originCountryMatches(input.originCountries, "CN")) return false;
+  if (!originCountryMatches(input.originCountries, "CN") && !originCountryMatches(input.originCountries, "HK")) {
+    return false;
+  }
   if (!containsCjk(input.query)) return false;
 
   const queryKey = normalizeForScore(input.query);
