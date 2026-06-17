@@ -62,6 +62,7 @@ describe("parseReleaseTitle", () => {
       source: "WEB-DL",
       releaseGroup: "ADWeb"
     });
+    expect(release.providerSearchTitles).toEqual(["非你莫属"]);
   });
 
   it("does not promote titleless year-numbered episode files to TV", () => {
@@ -1396,6 +1397,18 @@ describe("parseReleaseTitle", () => {
 
     expect(bookRelease.providerSearchTitles).toEqual(["少年无尽夏"]);
     expect(liveRelease.providerSearchTitles).toEqual(["少年无尽夏"]);
+  });
+
+  it("removes CJK annual markers before variety section labels", () => {
+    const datingRelease = parseReleaseTitle(
+      "[综艺]Ai Qing Bao Wei Zhan S2026E58 2010 1080p WEB-DL H265 DDP2.0-ADWeb[爱情保卫战 2026年度 正片 屡次背叛承诺的男友还要再相信吗？ *云视听极光*][376.62 MB][anonymous][国语 | 中字 | 官方]"
+    );
+    const peekRelease = parseReleaseTitle(
+      "[综艺]H!6 S2026E03 Peek 2026 1080p WEB-DL H265 AAC-ADWeb[你好，星期六 2026年度 抢先逛  好六街抢先逛第03期：王安宇王玉雯合拍手势舞手拿把掐 孙怡上演空耳名场面王星越在线提醒 *芒果TV*][626.69 MB][anonymous][国语 | 中字 | 官方]"
+    );
+
+    expect(datingRelease.providerSearchTitles).toEqual(["爱情保卫战"]);
+    expect(peekRelease.providerSearchTitles).toEqual(["你好，星期六"]);
   });
 
   it("keeps diary words that are part of a title token", () => {
