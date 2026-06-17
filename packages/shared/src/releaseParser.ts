@@ -453,6 +453,7 @@ function deriveTitleInfo(input: {
   fallbackTitle: string;
 }) {
   const candidates: string[] = [];
+  const explicitAliasCandidates: string[] = [];
   const releaseNameCandidates: string[] = [];
   const humanCandidates: string[] = [];
   const addCandidate = (candidate: string | undefined, options: { preservePunctuation?: boolean } = {}) => {
@@ -465,12 +466,21 @@ function deriveTitleInfo(input: {
     }
     return cleaned;
   };
+  const addExplicitAliasCandidate = (candidate: string | undefined, options: { preservePunctuation?: boolean } = {}) => {
+    const cleaned = addCandidate(candidate, options);
+    if (cleaned && !explicitAliasCandidates.some((existing) => sameCandidate(existing, cleaned))) {
+      explicitAliasCandidates.push(cleaned);
+    }
+  };
 
   for (const candidate of titleCandidatesFromValue(input.rawName)) {
     const cleaned = addCandidate(candidate);
     if (cleaned && !releaseNameCandidates.some((existing) => sameCandidate(existing, cleaned))) {
       releaseNameCandidates.push(cleaned);
     }
+  }
+  for (const candidate of explicitAliasTitleCandidatesFromValue(input.rawName)) {
+    addExplicitAliasCandidate(candidate);
   }
 
   for (const segment of titleSegments(input.rawTitle)) {
@@ -484,9 +494,15 @@ function deriveTitleInfo(input: {
     for (const candidate of metadataCandidates) {
       addCandidate(candidate, { preservePunctuation: true });
     }
+    for (const candidate of explicitAliasTitleCandidatesFromValue(segment)) {
+      addExplicitAliasCandidate(candidate, { preservePunctuation: true });
+    }
   }
 
   for (const candidate of humanMetadataTitleCandidates(input.rawTitle)) {
+    for (const titleCandidate of explicitAliasTitleCandidatesFromValue(candidate)) {
+      addExplicitAliasCandidate(titleCandidate, { preservePunctuation: true });
+    }
     for (const titleCandidate of titleCandidatesFromValue(candidate)) {
       const cleaned = addCandidate(titleCandidate, { preservePunctuation: true });
       if (cleaned) humanCandidates.push(cleaned);
@@ -509,7 +525,7 @@ function deriveTitleInfo(input: {
   const canonical = weakCanonicalTitle(baseCanonical)
     ? chooseCanonicalTitle(input.rawName, humanCandidates) ?? humanCandidates[0] ?? baseCanonical
     : humanCandidates.find((candidate) => equivalentTitleKey(candidate) === equivalentTitleKey(baseCanonical)) ?? baseCanonical;
-  const searchTitles = providerSearchTitles(candidates, canonical);
+  const searchTitles = providerSearchTitles(candidates, canonical, explicitAliasCandidates);
   const nativeCandidate = (searchTitles ?? candidates).find((candidate) => hasNativeScript(candidate));
   return {
     title: canonical,
@@ -521,9 +537,11 @@ function deriveTitleInfo(input: {
   };
 }
 
-function providerSearchTitles(candidates: string[], canonical: string) {
+function providerSearchTitles(candidates: string[], canonical: string, explicitAliasCandidates: string[] = []) {
   const aliases = candidates
-    .filter((candidate) => providerSearchTitleCandidate(candidate, canonical));
+    .filter((candidate) => providerSearchTitleCandidate(candidate, canonical, {
+      allowSingleWordAlias: explicitAliasCandidates.some((alias) => sameCandidate(alias, candidate))
+    }));
   const nativeAliases = aliases.filter((candidate) => hasNativeScript(candidate));
   const latinAliases = aliases.filter((candidate) => !hasNativeScript(candidate));
   const ordered = [...nativeAliases, ...latinAliases];
@@ -536,7 +554,11 @@ function providerSearchTitles(candidates: string[], canonical: string) {
   return unique.length > 0 ? unique : undefined;
 }
 
-function providerSearchTitleCandidate(candidate: string, canonical: string) {
+function providerSearchTitleCandidate(
+  candidate: string,
+  canonical: string,
+  options: { allowSingleWordAlias?: boolean } = {}
+) {
   if (sameCandidate(candidate, canonical)) return false;
   if (equivalentTitleKey(candidate) === equivalentTitleKey(canonical)) return false;
   if (!isTitleCandidate(candidate)) return false;
@@ -547,7 +569,7 @@ function providerSearchTitleCandidate(candidate: string, canonical: string) {
   if (/\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:\s*[/-]\s*\d{1,2})?\b/i.test(candidate)) return false;
   if (!hasNativeScript(candidate)) {
     const words = candidate.split(/\s+/).filter(Boolean);
-    if (words.length < 2 && !regionalBaseAlias(candidate, canonical)) return false;
+    if (words.length < 2 && !regionalBaseAlias(candidate, canonical) && !options.allowSingleWordAlias) return false;
   }
   return true;
 }
@@ -570,12 +592,23 @@ function titleCandidatesFromValue(value: string) {
     candidates.push(nativeEmDashTitle);
   }
   for (const aliasPart of trimmed.split(AKA_RE)) {
-    for (const part of splitTitlePart(aliasPart)) {
-      for (const scriptPart of splitScriptRuns(part)) {
-        candidates.push(scriptPart);
-      }
-      candidates.push(part);
+    candidates.push(...titleCandidatesFromAliasPart(aliasPart));
+  }
+  return candidates;
+}
+
+function explicitAliasTitleCandidatesFromValue(value: string) {
+  const aliasParts = value.trim().split(AKA_RE).slice(1);
+  return aliasParts.flatMap((aliasPart) => titleCandidatesFromAliasPart(aliasPart));
+}
+
+function titleCandidatesFromAliasPart(aliasPart: string) {
+  const candidates: string[] = [];
+  for (const part of splitTitlePart(aliasPart)) {
+    for (const scriptPart of splitScriptRuns(part)) {
+      candidates.push(scriptPart);
     }
+    candidates.push(part);
   }
   return candidates;
 }

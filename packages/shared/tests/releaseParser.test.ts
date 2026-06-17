@@ -190,6 +190,23 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["Massacre of Pleasure"]));
   });
 
+  it("keeps explicit one-word AKA aliases as provider search titles", () => {
+    const release = parseReleaseTitle(
+      "Main basse sur la TV AKA Network 1976 1080p FRA Blu-ray AVC DTS-HD MA 1.0[电视台风云 / 荧光屏后(台) / 萤光幕后 / 传媒｜类型：剧情 [法版原盘]][27.58 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Main basse sur la TV",
+      year: 1976,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264",
+      audio: "DTS-HD"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["Network"]));
+  });
+
   it("does not rewrite one-year PTP filename and display year differences", () => {
     const release = parseReleaseTitle(
       "Soy Frankelda AKA I Am Frankelda [2025] by Arturo Ambriz and Roy Ambriz - H.265 / WEB / MKV / 2160p / Dual Audio / Dolby Vision [ I.Am.Frankelda.2026.2160p.NF.WEB-DL.DDP5.1.DV.H.265-CHORTLE ]"
