@@ -1319,6 +1319,46 @@ describe("TMDB title mapper", () => {
     expect(results[0]?.matchConfidence).toBe(0.96);
   });
 
+  it("treats Portuguese regional TV suffixes as country evidence", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 195531,
+            name: "Taskmaster Portugal",
+            original_name: "Taskmaster",
+            first_air_date: "2022-03-19",
+            origin_country: ["PT"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 195531,
+          name: "Taskmaster Portugal",
+          original_name: "Taskmaster",
+          first_air_date: "2022-03-19",
+          origin_country: ["PT"],
+          seasons: [{ season_number: 7, episode_count: 10 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "Taskmaster PT",
+        mediaType: "TV_SERIES",
+        season: 7
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/tv/195531?");
+    expect(results[0]?.matchConfidence).toBe(0.93);
+  });
+
   it("does not boost regional TV suffix matches when TMDB country evidence disagrees", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({

@@ -1019,6 +1019,26 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("成交不成交 澳版");
   });
 
+  it("keeps parenthesized regional TV aliases as provider search fallbacks", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Dertigers NL S07E05 DUTCH 1080p WEB h264-TRIPEL[Dertigers (NL)  [第七季 第05集] | 类型：剧情 | 2026][723.58 MB][anonymous][]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Dertigers NL",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 7,
+      episode: 5,
+      quality: "1080p",
+      source: "WEB",
+      codec: "H.264",
+      releaseGroup: "TRIPEL"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["Dertigers"]));
+    expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining(["第七季"]));
+  });
+
   it("does not prefer short bracket group tokens over structured title candidates", () => {
     const release = parseReleaseTitle(
       "[动漫][连载][huthid][斗罗大陆Ⅱ绝世唐门][Douluo Dalu II: Jueshi Tangmen][105-156][2160p][WEB-DL][MP4][2025年06月][国漫][斗罗大陆Ⅱ绝世唐门 第105-156集 / Soul Land 2：The Peerless Tang Clan Ⅲ][50.12 GiB][huthid]"

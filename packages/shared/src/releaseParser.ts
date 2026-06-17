@@ -37,6 +37,8 @@ const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,4})(?
 const WHOLE_SERIES_EPISODE_RE = /全\s*(?!0*1\s*(?:集|话|話)|一\s*(?:集|话|話))[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)/u;
 const CJK_COMPLETE_EPISODE_RANGE_RE = /\d{1,4}\s*[-~至到－—]\s*\d{1,4}\s*(?:集|话|話)\s*(?:全|完|完结|完結)/u;
 const ANIMATION_TV_EPISODE_RANGE_RE = /\bTV\b[^\[\]]{0,40}\d{1,4}\s*[-~－—]\s*\d{1,4}/iu;
+const REGIONAL_VARIANT_CODE_TOKENS = new Set(["AU", "AUS", "US", "USA", "UK", "GB", "NZ", "CA", "NL", "PT", "BE"]);
+const REGIONAL_VARIANT_NAME_TOKENS = new Set(["australia", "canada", "netherlands", "portugal", "belgium"]);
 
 export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const cleanedRawTitle = stripMediaExtension(rawTitle);
@@ -443,7 +445,7 @@ function deriveTitleInfo(input: {
   }
 
   for (const segment of titleSegments(input.rawTitle)) {
-    if (!hasNativeScript(segment) && !AKA_RE.test(segment)) continue;
+    if (!hasNativeScript(segment) && !AKA_RE.test(segment) && !hasParenthesizedRegionalVariant(segment)) continue;
     if (scoreReleaseLikeSegment(segment) >= 3 && segment !== input.rawName) continue;
     for (const candidate of metadataTitleCandidatesFromSegment(segment)) {
       addCandidate(candidate, { preservePunctuation: true });
@@ -504,7 +506,7 @@ function providerSearchTitleCandidate(candidate: string, canonical: string) {
   if (/\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:\s*[/-]\s*\d{1,2})?\b/i.test(candidate)) return false;
   if (!hasNativeScript(candidate)) {
     const words = candidate.split(/\s+/).filter(Boolean);
-    if (words.length < 2) return false;
+    if (words.length < 2 && !regionalBaseAlias(candidate, canonical)) return false;
   }
   return true;
 }
@@ -543,6 +545,10 @@ function metadataTitleCandidatesFromSegment(segment: string) {
   if (!cleanedSegment || CATEGORY_SEGMENT_RE.test(cleanedSegment)) return [];
 
   const candidates: string[] = [];
+  const regionalAlias = parenthesizedRegionalTitleAlias(segment);
+  if (regionalAlias) {
+    candidates.push(regionalAlias);
+  }
   for (const field of metadataTitleFields(cleanedSegment)) {
     const titleField = cleanMetadataTitleField(field);
     if (!titleField || metadataInfoField(titleField)) {
@@ -554,6 +560,40 @@ function metadataTitleCandidatesFromSegment(segment: string) {
     break;
   }
   return candidates;
+}
+
+function hasParenthesizedRegionalVariant(value: string) {
+  return /\(([^)]{2,24})\)/u.test(value) &&
+    [...value.matchAll(/\(([^)]{2,24})\)/gu)].some((match) => regionalVariantToken(match[1]));
+}
+
+function parenthesizedRegionalTitleAlias(value: string) {
+  const match = value.trim().match(/^(.+?)\s*\(([^)]{2,24})\)\s*$/u);
+  if (!match?.[1] || !regionalVariantToken(match[2])) return undefined;
+  return cleanCandidateTitle(match[1]);
+}
+
+function regionalBaseAlias(candidate: string, canonical: string) {
+  const canonicalWords = canonical.trim().split(/\s+/).filter(Boolean);
+  if (canonicalWords.length < 2) return false;
+  const suffix = canonicalWords[canonicalWords.length - 1];
+  if (!suffix || !regionalVariantSuffixToken(suffix)) return false;
+  return equivalentTitleKey(canonicalWords.slice(0, -1).join(" ")) === equivalentTitleKey(candidate);
+}
+
+function regionalVariantToken(value: string | undefined) {
+  const token = value?.trim();
+  if (!token) return false;
+  return REGIONAL_VARIANT_CODE_TOKENS.has(token.toUpperCase()) ||
+    REGIONAL_VARIANT_NAME_TOKENS.has(token.toLowerCase());
+}
+
+function regionalVariantSuffixToken(value: string) {
+  const token = value.trim();
+  if (REGIONAL_VARIANT_CODE_TOKENS.has(token.toUpperCase())) {
+    return token === token.toUpperCase();
+  }
+  return REGIONAL_VARIANT_NAME_TOKENS.has(token.toLowerCase());
 }
 
 function metadataTitleFields(segment: string) {

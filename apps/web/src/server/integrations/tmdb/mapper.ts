@@ -240,7 +240,13 @@ const regionalSuffixCountries: Record<string, string> = {
   gb: "GB",
   nz: "NZ",
   ca: "CA",
-  canada: "CA"
+  canada: "CA",
+  nl: "NL",
+  netherlands: "NL",
+  pt: "PT",
+  portugal: "PT",
+  be: "BE",
+  belgium: "BE"
 };
 
 function containsCjk(value: string) {
