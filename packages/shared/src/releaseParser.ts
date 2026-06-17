@@ -52,6 +52,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const movieMediaCategory = hasMovieLeadingMediaCategory(rawTitle);
   const categorySeriesEvidence =
     (hasStrongTvLeadingMediaCategory(rawTitle) && hasWholeSeriesTvMarker(rawTitle)) ||
+    (hasDocumentaryLeadingMediaCategory(rawTitle) && WHOLE_SERIES_EPISODE_RE.test(rawTitle)) ||
     hasAnimationSeriesEvidence(rawTitle);
   const releaseGroup = extractReleaseGroup(parseInput);
   const normalized = normalizeReleaseText(parseInput);
@@ -195,7 +196,7 @@ function categoryWrapperSegment(segment: string) {
 
 function documentaryMediaCategorySegment(segment: string) {
   const trimmed = segment.trim();
-  return /^(?:纪录片|紀錄片|documentaries?|documentary)(?:$|\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
+  return /^(?:纪录片|紀錄片|doc|documentaries?|documentary)(?:$|\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
 }
 
 function normalizeReleaseText(input: string): string {
@@ -307,6 +308,11 @@ function hasMovieLeadingMediaCategory(rawTitle: string) {
 function hasStrongTvLeadingMediaCategory(rawTitle: string) {
   const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
   return Boolean(bracketed && strongTvMediaCategorySegment(bracketed));
+}
+
+function hasDocumentaryLeadingMediaCategory(rawTitle: string) {
+  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  return Boolean(bracketed && documentaryMediaCategorySegment(bracketed));
 }
 
 function hasAnimationSeriesEvidence(rawTitle: string) {

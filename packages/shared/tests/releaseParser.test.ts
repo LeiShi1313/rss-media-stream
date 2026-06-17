@@ -629,12 +629,73 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("uses documentary categories with all-episode metadata as series evidence", () => {
+    const release = parseReleaseTitle(
+      "[Documentaries]Kontant 2025 1080p DRTV WEB-DL AAC 2.0 x264-FFG[Kontant 全16集][25.00 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Kontant",
+      year: 2025,
+      mediaType: "TV_SERIES",
+      season: undefined,
+      episode: undefined,
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      audio: "AAC.2.0",
+      releaseGroup: "FFG"
+    });
+  });
+
+  it("uses short documentary categories with all-episode metadata as series evidence", () => {
+    const release = parseReleaseTitle(
+      "[Doc 1080p]CCTV9 Crunch And Munch In Macao 2021 Complete 1080i HDTV H264-HDHTV[澳门之味 全4集 澳门制造/好食不过澳门街/餐桌的年轮/恋曲1999 [汉语普通话/简体中字]][9.93 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "CCTV9 Crunch And Munch In Macao",
+      year: 2021,
+      mediaType: "TV_SERIES",
+      season: undefined,
+      episode: undefined,
+      quality: "1080i",
+      source: "HDTV",
+      codec: "H.264",
+      releaseGroup: "HDHTV"
+    });
+  });
+
   it("does not treat a TV category alone as whole-series evidence", () => {
     const release = parseReleaseTitle(
       "[TV Series/HD]BBC News 2026 06 11 HDTV 1080p WEBRip H264 AAC-D0[BBC News 新闻片段 2026.06.11 英语听力口语 / 雅思托福练习 / 时政素材 / 自录][1.39 GB][N/A]"
     );
 
     expect(release.mediaType).toBe("MOVIE");
+  });
+
+  it("keeps one-episode documentary specials out of the whole-series rule", () => {
+    const release = parseReleaseTitle(
+      "[纪录片]Example Documentary Special 2026 1080p WEB-DL H264-GRP[示例纪录片特别篇 | 全1集 | 类型: 纪录片][1.00 GB]"
+    );
+
+    expect(release.mediaType).toBe("MOVIE");
+  });
+
+  it("does not treat complete concert titles as documentary series evidence", () => {
+    const release = parseReleaseTitle(
+      "[Documentaries]Billy Joel The 100th Live at Madison Square Garden The Complete Concert 2024 Blu-ray 1080p AVC DTS-HD MA 5.1[比利·乔尔—第100场麦迪逊广场花园现场][44.55 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Billy Joel The 100th Live at Madison Square Garden The Complete Concert",
+      year: 2024,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264",
+      audio: "DTS-HD"
+    });
   });
 
   it("keeps one-episode TV-category specials out of the whole-series rule", () => {
