@@ -1293,6 +1293,41 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["TVB Plus"]));
   });
 
+  it("strips ViuTV channel prefixes from whole-series TV captures", () => {
+    const courtRelease = parseReleaseTitle(
+      "ViuTV COURT! 2026 COMPLETE 1080i HDTV H264-NGB [ViuTV COURT! 全12集] 粤语 | 繁体DvbSub字幕 21.02 GB"
+    );
+    const dramaRelease = parseReleaseTitle(
+      "ViuTV What Comes After Love 2024 COMPLETE 1080i HDTV H264-NGB [ViuTV 爱过之后来临的 全8集] 粤韩双语 | 繁体DvbSub字幕 13.73 GB"
+    );
+
+    expect(courtRelease).toMatchObject({
+      title: "COURT!",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      quality: "1080i",
+      source: "HDTV"
+    });
+    expect(courtRelease.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "ViuTV COURT",
+      "繁体DvbSub字幕",
+      "21 02 GB"
+    ]));
+    expect(courtRelease.primarySearchTitle).toBe("COURT!");
+    expect(dramaRelease).toMatchObject({
+      title: "What Comes After Love",
+      year: 2024,
+      mediaType: "TV_SERIES",
+      quality: "1080i",
+      source: "HDTV"
+    });
+    expect(dramaRelease.providerSearchTitles).toEqual(expect.arrayContaining(["爱过之后来临的"]));
+    expect(dramaRelease.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "ViuTV 爱过之后来临的",
+      "13 73 GB"
+    ]));
+  });
+
   it("keeps native compound titles joined by Chinese em dashes", () => {
     const release = parseReleaseTitle(
       "CCTV-3 Heavenly Voices  Chinese Folk Song Festival S01E09 1080i HDTV AVS+ DD5.1-QHstudIo[中央电视台综艺频道 原声天籁——中国民歌盛典 第一季第九期 重播版【AVS+卫星源码｜高码率 | 杜比环绕音5.1】QHstudIo小组录制作品][4.50 GB]"
