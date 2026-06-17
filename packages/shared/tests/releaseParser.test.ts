@@ -1332,6 +1332,21 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["国乐无双"]));
   });
 
+  it("keeps the base native metadata title before season-specific bonus subtitles", () => {
+    const release = parseReleaseTitle(
+      "[综艺]Guo Yue Wu Shuang S01E02 Bonus 2026 1080p WEB-DL H265 DDP2.0-ADWeb[国乐无双 第一季 花絮 成龙来了：“大哥”现场表演经典醉拳 | 国粤无双 / 创新声 / 华乐无双 *云视听极光*][130.89 MB][anonymous][国语 | 中字 | 官方]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Guo Yue Wu Shuang",
+      mediaType: "TV_SERIES",
+      year: 2026,
+      season: 1,
+      episode: 2
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["国乐无双"]));
+  });
+
   it("keeps complete when it is part of the title", () => {
     const release = parseReleaseTitle("Indiana Jones The Complete Adventures 1981-2008 UHD Blu-Ray 2160p HEVC-CHDBits");
 

@@ -1105,7 +1105,8 @@ function nativeSeasonEpisodeBaseTitleCandidate(field: string) {
     .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const match = cleaned.match(/^(.+?)\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*季\s+.+?第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*期/u);
+  const match = cleaned.match(/^(.+?)\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*季\s+.+?第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*期/u) ??
+    cleaned.match(/^(.+?)\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*季\s+[^|/]{1,40}[:：]/u);
   const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
   if (!candidate || !hasNativeScript(candidate)) return undefined;
   if (/\s/u.test(candidate)) return undefined;
