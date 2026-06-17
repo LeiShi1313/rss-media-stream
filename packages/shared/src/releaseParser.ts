@@ -76,7 +76,8 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const source = normalizeSource((normalized.match(SOURCE_RE) ?? rawNormalized.match(SOURCE_RE))?.[1]);
   const codec = normalizeCodec((normalized.match(CODEC_RE) ?? rawNormalized.match(CODEC_RE))?.[1]);
   const audio = normalizeAudio((normalized.match(AUDIO_RE) ?? rawNormalized.match(AUDIO_RE))?.[1]);
-  const year = yearMatch ? Number(yearMatch[1]) : inferMetadataYear(rawTitle);
+  const numericTitleYear = findNumericTitleYear(normalized);
+  const year = numericTitleYear?.year ?? (yearMatch ? Number(yearMatch[1]) : inferMetadataYear(rawTitle));
   const completeIndex = categorySeriesEvidence ? normalized.search(COMPLETE_WORD_RE) : -1;
   const hasTvEvidence = Boolean(tv || episodeOnly || longEpisodeOnly || seasonPack || chineseSeason || chineseEpisode || categorySeriesEvidence);
 
@@ -88,7 +89,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     chineseSeason?.source === "normalized" ? chineseSeason.index : undefined,
     chineseEpisode?.source === "normalized" ? chineseEpisode.index : undefined,
     completeIndex,
-    yearMatch?.index,
+    numericTitleYear?.yearIndex ?? yearMatch?.index,
     normalized.search(QUALITY_RE),
     normalized.search(DIMENSION_RE),
     normalized.search(SOURCE_RE)
@@ -196,6 +197,21 @@ function normalizeReleaseText(input: string): string {
     .replace(/\s+/g, ".")
     .replace(/\.+/g, ".")
     .replace(/^\.+|\.+$/g, "");
+}
+
+function findNumericTitleYear(normalized: string) {
+  const match = normalized.match(/^([12]\d{3})\.+((?:19|20)\d{2})(?=\.)/);
+  if (!match?.[1] || !match[2]) return undefined;
+  const yearIndex = match[0].indexOf(match[2], match[1].length);
+  if (yearIndex < 0) return undefined;
+  const afterYear = normalized.slice(yearIndex + match[2].length);
+  if (!QUALITY_RE.test(afterYear) && !SOURCE_RE.test(afterYear) && !CODEC_RE.test(afterYear)) {
+    return undefined;
+  }
+  return {
+    year: Number(match[2]),
+    yearIndex
+  };
 }
 
 function stripBroadcastCapturePrefix(input: string): string {

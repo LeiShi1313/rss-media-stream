@@ -257,6 +257,61 @@ describe("parseReleaseTitle", () => {
     expect(release.titleCandidates).toEqual(expect.arrayContaining(["13/13/13"]));
   });
 
+  it("parses numeric-only movie titles before their release year", () => {
+    const release = parseReleaseTitle(
+      "[Movies]2046 2004 UHD BluRay 2160p x265 DV HDR DTS-HD MA 5.1 mUHD-FRDS[2046][20.28 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "2046",
+      year: 2004,
+      mediaType: "MOVIE",
+      quality: "2160p",
+      source: "UHD",
+      codec: "H.265",
+      audio: "DTS-HD",
+      releaseGroup: "FRDS"
+    });
+  });
+
+  it("keeps numeric-only titles distinct from the following release year", () => {
+    const release = parseReleaseTitle(
+      "[电影(Movie)]2012 2009 UHD BluRay 2160p REMUX HDR HEVC TrueHD Atmos 7.1-UBits[2012世界末日][60.64 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "2012",
+      year: 2009,
+      mediaType: "MOVIE",
+      quality: "2160p",
+      source: "UHD",
+      codec: "H.265",
+      audio: "TrueHD",
+      releaseGroup: "UBits"
+    });
+  });
+
+  it("keeps title-embedded years for nonnumeric movie titles", () => {
+    const release = parseReleaseTitle("Fear Street 1666 2021 1080p WEB-DL H264-HHWEB");
+
+    expect(release).toMatchObject({
+      title: "Fear Street 1666",
+      year: 2021,
+      mediaType: "MOVIE"
+    });
+  });
+
+  it("does not treat sports season ranges as numeric movie titles", () => {
+    const release = parseReleaseTitle(
+      "[Sports]2025-2026 Sichuan Provincial Urban Football League (Dazhou-Nanchong) 20260614 HDTV 1080i AAC H.264-TPTV[20252026四川省城市足球联赛(达州-南充)][9.03 GB][N/A]"
+    );
+
+    expect(release.title).toContain("Sichuan Provincial Urban Football League");
+    expect(release.title).not.toBe("2025");
+    expect(release.year).toBe(2025);
+    expect(release.mediaType).toBe("UNKNOWN");
+  });
+
   it("prefers bracketed scene filenames even when quality is only in PTP metadata", () => {
     const release = parseReleaseTitle(
       "Mr. K [2024] by Tallulah Hazekamp Schwab - BD50 / Blu-ray / m2ts / 1080p / Scene [ Mr.K.2024.COMPLETE.BLURAY-UNTOUCHED ]"
