@@ -1845,6 +1845,34 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("removes CJK movie presentation labels from provider search titles", () => {
+    const edrRelease = parseReleaseTitle(
+      "[电影]Amongst White Clouds 2025 2160p 60fps WEB-DL HEVC DDP 2Audios-QHstudIo[白云深处 4K EDR高帧率60fps | 杜比音效  导演：李根 | 主演：刘柠昊 | 刘欣蕾 | 卢梦琳 | 李森 QHstudIo小组作品][2.76 GB][anonymous]"
+    );
+    const vividRelease = parseReleaseTitle(
+      "[Movies 2160p]Bu Li Bu Qi 2026 2160p 60fps WEB-DL HEVC 10bit HDR Vivid DDP 2Audios-QHstudIo[不离不弃【菁彩影像 | 4K高帧率 | 杜比音效】【导演：张纪中 | 主演：张芷溪 | 初俊辰 | 沈晓海 | 黄俊鹏】QHstudIo小组作品][2.72 GB][anonymous]"
+    );
+
+    expect(edrRelease).toMatchObject({
+      title: "Amongst White Clouds",
+      year: 2025,
+      mediaType: "MOVIE",
+      quality: "2160p",
+      source: "WEB-DL"
+    });
+    expect(vividRelease).toMatchObject({
+      title: "Bu Li Bu Qi",
+      year: 2026,
+      mediaType: "MOVIE",
+      quality: "2160p",
+      source: "WEB-DL"
+    });
+    expect(edrRelease.providerSearchTitles).toEqual(["白云深处"]);
+    expect(vividRelease.providerSearchTitles).toEqual(["不离不弃"]);
+    expect(edrRelease.titleCandidates).not.toEqual(expect.arrayContaining(["白云深处 EDR高帧率60fps"]));
+    expect(vividRelease.titleCandidates).not.toEqual(expect.arrayContaining(["不离不弃 菁彩影像"]));
+  });
+
   it("uses Chinese metadata episode ranges when the release segment only has a season pack", () => {
     const release = parseReleaseTitle(
       "[电视剧]Cang Yue Xing Lan S01 2026 1080p WEB-DL H264 AAC-HHWEB[沧月星澜 | 第19-23集 | 1080p  | 类型: 剧情/爱情/奇幻 | 导演: 钟大维 | 主演: 朱致灵/邵思涵/靳旺/罗予甜][913.03 MB][anonymous]"

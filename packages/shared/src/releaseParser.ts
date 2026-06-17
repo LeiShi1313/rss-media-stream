@@ -37,6 +37,7 @@ const ORIGINAL_RECORDING_METADATA_FIELD_RE = /^(?:(?:台剧|台劇|港剧|港劇
 const CJK_VARIETY_SECTION_LABEL_RE = /\s+(?:(?:正片|纯享|純享|加更|日记|日記|私藏日记|私藏日記|萌娃当家|副本存档中|同学录|同學錄|直播回看|少年的挑战|少年的挑戰|抢先逛|搶先逛|整活局)(?:版)?\s*)+$/u;
 const CJK_VARIETY_SECTION_SUBTITLE_RE = /\s+(?:正片|纯享|純享|同学录|同學錄|直播回看|少年的挑战|少年的挑戰|抢先逛|搶先逛|整活局)(?:版)?(?:\s+.*)?$/u;
 const CJK_ANNUAL_METADATA_RE = /[\p{Script=Han}].*(?:19|20)\d{2}\s*年度/u;
+const CJK_PRESENTATION_SUFFIX_RE = /\s+(?:(?:edr\s*)?高帧率(?:\s*\d{1,3}\s*fps)?|菁彩影像|hdr\s*vivid|杜比音效)(?:\s+.*)?$/iu;
 const TV_CATEGORY_WRAPPER_FIELD_RE = /^(?:tv\s*(?:series|shows?)|series)\s*[\/|]\s*(?:剧集|劇集|综艺|綜藝)\s*(?:分集|合集)?$/iu;
 const SHORT_DRAMA_METADATA_PREFIX_RE = /^(?:短剧|短劇)\s*[:：]\s*/u;
 const MIN_METADATA_YEAR = 1900;
@@ -1125,6 +1126,7 @@ function cleanMetadataTitleField(field: string) {
     .replace(/^\s+/, "")
     .replace(METADATA_TITLE_PREFIX_RE, " ")
     .replace(/\b(?:4k|2160p|1080p|1080i|720p|576p|540p|480p)\b/gi, " ")
+    .replace(CJK_PRESENTATION_SUFFIX_RE, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
