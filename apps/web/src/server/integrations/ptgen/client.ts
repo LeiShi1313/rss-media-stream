@@ -55,6 +55,7 @@ export async function searchPtgen(
         mediaType: input.mediaType,
         year: input.year,
         season: input.season,
+        episode: input.episode,
         language,
         baseUrl: PTGEN_SEARCH_BASE_URL,
         backend: "search_api",

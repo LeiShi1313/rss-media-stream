@@ -1571,6 +1571,29 @@ describe("provider candidate scoring", () => {
     })).toBe(0.78);
   });
 
+  it("accepts exact TV episode matches when release year is one year after provider first year", () => {
+    expect(scoreProviderCandidate({
+      query: "Noona is A Woman to Me",
+      candidateTitles: ["Noona is a Woman to Me"],
+      mediaType: "TV_SERIES",
+      expectedYear: 2026,
+      actualYear: 2025,
+      season: 2,
+      episode: 4
+    })).toBeGreaterThanOrEqual(0.88);
+  });
+
+  it("keeps one-year later TV matches low without parsed episode evidence", () => {
+    expect(scoreProviderCandidate({
+      query: "Noona is A Woman to Me",
+      candidateTitles: ["Noona is a Woman to Me"],
+      mediaType: "TV_SERIES",
+      expectedYear: 2026,
+      actualYear: 2025,
+      season: 2
+    })).toBeLessThan(0.88);
+  });
+
   it("accepts exact TV season-pack matches when the release has no parsed year", () => {
     expect(scoreProviderCandidate({
       query: "Yozakura san Chi no Daisakusen",

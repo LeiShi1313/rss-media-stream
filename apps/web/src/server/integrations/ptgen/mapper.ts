@@ -31,6 +31,7 @@ export function ptgenSearchHitToTitleResult(
     mediaType?: MediaType;
     year?: number;
     season?: number;
+    episode?: number;
     language?: string;
     baseUrl: string;
     backend: string;
@@ -51,6 +52,7 @@ export function ptgenSearchHitToTitleResult(
       inferSearchMediaType(record, input.mediaType),
       input.year,
       input.season,
+      input.episode,
       input.index ?? 0,
       yearFromValue(record.year ?? record.release_date)
     )
@@ -397,6 +399,7 @@ function scorePtgenCandidate(
   mediaType: MediaType,
   expectedYear: number | undefined,
   season: number | undefined,
+  episode: number | undefined,
   index: number,
   actualYear?: number
 ) {
@@ -406,7 +409,8 @@ function scorePtgenCandidate(
     mediaType,
     expectedYear,
     actualYear,
-    season
+    season,
+    episode
   });
   const rankPenalty = score >= 0.94 ? 0 : Math.min(index, 4) * 0.03;
   return Math.max(0, Math.min(1, Number((score - rankPenalty).toFixed(2))));

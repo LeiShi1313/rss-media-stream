@@ -7,7 +7,8 @@ export type ProviderCandidateScoreInput = {
   expectedYear?: number;
   actualYear?: number;
   season?: number;
-  allowNoYearSeasonBoost?: boolean;
+  episode?: number;
+  allowUnconfirmedSeasonBoost?: boolean;
 };
 
 export function scoreProviderCandidate(input: ProviderCandidateScoreInput): number {
@@ -28,7 +29,7 @@ export function scoreProviderCandidate(input: ProviderCandidateScoreInput): numb
 
   let score = titleScore * 0.78;
   if (
-    input.allowNoYearSeasonBoost !== false &&
+    input.allowUnconfirmedSeasonBoost !== false &&
     !input.expectedYear &&
     input.mediaType === "TV_SERIES" &&
     input.season &&
@@ -38,6 +39,15 @@ export function scoreProviderCandidate(input: ProviderCandidateScoreInput): numb
   }
   if (input.expectedYear && input.actualYear) {
     if (input.mediaType === "TV_SERIES" && input.expectedYear > input.actualYear) {
+      if (
+        input.allowUnconfirmedSeasonBoost !== false &&
+        input.expectedYear - input.actualYear === 1 &&
+        input.season &&
+        input.episode &&
+        titleScore >= 0.98
+      ) {
+        score = Math.max(score, 0.9);
+      }
       return roundScore(score);
     }
     const yearDelta = Math.abs(input.expectedYear - input.actualYear);

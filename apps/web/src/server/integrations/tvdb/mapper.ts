@@ -41,7 +41,8 @@ export function tvdbSearchResultToTitleResult(
       mediaType,
       expectedYear: input.year,
       actualYear: releaseYear,
-      season: input.season
+      season: input.season,
+      episode: input.episode
     }),
     externalUrl: tvdbExternalUrl(mediaType, result.slug)
   };
