@@ -748,6 +748,79 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("莫离");
   });
 
+  it("strips broadcast capture prefixes before release parsing", () => {
+    const release = parseReleaseTitle(
+      "ZJTV-4K The Treasured Voice S07E01 2160p 50fps UHDTV AVS2.10bit HLG DD5.1-QHstudIo[浙江卫视4K超高清频道 天赐的声音 第七季第1期 【AVS2卫星源码 | 4K HLG 10bit | 高帧率 | 高码率 | 杜比环绕音5.1】QHstudIo小组录制作品][26.16 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Treasured Voice",
+      mediaType: "TV_SERIES",
+      season: 7,
+      episode: 1,
+      quality: "2160p",
+      releaseGroup: "QHstudIo"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["天赐的声音"]));
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["ZJTV"]));
+  });
+
+  it("strips hyphenated 4K broadcast capture prefixes", () => {
+    const release = parseReleaseTitle(
+      "[TV Shows]HNTV-4K Infinity and Beyond Mandopop 2025 S05E01-E02 2160p 50fps UHDTV AVS2 10bit HLG DD5.1-QHstudIo[湖南卫视4K超高清频道 声生不息华流季 第01-02期【AVS2卫星源码 | 4K HLG 10bit | 高帧率 | 高码率 | 杜比环绕音5.1】QHstudIo小组录制作品][42.04 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Infinity and Beyond Mandopop",
+      year: 2025,
+      mediaType: "TV_SERIES",
+      season: 5,
+      episode: 1,
+      episodeEnd: 2,
+      quality: "2160p",
+      releaseGroup: "QHstudIo"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["声生不息华流季"]));
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["HNTV"]));
+  });
+
+  it("strips dotted broadcast capture prefixes before scene-style TV titles", () => {
+    const release = parseReleaseTitle(
+      "GDTV-4K.Battle.of.Changsha.2014.S01E05-E09.1080p.HDTV.H264.AAC-CMCTV[广东卫视4K超高清频道 战长沙 | 第5-9集 | 导演: 孔笙 张开宙][26.42 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Battle of Changsha",
+      year: 2014,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 5,
+      episodeEnd: 9,
+      quality: "1080p",
+      source: "HDTV",
+      releaseGroup: "CMCTV"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["战长沙"]));
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["GDTV"]));
+  });
+
+  it("extracts Chinese titles from CCTV variety metadata", () => {
+    const release = parseReleaseTitle(
+      "CCTV-3 Epic Guofeng The Quest for the Wind S01E10 1080i HDTV AVS+ DD5.1-QHstudIo[中央电视台综艺频道 国风超有戏·寻风季 第10期:国潮·国风音乐会 重播版【AVS+卫星源码｜高码率 | 杜比环绕音5.1】QHstudIo小组录制作品][6.23 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Epic Guofeng The Quest for the Wind",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 10,
+      quality: "1080i",
+      source: "HDTV",
+      releaseGroup: "QHstudIo"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["国风超有戏·寻风季"]));
+  });
+
   it("uses Chinese metadata episode ranges when the release segment only has a season pack", () => {
     const release = parseReleaseTitle(
       "[电视剧]Cang Yue Xing Lan S01 2026 1080p WEB-DL H264 AAC-HHWEB[沧月星澜 | 第19-23集 | 1080p  | 类型: 剧情/爱情/奇幻 | 导演: 钟大维 | 主演: 朱致灵/邵思涵/靳旺/罗予甜][913.03 MB][anonymous]"
