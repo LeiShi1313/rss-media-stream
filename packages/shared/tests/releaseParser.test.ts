@@ -949,6 +949,37 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("莫离");
   });
 
+  it("keeps native compound titles joined by Chinese em dashes", () => {
+    const release = parseReleaseTitle(
+      "CCTV-3 Heavenly Voices  Chinese Folk Song Festival S01E09 1080i HDTV AVS+ DD5.1-QHstudIo[中央电视台综艺频道 原声天籁——中国民歌盛典 第一季第九期 重播版【AVS+卫星源码｜高码率 | 杜比环绕音5.1】QHstudIo小组录制作品][4.50 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Heavenly Voices Chinese Folk Song Festival",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 9,
+      quality: "1080i",
+      source: "HDTV"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "原声天籁——中国民歌盛典",
+      "原声天籁",
+      "中国民歌盛典"
+    ]));
+    expect(release.providerSearchTitles?.[0]).toBe("原声天籁——中国民歌盛典");
+  });
+
+  it("does not keep long native em dash descriptions as title aliases", () => {
+    const release = parseReleaseTitle(
+      "Example Movie 2026 1080p WEB-DL H264-GRP[这是一段很长很长的剧情描述，不是标题本身——后面仍然是在继续描述剧情内容和人物关系][1.00 GB]"
+    );
+
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "这是一段很长很长的剧情描述，不是标题本身——后面仍然是在继续描述剧情内容和人物关系"
+    ]));
+  });
+
   it("strips broadcast capture prefixes before release parsing", () => {
     const release = parseReleaseTitle(
       "ZJTV-4K The Treasured Voice S07E01 2160p 50fps UHDTV AVS2.10bit HLG DD5.1-QHstudIo[浙江卫视4K超高清频道 天赐的声音 第七季第1期 【AVS2卫星源码 | 4K HLG 10bit | 高帧率 | 高码率 | 杜比环绕音5.1】QHstudIo小组录制作品][26.16 GB]"

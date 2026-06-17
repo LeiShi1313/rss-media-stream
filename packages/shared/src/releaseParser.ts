@@ -30,6 +30,7 @@ const TV_CATEGORY_WRAPPER_FIELD_RE = /^(?:tv\s*series|series)\s*[\/|]\s*(?:剧�
 const SHORT_DRAMA_METADATA_PREFIX_RE = /^(?:短剧|短劇)\s*[:：]\s*/u;
 const MIN_METADATA_YEAR = 1900;
 const NATIVE_SCRIPT_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const NATIVE_EM_DASH_TITLE_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]\s*[—－–]{2,}\s*[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const LATIN_RE = /[A-Za-z]/;
 const SLASH_NUMERIC_TITLE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const CHINESE_SEASON_RE = /(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|([一二三四五六七八九十两\d]{1,3})\s*季)/u;
@@ -545,6 +546,10 @@ function titleCandidatesFromValue(value: string) {
   if (SLASH_NUMERIC_TITLE_RE.test(slashNumericTitle)) {
     candidates.push(slashNumericTitle);
   }
+  const nativeEmDashTitle = nativeEmDashTitleCandidate(trimmed);
+  if (nativeEmDashTitle) {
+    candidates.push(nativeEmDashTitle);
+  }
   for (const aliasPart of trimmed.split(AKA_RE)) {
     for (const part of splitTitlePart(aliasPart)) {
       for (const scriptPart of splitScriptRuns(part)) {
@@ -554,6 +559,22 @@ function titleCandidatesFromValue(value: string) {
     }
   }
   return candidates;
+}
+
+function nativeEmDashTitleCandidate(value: string) {
+  if (!NATIVE_EM_DASH_TITLE_RE.test(value)) return undefined;
+  const cleaned = cleanCandidateTitle(value);
+  if (!NATIVE_EM_DASH_TITLE_RE.test(cleaned)) return undefined;
+  if (hasLatin(cleaned) || Array.from(cleaned).length > 40) return undefined;
+  const parts = cleaned
+    .split(/\s*[—－–]{2,}\s*/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return undefined;
+  if (parts.some((part) => !hasNativeScript(part) || metadataInfoField(part))) {
+    return undefined;
+  }
+  return cleaned;
 }
 
 function humanMetadataTitleCandidates(rawTitle: string) {
