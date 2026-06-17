@@ -1658,6 +1658,22 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("成交不成交 澳版");
   });
 
+  it("strips Hong Kong variety labels from provider search titles", () => {
+    const release = parseReleaseTitle(
+      "[TV Shows]Jade Lose the Battle Win the War Complete HDTV 1080i H264-CHDHKTV[港綜:夫妻肺片(全10集)[粵語][简繁字幕][CHDHKTV港劇聯盟榮譽出品]][16.09 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Lose the Battle Win the War",
+      mediaType: "TV_SERIES",
+      quality: "1080i",
+      source: "HDTV",
+      codec: "H.264"
+    });
+    expect(release.providerSearchTitles).toEqual(["夫妻肺片"]);
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["港綜:夫妻肺片"]));
+  });
+
   it("keeps parenthesized regional TV aliases as provider search fallbacks", () => {
     const release = parseReleaseTitle(
       "[剧集]Dertigers NL S07E05 DUTCH 1080p WEB h264-TRIPEL[Dertigers (NL)  [第七季 第05集] | 类型：剧情 | 2026][723.58 MB][anonymous][]"
