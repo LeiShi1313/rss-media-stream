@@ -855,6 +855,42 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["考拉绘日记 無尾熊繪日記 コアラ絵日記"]));
   });
 
+  it("removes TV category wrapper aliases from short-drama episode releases", () => {
+    const release = parseReleaseTitle(
+      "[TV Series/剧集(分集）]Accident Squad S01E13-E16 2026 2160p WEB-DL DDP2.0 H265 60fps HDR-HDSWEB[短剧: 意外调查组 第13-16集 [60帧] 【去头尾广告纯享版】[非伪去头] *发现未去净的广告或片头片尾，奖励魔力1W][2.76 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Accident Squad",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 13,
+      episodeEnd: 16
+    });
+    expect(release.providerSearchTitles).toEqual(["意外调查组"]);
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining([
+      "分集",
+      "剧集 分集",
+      "短剧: 意外调查组",
+      "非伪去头",
+      "*发现未去净的广告或片头片尾，奖励魔力1W"
+    ]));
+  });
+
+  it("removes TV category wrapper aliases from short-drama season packs", () => {
+    const release = parseReleaseTitle(
+      "[TV Series/剧集(合集）]Crime Scene S01 2026 2160p WEB-DL DDP2.0 H265-HDSWEB[短剧: 罪案现场 全24集 | 主演: 刘俊孝 刘宇航 许晓诺][8.62 GB][anonymous]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(["罪案现场"]);
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining([
+      "合集",
+      "剧集 合集",
+      "短剧: 罪案现场"
+    ]));
+  });
+
   it("uses Chinese metadata episode ranges when the release segment only has a season pack", () => {
     const release = parseReleaseTitle(
       "[电视剧]Cang Yue Xing Lan S01 2026 1080p WEB-DL H264 AAC-HHWEB[沧月星澜 | 第19-23集 | 1080p  | 类型: 剧情/爱情/奇幻 | 导演: 钟大维 | 主演: 朱致灵/邵思涵/靳旺/罗予甜][913.03 MB][anonymous]"
