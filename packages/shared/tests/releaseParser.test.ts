@@ -849,6 +849,36 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("uses stacked TV drama category brackets as series evidence", () => {
+    const mainlandRelease = parseReleaseTitle(
+      "[剧集][大陆][太极宗师之太极门][Taichi.Heros.2017.WEB-DL.2160p.H265.AAC-PTerWEB][[剧情 / 武侠]][45.75 GiB][anonymous]"
+    );
+    const japaneseRelease = parseReleaseTitle(
+      "[剧集][日剧][真假学园2][Majisuka Gakuen 2 2011 DVDRip 720p x264 AAC2.0][6.01 GiB][]"
+    );
+
+    expect(mainlandRelease).toMatchObject({
+      title: "Taichi Heros",
+      year: 2017,
+      mediaType: "TV_SERIES",
+      season: undefined,
+      episode: undefined,
+      quality: "2160p",
+      source: "WEB-DL"
+    });
+    expect(mainlandRelease.providerSearchTitles).toEqual(expect.arrayContaining(["太极宗师之太极门"]));
+    expect(japaneseRelease).toMatchObject({
+      title: "Majisuka Gakuen 2",
+      year: 2011,
+      mediaType: "TV_SERIES",
+      season: undefined,
+      episode: undefined,
+      quality: "720p",
+      source: "DVDRip"
+    });
+    expect(japaneseRelease.providerSearchTitles).toEqual(expect.arrayContaining(["真假学园2"]));
+  });
+
   it("does not promote explicit movie or audiobook categories with all-episode metadata", () => {
     const movieRelease = parseReleaseTitle(
       "[电影]Example Movie 2026 1080p WEB-DL H264-GRP[示例电影 | 全3集 | 类型: 剧情][1.00 GB]"
