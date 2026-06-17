@@ -108,6 +108,18 @@ function scoreTmdbCandidate(input: {
   }
   if (
     input.endpoint === "tv" &&
+    input.input.titleSource === "parsed_title" &&
+    input.input.season != null &&
+    input.input.episode != null &&
+    tmdbTitleExactlyMatchesCandidate({
+      query: input.input.title,
+      candidateTitles: input.candidateTitles
+    })
+  ) {
+    return Math.max(baseScore, 0.88);
+  }
+  if (
+    input.endpoint === "tv" &&
     tmdbTitleHasChineseRegionDisplayEvidence({
       query: input.input.title,
       displayTitle: input.result.name,
@@ -117,6 +129,15 @@ function scoreTmdbCandidate(input: {
     return Math.max(baseScore, 0.88);
   }
   return baseScore;
+}
+
+function tmdbTitleExactlyMatchesCandidate(input: {
+  query: string;
+  candidateTitles: readonly string[];
+}) {
+  const queryKey = normalizeForScore(input.query);
+  if (!queryKey) return false;
+  return input.candidateTitles.some((candidate) => normalizeForScore(candidate) === queryKey);
 }
 
 export function tmdbTitleSupportsSeasonEvidence(input: {

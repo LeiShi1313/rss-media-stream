@@ -8,6 +8,7 @@ export const tmdbProvider: MetadataProvider = {
     return searchTmdb(
       {
         title: input.title,
+        titleSource: input.titleSource,
         mediaType: input.mediaType,
         year: input.year,
         season: input.season,

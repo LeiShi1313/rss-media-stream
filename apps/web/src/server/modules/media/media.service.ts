@@ -498,11 +498,12 @@ async function selectProviderTitleCandidate(input: {
     }
     configured += 1;
 
-    for (const title of searchTitles) {
+    for (const searchTitle of searchTitles) {
       let results: ProviderMetadataCandidate[];
       try {
         results = await runProviderSearchWithRuntime(providerSource, runtime, {
-          title,
+          title: searchTitle.title,
+          titleSource: searchTitle.titleSource,
           mediaType: input.mediaType,
           year: input.year,
           season: input.season,
@@ -565,13 +566,25 @@ function releaseYearIncompatible(
   return expectedYear !== actualYear;
 }
 
+type MatchingSearchTitle = {
+  title: string;
+  titleSource: "parsed_title" | "provider_search_title";
+};
+
 function matchingSearchTitles(title: string, titleCandidates: string[] | undefined) {
-  const titles: string[] = [];
-  for (const candidate of [title, ...(titleCandidates ?? [])]) {
-    const trimmed = candidate.trim();
+  const titles: MatchingSearchTitle[] = [];
+  const candidates: MatchingSearchTitle[] = [
+    { title, titleSource: "parsed_title" },
+    ...(titleCandidates ?? []).map((candidate) => ({
+      title: candidate,
+      titleSource: "provider_search_title" as const
+    }))
+  ];
+  for (const candidate of candidates) {
+    const trimmed = candidate.title.trim();
     if (!trimmed) continue;
-    if (!titles.some((existing) => existing.localeCompare(trimmed, undefined, { sensitivity: "accent" }) === 0)) {
-      titles.push(trimmed);
+    if (!titles.some((existing) => existing.title.localeCompare(trimmed, undefined, { sensitivity: "accent" }) === 0)) {
+      titles.push({ ...candidate, title: trimmed });
     }
     if (titles.length >= 5) break;
   }
@@ -1230,7 +1243,14 @@ async function runProviderSearch(
   config: AppConfig,
   tenantId: string,
   providerSource: ProviderSource,
-  input: { title: string; mediaType: MediaType; year?: number; season?: number; episode?: number }
+  input: {
+    title: string;
+    titleSource?: "parsed_title" | "provider_search_title";
+    mediaType: MediaType;
+    year?: number;
+    season?: number;
+    episode?: number;
+  }
 ) {
   try {
     const normalizedProviderSource = canonicalProviderSource(providerSource) ?? providerSource;
@@ -1247,12 +1267,20 @@ async function runProviderSearch(
 async function runProviderSearchWithRuntime(
   providerSource: ProviderSource,
   runtime: ProviderRuntimeContext,
-  input: { title: string; mediaType: MediaType; year?: number; season?: number; episode?: number }
+  input: {
+    title: string;
+    titleSource?: "parsed_title" | "provider_search_title";
+    mediaType: MediaType;
+    year?: number;
+    season?: number;
+    episode?: number;
+  }
 ) {
   const normalizedProviderSource = canonicalProviderSource(providerSource) ?? providerSource;
   const results = await getMetadataProvider(adapterIdForProviderSource(normalizedProviderSource)).search(
     {
       title: input.title,
+      titleSource: input.titleSource,
       mediaType: input.mediaType,
       year: input.year,
       season: input.season,

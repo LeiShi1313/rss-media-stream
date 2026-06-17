@@ -32,6 +32,7 @@ export type TmdbSearchResponse = {
 
 export type TmdbSearchInput = {
   title: string;
+  titleSource?: "parsed_title" | "provider_search_title";
   mediaType: MediaType;
   year?: number;
   season?: number;

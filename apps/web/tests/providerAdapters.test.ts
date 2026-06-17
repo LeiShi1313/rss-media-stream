@@ -1029,6 +1029,89 @@ describe("TMDB title mapper", () => {
     });
   });
 
+  it("accepts exact primary TV title matches when TMDB season detail is stale", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 100683,
+            name: "Farm to Fork",
+            original_name: "Farm to Fork",
+            first_air_date: "2019-11-11",
+            origin_country: ["AU"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 100683,
+          name: "Farm to Fork",
+          original_name: "Farm to Fork",
+          first_air_date: "2019-11-11",
+          origin_country: ["AU"],
+          seasons: [{ season_number: 1, episode_count: 20 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "Farm to Fork",
+        titleSource: "parsed_title",
+        mediaType: "TV_SERIES",
+        season: 1,
+        episode: 68
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/tv/100683?");
+    expect(results[0]).toMatchObject({
+      title: "Farm to Fork",
+      matchConfidence: 0.88
+    });
+  });
+
+  it("accepts exact primary TV special episode matches", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 105,
+            name: "园艺世界",
+            original_name: "Gardeners' World",
+            first_air_date: "1968-01-05",
+            origin_country: ["GB"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [] })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "Gardeners' World",
+        titleSource: "parsed_title",
+        mediaType: "TV_SERIES",
+        season: 0,
+        episode: 29
+      },
+      { credential: "tmdb-key", language: "zh-CN" }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(results[0]).toMatchObject({
+      title: "园艺世界",
+      matchConfidence: 0.88
+    });
+  });
+
   it("accepts China-origin localized TV display title matches when episode detail is stale", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
@@ -1182,6 +1265,7 @@ describe("TMDB title mapper", () => {
     const results = await searchTmdb(
       {
         title: "出租女友",
+        titleSource: "provider_search_title",
         mediaType: "TV_SERIES",
         year: 2026,
         season: 5,

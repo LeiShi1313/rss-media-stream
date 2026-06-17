@@ -2,6 +2,7 @@ import type { MediaProvider, MediaType, ParsedMediaType, ProviderSource, Provide
 
 export type ProviderSearchInput = {
   title: string;
+  titleSource?: "parsed_title" | "provider_search_title";
   mediaType: MediaType;
   year?: number;
   season?: number;
