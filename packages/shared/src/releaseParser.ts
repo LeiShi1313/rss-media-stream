@@ -29,6 +29,8 @@ const SLASH_NUMERIC_TITLE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const CHINESE_SEASON_RE = /(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|([一二三四五六七八九十两\d]{1,3})\s*季)/u;
 const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,4})(?:\s*[-~至到－—]\s*([一二三四五六七八九十两\d]{1,4}))?\s*(?:集|话|話)/u;
 const WHOLE_SERIES_EPISODE_RE = /全\s*(?!0*1\s*(?:集|话|話)|一\s*(?:集|话|話))[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)/u;
+const CJK_COMPLETE_EPISODE_RANGE_RE = /\d{1,4}\s*[-~至到－—]\s*\d{1,4}\s*(?:集|话|話)\s*(?:全|完|完结|完結)/u;
+const ANIMATION_TV_EPISODE_RANGE_RE = /\bTV\b[^\[\]]{0,40}\d{1,4}\s*[-~－—]\s*\d{1,4}/iu;
 
 export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const cleanedRawTitle = stripMediaExtension(rawTitle);
@@ -246,7 +248,9 @@ function hasAnimationSeriesEvidence(rawTitle: string) {
     !hasMangaBracketCategory(rawTitle) &&
     (
       hasExplicitTvBracketSegment(rawTitle) ||
+      hasAnimationTvEpisodeRange(rawTitle) ||
       hasBracketEpisodeRange(rawTitle) ||
+      CJK_COMPLETE_EPISODE_RANGE_RE.test(rawTitle) ||
       WHOLE_SERIES_EPISODE_RE.test(rawTitle)
     );
 }
@@ -281,6 +285,12 @@ function strongTvMediaCategorySegment(segment: string) {
 function hasExplicitTvBracketSegment(rawTitle: string) {
   return titleSegments(rawTitle).some((segment) =>
     /^(?:tv|テレビ|テレビアニメ)$/iu.test(segment.trim())
+  );
+}
+
+function hasAnimationTvEpisodeRange(rawTitle: string) {
+  return titleSegments(rawTitle).some((segment) =>
+    ANIMATION_TV_EPISODE_RANGE_RE.test(segment.trim())
   );
 }
 
@@ -446,6 +456,7 @@ function providerSearchTitleCandidate(candidate: string, canonical: string) {
   if (sameCandidate(candidate, canonical)) return false;
   if (equivalentTitleKey(candidate) === equivalentTitleKey(canonical)) return false;
   if (!isTitleCandidate(candidate)) return false;
+  if (standaloneCategoryAlias(candidate)) return false;
   if (PROVIDER_ALIAS_CATEGORY_PREFIX_RE.test(candidate)) return false;
   if (PROVIDER_ALIAS_NOISE_RE.test(candidate)) return false;
   if (/^\d{1,3}(?:\s*[/-]\s*\d{1,3})?$/.test(candidate)) return false;
@@ -455,6 +466,10 @@ function providerSearchTitleCandidate(candidate: string, canonical: string) {
     if (words.length < 2) return false;
   }
   return true;
+}
+
+function standaloneCategoryAlias(candidate: string) {
+  return /^(?:剧场|劇場|tv|ova|ona|sp|movie)$/iu.test(candidate.trim());
 }
 
 function titleCandidatesFromValue(value: string) {

@@ -359,6 +359,45 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("钢之炼金术师FA");
   });
 
+  it("uses animation TV episode-range pack markers as series evidence", () => {
+    const release = parseReleaseTitle(
+      "[动漫(Animations)]Cat Ninden Teyandee 1990 BluRay 1080p x264 FLAC-jsum@U2[功夫猫党 TV 01-54 Fin+SP][80.24 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Cat Ninden Teyandee",
+      mediaType: "TV_SERIES",
+      year: 1990,
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264",
+      audio: "FLAC",
+      releaseGroup: "jsum@U2"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["功夫猫党"]));
+  });
+
+  it("uses animation bracket TV ranges without keeping category aliases", () => {
+    const release = parseReleaseTitle(
+      "[动漫][TV/剧场][FRDS][灌篮高手][Slam Dunk][TV 01-101 Fin+SP+MOVIE][1080p][BDRip][MKV][1993.10][日漫][TV版+特别篇+4部剧场版+2022电影版 | 日语/DVD台配/俏佳人VCD台配/辽艺国语/粤语 | 中日字幕/台配字幕/官方简体字幕/官方繁体字幕][114.29 GiB][anonymous]"
+    );
+
+    expect(release.mediaType).toBe("TV_SERIES");
+    expect(release.year).toBe(1993);
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["灌篮高手"]));
+    expect(release.providerSearchTitles).not.toContain("剧场");
+  });
+
+  it("uses CJK complete episode ranges in animation metadata as series evidence", () => {
+    const release = parseReleaseTitle(
+      "[Anime SD]Doraemon  1-1400 SD AAC MP4[哆啦A梦 1-1400集全 TV怀旧版][48.63 GB][anonymous]"
+    );
+
+    expect(release.mediaType).toBe("TV_SERIES");
+    expect(release.primarySearchTitle).toBe("哆啦A梦");
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["哆啦A梦"]));
+  });
+
   it("does not classify manga brackets as animation series", () => {
     const release = parseReleaseTitle(
       "[动漫][漫画][地主][在超市后门吸烟的二人][Super no Ura de Yani Suu Futari][Vol.01-Vol.5 Fin][HXR][东立][ZIP][2022.08][日漫][在超市后吸烟的故事 | 作者: 地主 | 一到五单行本对应1-38话 | 繁体中文][2.05 GiB][jys210]"
