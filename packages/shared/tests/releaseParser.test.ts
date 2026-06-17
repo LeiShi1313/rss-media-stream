@@ -208,14 +208,14 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["Network"]));
   });
 
-  it("does not rewrite one-year PTP filename and display year differences", () => {
+  it("uses the PTP display year for exact one-year title-alias matches", () => {
     const release = parseReleaseTitle(
       "Soy Frankelda AKA I Am Frankelda [2025] by Arturo Ambriz and Roy Ambriz - H.265 / WEB / MKV / 2160p / Dual Audio / Dolby Vision [ I.Am.Frankelda.2026.2160p.NF.WEB-DL.DDP5.1.DV.H.265-CHORTLE ]"
     );
 
     expect(release).toMatchObject({
       title: "I Am Frankelda",
-      year: 2026,
+      year: 2025,
       mediaType: "MOVIE",
       quality: "2160p",
       source: "WEB-DL",

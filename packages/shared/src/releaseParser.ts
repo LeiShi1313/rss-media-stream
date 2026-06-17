@@ -657,6 +657,7 @@ function findPtpDisplayMetadataYear(rawTitle: string, parseInput: string) {
     year: Number(match[2]),
     prefixHasYear,
     titleCompatible: ptpDisplayTitleCompatible(prefixCandidates, releaseTitleCandidates),
+    exactTitleMatch: ptpDisplayTitleExactMatch(prefixCandidates, releaseTitleCandidates),
     preferForAliasMismatch: AKA_RE.test(match[1]) &&
       releaseTitleCandidates.length > 0 &&
       prefixCandidates.length > 0 &&
@@ -668,12 +669,12 @@ function findPtpDisplayMetadataYear(rawTitle: string, parseInput: string) {
 
 function preferredReleaseYear(
   releaseYear: number | undefined,
-  ptpDisplayYear: { year: number; prefixHasYear: boolean; titleCompatible: boolean; preferForAliasMismatch: boolean } | undefined
+  ptpDisplayYear: { year: number; prefixHasYear: boolean; titleCompatible: boolean; exactTitleMatch: boolean; preferForAliasMismatch: boolean } | undefined
 ) {
   if (releaseYear == null) return ptpDisplayYear?.year;
   if (ptpDisplayYear == null) return releaseYear;
   const yearDelta = Math.abs(releaseYear - ptpDisplayYear.year);
-  if (yearDelta <= 1 && (ptpDisplayYear.prefixHasYear || ptpDisplayYear.preferForAliasMismatch)) {
+  if (yearDelta <= 1 && (ptpDisplayYear.prefixHasYear || ptpDisplayYear.preferForAliasMismatch || ptpDisplayYear.exactTitleMatch)) {
     return ptpDisplayYear.year;
   }
   if (!ptpDisplayYear.titleCompatible) return releaseYear;
@@ -696,6 +697,13 @@ function ptpDisplayTitleCompatible(prefixCandidates: string[], releaseTitleCandi
   if (prefixCandidates.length === 0 || releaseTitleCandidates.length === 0) return false;
   return releaseTitleCandidates.some((candidate) =>
     prefixCandidates.some((prefixCandidate) => compatibleTitleKey(prefixCandidate, candidate))
+  );
+}
+
+function ptpDisplayTitleExactMatch(prefixCandidates: string[], releaseTitleCandidates: string[]) {
+  if (prefixCandidates.length === 0 || releaseTitleCandidates.length === 0) return false;
+  return releaseTitleCandidates.some((candidate) =>
+    prefixCandidates.some((prefixCandidate) => equivalentTitleKey(prefixCandidate) === equivalentTitleKey(candidate))
   );
 }
 
