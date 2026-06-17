@@ -970,6 +970,25 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles?.[0]).toBe("原声天籁——中国民歌盛典");
   });
 
+  it("keeps native yearly variety titles as provider search aliases", () => {
+    const release = parseReleaseTitle(
+      "[TV Shows综艺]Singer 2026 S07E03 2160p WEB-DL HEVC AAC-QHstudIo[歌手2026 第03期 *含纯享+加更版+直拍REACTION+歌手后花园+超前营业【无芒果TV水印 | 4K高码率】【嘉宾：齐豫 | 胡彦斌 | 张碧晨 | 斯塔纳伊 | 尤长靖 | 周兴哲 | 窦靖童】QHstudIo小组作品][41.10 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Singer",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 7,
+      episode: 3,
+      quality: "2160p",
+      source: "WEB-DL"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["歌手2026", "歌手"]));
+    expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining(["Shows综艺", "TV Shows综艺"]));
+    expect(release.primarySearchTitle).toBe("歌手2026");
+  });
+
   it("does not keep long native em dash descriptions as title aliases", () => {
     const release = parseReleaseTitle(
       "Example Movie 2026 1080p WEB-DL H264-GRP[这是一段很长很长的剧情描述，不是标题本身——后面仍然是在继续描述剧情内容和人物关系][1.00 GB]"

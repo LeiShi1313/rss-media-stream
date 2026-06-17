@@ -31,6 +31,7 @@ const SHORT_DRAMA_METADATA_PREFIX_RE = /^(?:短剧|短劇)\s*[:：]\s*/u;
 const MIN_METADATA_YEAR = 1900;
 const NATIVE_SCRIPT_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const NATIVE_EM_DASH_TITLE_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]\s*[—－–]{2,}\s*[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const NATIVE_YEARLY_TITLE_RE = /(?:^|\s)([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}][\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}A-Za-z0-9·・:：!！?？&+.'\-\s]{0,24}?(?:19|20)\d{2})(?=\s*(?:第\s*[一二三四五六七八九十两\d]{1,4}\s*(?:季|部|期|集|话|話)|[一二三四五六七八九十两\d]{1,4}\s*(?:季|期|集|话|話)|$))/u;
 const LATIN_RE = /[A-Za-z]/;
 const SLASH_NUMERIC_TITLE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const CHINESE_SEASON_RE = /(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|([一二三四五六七八九十两\d]{1,3})\s*季)/u;
@@ -491,11 +492,12 @@ function deriveTitleInfo(input: {
   const canonical = weakCanonicalTitle(baseCanonical)
     ? chooseCanonicalTitle(input.rawName, humanCandidates) ?? humanCandidates[0] ?? baseCanonical
     : humanCandidates.find((candidate) => equivalentTitleKey(candidate) === equivalentTitleKey(baseCanonical)) ?? baseCanonical;
-  const nativeCandidate = candidates.find((candidate) => hasNativeScript(candidate));
+  const searchTitles = providerSearchTitles(candidates, canonical);
+  const nativeCandidate = (searchTitles ?? candidates).find((candidate) => hasNativeScript(candidate));
   return {
     title: canonical,
     titleCandidates: candidates.length > 0 ? candidates : undefined,
-    providerSearchTitles: providerSearchTitles(candidates, canonical),
+    providerSearchTitles: searchTitles,
     primarySearchTitle: nativeCandidate && !sameCandidate(nativeCandidate, canonical)
       ? nativeCandidate
       : canonical
@@ -534,7 +536,7 @@ function providerSearchTitleCandidate(candidate: string, canonical: string) {
 }
 
 function standaloneCategoryAlias(candidate: string) {
-  return /^(?:剧场|劇場|分集|合集|tv|ova|ona|sp|movie)$/iu.test(candidate.trim());
+  return /^(?:剧场|劇場|分集|合集|tv|ova|ona|sp|movie|(?:tv\s*)?shows?\s*(?:综艺|綜藝)?)$/iu.test(candidate.trim());
 }
 
 function titleCandidatesFromValue(value: string) {
@@ -592,6 +594,10 @@ function metadataTitleCandidatesFromSegment(segment: string) {
     candidates.push(regionalAlias);
   }
   for (const field of metadataTitleFields(cleanedSegment)) {
+    const yearlyTitle = nativeYearlyTitleCandidate(field);
+    if (yearlyTitle) {
+      candidates.push(yearlyTitle);
+    }
     const titleField = cleanMetadataTitleField(field);
     if (!titleField || metadataInfoField(titleField)) {
       continue;
@@ -609,6 +615,25 @@ function metadataTitleCandidatesFromSegment(segment: string) {
     break;
   }
   return candidates;
+}
+
+function nativeYearlyTitleCandidate(field: string) {
+  let cleaned = cleanHumanTitleCandidate(field);
+  while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
+    cleaned = cleaned.replace(METADATA_TITLE_PREFIX_RE, "");
+  }
+  cleaned = cleaned
+    .replace(/【[^】]*】/gu, " ")
+    .replace(TV_CATEGORY_WRAPPER_FIELD_RE, " ")
+    .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
+    .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = cleaned.match(NATIVE_YEARLY_TITLE_RE);
+  const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
+  if (!candidate || !hasNativeScript(candidate) || !YEAR_RE.test(candidate)) return undefined;
+  if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
+  return candidate;
 }
 
 function hasParenthesizedRegionalVariant(value: string) {
