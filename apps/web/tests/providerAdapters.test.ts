@@ -1571,6 +1571,16 @@ describe("provider candidate scoring", () => {
     })).toBe(0.78);
   });
 
+  it("accepts exact TV season-pack matches when the release has no parsed year", () => {
+    expect(scoreProviderCandidate({
+      query: "Yozakura san Chi no Daisakusen",
+      candidateTitles: ["Yozakura-san Chi no Daisakusen"],
+      mediaType: "TV_SERIES",
+      season: 1,
+      actualYear: 2024
+    })).toBeGreaterThanOrEqual(0.88);
+  });
+
   it("accepts a short subtitle difference when title and year otherwise match", () => {
     expect(scoreProviderCandidate({
       query: "7 vs Wild",

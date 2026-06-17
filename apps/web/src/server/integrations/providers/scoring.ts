@@ -7,6 +7,7 @@ export type ProviderCandidateScoreInput = {
   expectedYear?: number;
   actualYear?: number;
   season?: number;
+  allowNoYearSeasonBoost?: boolean;
 };
 
 export function scoreProviderCandidate(input: ProviderCandidateScoreInput): number {
@@ -26,6 +27,15 @@ export function scoreProviderCandidate(input: ProviderCandidateScoreInput): numb
   );
 
   let score = titleScore * 0.78;
+  if (
+    input.allowNoYearSeasonBoost !== false &&
+    !input.expectedYear &&
+    input.mediaType === "TV_SERIES" &&
+    input.season &&
+    titleScore >= 0.98
+  ) {
+    score = Math.max(score, 0.88);
+  }
   if (input.expectedYear && input.actualYear) {
     if (input.mediaType === "TV_SERIES" && input.expectedYear > input.actualYear) {
       return roundScore(score);

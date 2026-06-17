@@ -80,7 +80,8 @@ function scoreTmdbCandidate(input: {
     mediaType,
     expectedYear: input.input.year,
     actualYear: input.releaseYear,
-    season: input.input.season
+    season: input.input.season,
+    allowNoYearSeasonBoost: input.seasonEpisodeEvidence?.confirmed !== false
   });
   if (
     input.endpoint === "tv" &&
