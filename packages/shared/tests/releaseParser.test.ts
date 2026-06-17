@@ -330,6 +330,55 @@ describe("parseReleaseTitle", () => {
     expect(release.mediaType).toBe("MOVIE");
   });
 
+  it("uses explicit animation TV segments as series evidence", () => {
+    const release = parseReleaseTitle(
+      "[动漫][TV][7³ACG][青春猪头少年不会梦到圣诞服女郎][Seishun Buta Yarou wa Santa Claus no Yume wo Minai][01-13 Fin][1080p][BDRip][MKV][2025.07][日漫][2025年7月新番 | 青春猪头少年不会梦到圣诞服女郎 | 全13集 | AV1-10bit 2.0ch Opus | 简繁内封字幕][3.25 GiB][jys210]"
+    );
+
+    expect(release).toMatchObject({
+      mediaType: "TV_SERIES",
+      year: 2025,
+      quality: "1080p",
+      source: "BDRip"
+    });
+    expect(release.primarySearchTitle).toBe("青春猪头少年不会梦到圣诞服女郎");
+  });
+
+  it("uses animation multi-episode metadata as series evidence", () => {
+    const release = parseReleaseTitle(
+      "[动画 (Animation)]Fullmetal Alchemist Brotherhood 2009 Blu-ray USA 1080p AVC LPCM 2.0-Malos@U2[钢之炼金术师FA [美版 全64集]][505.09 GB][anonymous][Free]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Fullmetal Alchemist Brotherhood",
+      mediaType: "TV_SERIES",
+      year: 2009,
+      quality: "1080p",
+      source: "BluRay"
+    });
+    expect(release.primarySearchTitle).toBe("钢之炼金术师FA");
+  });
+
+  it("does not classify manga brackets as animation series", () => {
+    const release = parseReleaseTitle(
+      "[动漫][漫画][地主][在超市后门吸烟的二人][Super no Ura de Yani Suu Futari][Vol.01-Vol.5 Fin][HXR][东立][ZIP][2022.08][日漫][在超市后吸烟的故事 | 作者: 地主 | 一到五单行本对应1-38话 | 繁体中文][2.05 GiB][jys210]"
+    );
+
+    expect(release.mediaType).toBe("MOVIE");
+  });
+
+  it("does not treat complete animation movie discs as series", () => {
+    const release = parseReleaseTitle(
+      "[Anime]Toy Story 2 1999 3D COMPLETE BluRay 1080p AVC DTS-HD MA 5.1-UNTOUCHED.iso[玩具总动员2 |类型: 喜剧 / 动画 / 奇幻 / 冒险|主演: 汤姆·汉克斯 / 蒂姆·艾伦][38.24 GB][N/A]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Toy Story 2",
+      mediaType: "MOVIE",
+      year: 1999
+    });
+  });
+
   it("still trusts explicit TV markers when a category label says movie", () => {
     const release = parseReleaseTitle(
       "[电影(Movie)]Example Show 2026 S01E02 1080p WEB-DL H264-GRP[错误分类 第10部][1.00 GB]"

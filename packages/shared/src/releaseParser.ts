@@ -33,7 +33,9 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const parseInput = stripMediaExtension(releaseParseInput(rawTitle));
   const unsupportedMediaCategory = hasUnsupportedLeadingMediaCategory(rawTitle);
   const movieMediaCategory = hasMovieLeadingMediaCategory(rawTitle);
-  const tvCategoryWholeSeries = hasStrongTvLeadingMediaCategory(rawTitle) && hasWholeSeriesTvMarker(rawTitle);
+  const categorySeriesEvidence =
+    (hasStrongTvLeadingMediaCategory(rawTitle) && hasWholeSeriesTvMarker(rawTitle)) ||
+    hasAnimationSeriesEvidence(rawTitle);
   const releaseGroup = extractReleaseGroup(parseInput);
   const normalized = normalizeReleaseText(parseInput);
   const rawNormalized = normalizeReleaseText(cleanedRawTitle);
@@ -59,8 +61,8 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const codec = normalizeCodec((normalized.match(CODEC_RE) ?? rawNormalized.match(CODEC_RE))?.[1]);
   const audio = normalizeAudio((normalized.match(AUDIO_RE) ?? rawNormalized.match(AUDIO_RE))?.[1]);
   const year = yearMatch ? Number(yearMatch[1]) : inferMetadataYear(rawTitle);
-  const completeIndex = tvCategoryWholeSeries ? normalized.search(COMPLETE_WORD_RE) : -1;
-  const hasTvEvidence = Boolean(tv || episodeOnly || seasonPack || chineseSeason || chineseEpisode || tvCategoryWholeSeries);
+  const completeIndex = categorySeriesEvidence ? normalized.search(COMPLETE_WORD_RE) : -1;
+  const hasTvEvidence = Boolean(tv || episodeOnly || seasonPack || chineseSeason || chineseEpisode || categorySeriesEvidence);
 
   const titleStop = firstDefinedIndex(
     tv?.index,
@@ -233,16 +235,54 @@ function hasStrongTvLeadingMediaCategory(rawTitle: string) {
   return Boolean(bracketed && strongTvMediaCategorySegment(bracketed));
 }
 
+function hasAnimationSeriesEvidence(rawTitle: string) {
+  return hasAnimationLeadingMediaCategory(rawTitle) &&
+    !hasMangaBracketCategory(rawTitle) &&
+    (
+      hasExplicitTvBracketSegment(rawTitle) ||
+      hasBracketEpisodeRange(rawTitle) ||
+      WHOLE_SERIES_EPISODE_RE.test(rawTitle)
+    );
+}
+
+function hasAnimationLeadingMediaCategory(rawTitle: string) {
+  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  return Boolean(bracketed && animationMediaCategorySegment(bracketed));
+}
+
 function movieMediaCategorySegment(segment: string) {
   const trimmed = segment.trim();
   return /^(?:电影|電影)/u.test(trimmed) ||
     /^movies?(?:\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
 }
 
+function animationMediaCategorySegment(segment: string) {
+  const trimmed = segment.trim();
+  return /^(?:动漫|動畫|动画|animations?|animation|anime)(?:$|\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
+}
+
 function strongTvMediaCategorySegment(segment: string) {
   const trimmed = segment.trim();
   return /^(?:电视剧|電視劇|剧集|劇集|综艺|綜藝)/u.test(trimmed) ||
     /^(?:tv\s*series|series)(?:\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
+}
+
+function hasExplicitTvBracketSegment(rawTitle: string) {
+  return titleSegments(rawTitle).some((segment) =>
+    /^(?:tv|テレビ|テレビアニメ)$/iu.test(segment.trim())
+  );
+}
+
+function hasBracketEpisodeRange(rawTitle: string) {
+  return titleSegments(rawTitle).some((segment) =>
+    /^\d{1,3}\s*[-~－—]\s*\d{1,3}\s*(?:fin(?:\+sp)?|合集|完结|完結)?$/iu.test(segment.trim())
+  );
+}
+
+function hasMangaBracketCategory(rawTitle: string) {
+  return titleSegments(rawTitle).some((segment) =>
+    /^(?:漫画|manga)$/iu.test(segment.trim())
+  );
 }
 
 function hasWholeSeriesTvMarker(rawTitle: string) {
