@@ -104,7 +104,7 @@ function scoreTmdbCandidate(input: {
       originCountries: input.result.origin_country
     })
   ) {
-    return Math.max(baseScore, 0.88);
+    return Math.max(baseScore, 0.93);
   }
   if (
     input.endpoint === "tv" &&

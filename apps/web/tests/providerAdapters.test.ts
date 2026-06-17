@@ -984,7 +984,7 @@ describe("TMDB title mapper", () => {
     expect(results[0]?.payload).not.toHaveProperty("tvSeasonEpisode");
   });
 
-  it("accepts regional TV suffix matches when TMDB season detail is stale", async () => {
+  it("keeps regional TV suffix matches confident when TMDB season detail is stale", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -1025,7 +1025,7 @@ describe("TMDB title mapper", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/tv/2176?");
     expect(results[0]).toMatchObject({
       title: "Deal or No Deal",
-      matchConfidence: 0.88
+      matchConfidence: 0.93
     });
   });
 
