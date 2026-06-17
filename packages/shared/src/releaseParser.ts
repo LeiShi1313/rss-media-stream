@@ -31,7 +31,7 @@ const SHORT_DRAMA_METADATA_PREFIX_RE = /^(?:短剧|短劇)\s*[:：]\s*/u;
 const MIN_METADATA_YEAR = 1900;
 const NATIVE_SCRIPT_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const NATIVE_EM_DASH_TITLE_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]\s*[—－–]{2,}\s*[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
-const NATIVE_YEARLY_TITLE_RE = /(?:^|\s)([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}][\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}A-Za-z0-9·・:：!！?？&+.'\-\s]{0,24}?(?:19|20)\d{2})(?=\s*(?:第\s*[一二三四五六七八九十两\d]{1,4}\s*(?:季|部|期|集|话|話)|[一二三四五六七八九十两\d]{1,4}\s*(?:季|期|集|话|話)|$))/u;
+const NATIVE_YEARLY_TITLE_RE = /(?:^|\s)([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}][\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}A-Za-z0-9·・:：!！?？&+.'\-\s]{0,24}?(?:19|20)\d{2})(?=\s*(?:第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:季|部|期|集|话|話)|[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:季|期|集|话|話)|$))/u;
 const LATIN_RE = /[A-Za-z]/;
 const SLASH_NUMERIC_TITLE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const CHINESE_SEASON_RE = /(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|([一二三四五六七八九十两\d]{1,3})\s*季)/u;

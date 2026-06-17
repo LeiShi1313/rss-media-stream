@@ -989,6 +989,24 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("歌手2026");
   });
 
+  it("keeps native yearly variety titles before episode ranges", () => {
+    const release = parseReleaseTitle(
+      "[TV Shows]HNTV4K Singer 2026 S07E00-E04 2160p 50fps UHDTV AVS2 10bit HLG DD5.1-QHstudIo[湖南卫视4K超高清频道 歌手2026 第00-04期【AVS2卫星源码 | 4K HLG 10bit | 高帧率 | 高码率 | 杜比环绕音5.1】【嘉宾：何炅 | 那英 | 沈梦辰】QHstudIo小组录制作品][193.04 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Singer",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 7,
+      episode: 0,
+      episodeEnd: 4,
+      quality: "2160p"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["歌手2026", "歌手"]));
+    expect(release.primarySearchTitle).toBe("歌手2026");
+  });
+
   it("does not keep long native em dash descriptions as title aliases", () => {
     const release = parseReleaseTitle(
       "Example Movie 2026 1080p WEB-DL H264-GRP[这是一段很长很长的剧情描述，不是标题本身——后面仍然是在继续描述剧情内容和人物关系][1.00 GB]"
