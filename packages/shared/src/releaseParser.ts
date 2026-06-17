@@ -41,6 +41,7 @@ const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,4})(?
 const WHOLE_SERIES_EPISODE_RE = /全\s*(?!0*1\s*(?:集|话|話)|一\s*(?:集|话|話))[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)/u;
 const CJK_COMPLETE_EPISODE_RANGE_RE = /\d{1,4}\s*[-~至到－—]\s*\d{1,4}\s*(?:集|话|話)\s*(?:全|完|完结|完結)/u;
 const ANIMATION_TV_EPISODE_RANGE_RE = /\bTV\b[^\[\]]{0,40}\d{1,4}\s*[-~－—]\s*\d{1,4}/iu;
+const NESTED_SEASON_METADATA_ALIAS_RE = /\[([^\[\]\r\n|/]{2,80}?)\s+\[(?:第\s*[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)(?:\s+第\s*[一二三四五六七八九十两\d]{1,4}\s*(?:集|话|話|期))?|Season\s*\d{1,2}|S\d{1,2}(?:E\d{1,4})?)[^\]]*\]\s*\/\s*([^|\[\]]{2,120}?)(?=\s*(?:\||\]))/giu;
 const REGIONAL_VARIANT_CODE_TOKENS = new Set(["AU", "AUS", "US", "USA", "UK", "GB", "NZ", "CA", "NL", "PT", "BE"]);
 const REGIONAL_VARIANT_NAME_TOKENS = new Set(["australia", "canada", "netherlands", "portugal", "belgium"]);
 
@@ -486,6 +487,12 @@ function deriveTitleInfo(input: {
     }
   }
 
+  for (const candidate of nestedSeasonMetadataTitleCandidates(input.rawTitle)) {
+    for (const titleCandidate of titleCandidatesFromValue(candidate)) {
+      addCandidate(titleCandidate, { preservePunctuation: true });
+    }
+  }
+
   addCandidate(input.fallbackTitle);
 
   const fallbackCandidates = validTitleCandidatesFromValue(input.fallbackTitle);
@@ -586,6 +593,15 @@ function nativeEmDashTitleCandidate(value: string) {
 function humanMetadataTitleCandidates(rawTitle: string) {
   const match = rawTitle.match(/^\s*(.+?)\s*[\[(](?:19|20)\d{2}[\])]\s+by\b/i);
   return match?.[1] ? [match[1]] : [];
+}
+
+function nestedSeasonMetadataTitleCandidates(rawTitle: string) {
+  const candidates: string[] = [];
+  for (const nestedMatch of rawTitle.matchAll(NESTED_SEASON_METADATA_ALIAS_RE)) {
+    if (nestedMatch[1]) candidates.push(nestedMatch[1]);
+    if (nestedMatch[2]) candidates.push(nestedMatch[2]);
+  }
+  return candidates;
 }
 
 function findPtpDisplayMetadataYear(rawTitle: string, parseInput: string) {

@@ -1455,6 +1455,26 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining(["第七季"]));
   });
 
+  it("extracts Latin aliases before nested season metadata", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Fosca S01 1080p AMZN WEB-DL DDP 2.0 H.264-FFG[Fosca Innocenti  [第一季] / Fosca: A Tuscan Policewoman | 2022][24.27 GB][anonymous][完结]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Fosca",
+      year: 2022,
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "1080p",
+      source: "WEB-DL"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "Fosca Innocenti",
+      "Fosca: A Tuscan Policewoman"
+    ]));
+    expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining(["第一季"]));
+  });
+
   it("does not prefer short bracket group tokens over structured title candidates", () => {
     const release = parseReleaseTitle(
       "[动漫][连载][huthid][斗罗大陆Ⅱ绝世唐门][Douluo Dalu II: Jueshi Tangmen][105-156][2160p][WEB-DL][MP4][2025年06月][国漫][斗罗大陆Ⅱ绝世唐门 第105-156集 / Soul Land 2：The Peerless Tang Clan Ⅲ][50.12 GiB][huthid]"
