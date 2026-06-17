@@ -725,6 +725,42 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["本能2"]));
   });
 
+  it("does not treat uncategorized movie collection part metadata as a TV season", () => {
+    const release = parseReleaseTitle(
+      "Nûdo no yoru Ai wa oshiminaku ubau AKA A Night in Nude Salvation 2010 1080p BluRay x265 10bit FLAC 2.0 MNHD-FRDS[【裸体之夜：掠夺狂爱/ヌードの夜 愛は惜しみなく奪う/裸夜】10bit HEVC版本 情色系列第234部 日语 简繁字幕][10.81 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Nûdo no yoru Ai wa oshiminaku ubau",
+      year: 2010,
+      mediaType: "MOVIE",
+      season: undefined,
+      quality: "1080p",
+      source: "BluRay",
+      releaseGroup: "FRDS"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "裸体之夜：掠夺狂爱",
+      "A Night in Nude Salvation"
+    ]));
+  });
+
+  it("does not let movie collection part metadata override a documentary category", () => {
+    const release = parseReleaseTitle(
+      "[纪录片(Documentaries)]Oniroku Dan: Best of SM 1984 BluRay 1080p x265 10bit FLAC 2.0 MNHD-FRDS[【团鬼六绳妆馆/団鬼六監修 SM大全集/SM daizenshû】10bit HEVC版本 情色系列第35部 日语 简繁日双语字幕][3.85 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Oniroku Dan: Best of SM",
+      year: 1984,
+      mediaType: "MOVIE",
+      season: undefined,
+      quality: "1080p",
+      source: "BluRay",
+      releaseGroup: "FRDS"
+    });
+  });
+
   it("uses strong TV categories with all-episode metadata as series evidence", () => {
     const release = parseReleaseTitle(
       "[TV Series/HD]Da Ming Feng Hua 2019 2160p 60FPS WEB-DL H265 10bit AAC-ADORE[大明风华 大明皇妃孙若微传 大明皇妃孙若微传 大明皇妃 六朝纪事 全62集 | 类型:古装 主演: 汤唯 / 朱亚文 / 邓家佳 / 乔振宇 / 王学圻 / 张艺兴][145.4 GB][N/A]"

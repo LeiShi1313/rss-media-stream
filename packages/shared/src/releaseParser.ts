@@ -1282,8 +1282,14 @@ function hasLatin(value: string) {
 function findChineseSeason(value: string, source: "normalized" | "raw") {
   const match = value.match(CHINESE_SEASON_RE);
   if (!match || match.index == null) return undefined;
+  if (nonTvCollectionPartBeforeChineseSeason(value, match.index)) return undefined;
   const season = parseChineseNumber(match[1] ?? match[2]);
   return season == null ? undefined : { index: match.index, season, source };
+}
+
+function nonTvCollectionPartBeforeChineseSeason(value: string, seasonIndex: number) {
+  const prefix = value.slice(Math.max(0, seasonIndex - 8), seasonIndex);
+  return /情色系列\s*$/u.test(prefix);
 }
 
 function findChineseEpisode(value: string, source: "normalized" | "raw") {
