@@ -1080,6 +1080,46 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("keeps slash-separated anime aliases when adding base season aliases", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Chained Soldier S02 2026 1080p JPN Blu-ray AVC LPCM 2.0-YE@Nyaa[魔都精兵的奴隶 第二季 / 魔都精兵のスレイブ 第2期 / 魔都精兵のスレイブ2 [日版原盘]][64.31 GB][anonymous][动画]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "魔都精兵的奴隶",
+      "魔都精兵のスレイブ"
+    ]));
+  });
+
+  it("does not keep new-season labels in base season aliases", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Kanojo Okarishimasu S05E10 2026 1080p Baha WEB-DL x264 AAC-AnimeS@ADWeb[2026年4月新番 出租女友 第五季 / 彼女、お借りします 第5期 第10集][400.95 MB][anonymous][中字 | 动画 | 官方]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "出租女友",
+      "彼女、お借りします"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "2026年4月新番 出租女友"
+    ]));
+  });
+
+  it("does not combine separate native aliases before season markers", () => {
+    const release = parseReleaseTitle(
+      "[剧集]That Time I Got Reincarnated as a Slime S04E10 2026 1080p LINETV WEB-DL H264 AAC-ADWeb[关于我转生变成史莱姆这档事 關於我轉生變成史萊姆這檔事 第四季 転生したらスライムだった件 第4期 第04季 第10集 | 类型: 动画 / 奇幻 / 冒险 主演: 冈咲美保 2026年4月新番][905.48 MB][anonymous][中字 | 动画 | 官方]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "关于我转生变成史莱姆这档事",
+      "關於我轉生變成史萊姆這檔事",
+      "転生したらスライムだった件"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "关于我转生变成史莱姆这档事 關於我轉生變成史萊姆這檔事"
+    ]));
+  });
+
   it("does not use anime edit labels as title aliases", () => {
     const release = parseReleaseTitle(
       "[动漫(Animations)]Yowayowa Sensei 2026 S01E10 1080p friDay WEB-DL H264 AAC-UBWEB[2026年4月新番 | 弱弱老师 (无修版) | 第10集 [日语/简繁中字]][1.62 GB][anonymous]"
@@ -1271,6 +1311,25 @@ describe("parseReleaseTitle", () => {
       releaseGroup: "CHDWEB"
     });
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["航海王"]));
+  });
+
+  it("keeps the base native metadata title before season-specific variety subtitles", () => {
+    const release = parseReleaseTitle(
+      "[综艺]Guo Yue Wu Shuang S01E04 Show 2026 2160p WEB-DL H265 DDP2.0-ADWeb[国乐无双 第一季 星乐秀 星乐秀第04期：刘惜君想和杨千嬅陈小春合作 | 国粤无双 / 创新声 / 华乐无双 *云视听极光*][524.23 MB][anonymous][国语 | 中字 | 官方]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Guo Yue Wu Shuang",
+      mediaType: "TV_SERIES",
+      year: 2026,
+      season: 1,
+      episode: 4,
+      quality: "2160p",
+      source: "WEB-DL",
+      codec: "H.265",
+      releaseGroup: "ADWeb"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["国乐无双"]));
   });
 
   it("keeps complete when it is part of the title", () => {
