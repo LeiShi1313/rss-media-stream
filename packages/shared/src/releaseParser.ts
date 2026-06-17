@@ -81,6 +81,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     (hasStrongTvLeadingMediaCategory(rawTitle) && hasWholeSeriesTvMarker(rawTitle)) ||
     hasTvShowsLeadingMediaCategory(rawTitle) ||
     (hasDocumentaryLeadingMediaCategory(rawTitle) && WHOLE_SERIES_EPISODE_RE.test(rawTitle)) ||
+    hasUncategorizedWholeSeriesEvidence(rawTitle) ||
     hasAnimationSeriesEvidence(rawTitle);
   const releaseGroup = extractReleaseGroup(parseInput);
   const normalized = normalizeReleaseText(parseInput);
@@ -548,6 +549,13 @@ function hasDocumentaryLeadingMediaCategory(rawTitle: string) {
   return Boolean(bracketed && documentaryMediaCategorySegment(bracketed));
 }
 
+function hasUncategorizedWholeSeriesEvidence(rawTitle: string) {
+  return WHOLE_SERIES_EPISODE_RE.test(rawTitle) &&
+    !hasMovieLeadingMediaCategory(rawTitle) &&
+    !hasUnsupportedLeadingMediaCategory(rawTitle) &&
+    !hasAudiobookLeadingMediaCategory(rawTitle);
+}
+
 function hasAnimationSeriesEvidence(rawTitle: string) {
   return hasAnimationLeadingMediaCategory(rawTitle) &&
     !hasMangaBracketCategory(rawTitle) &&
@@ -563,6 +571,11 @@ function hasAnimationSeriesEvidence(rawTitle: string) {
 function hasAnimationLeadingMediaCategory(rawTitle: string) {
   const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
   return Boolean(bracketed && animationMediaCategorySegment(bracketed));
+}
+
+function hasAudiobookLeadingMediaCategory(rawTitle: string) {
+  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  return /^(?:有声书|有聲書|有声读物|有聲讀物|audiobooks?)(?:$|\b|[\s(/]|\p{Script=Han})/iu.test(bracketed ?? "");
 }
 
 function hasLongEpisodeOnlyTvEvidence(rawTitle: string) {

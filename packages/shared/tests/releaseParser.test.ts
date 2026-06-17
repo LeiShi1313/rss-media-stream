@@ -820,6 +820,47 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("uses uncategorized all-episode metadata as series evidence", () => {
+    const mytvRelease = parseReleaseTitle(
+      "How Dare You 2026 Complete 1080p MyTVSuper WEB-DL H.265 AAC 2Audio-HDHWEB[成何体统 | 全25集 | 粤语/普通话 | SRT简繁字幕 | MytvSuper][31.22 GB]"
+    );
+    const documentaryRelease = parseReleaseTitle(
+      "Kontant 2025 1080p DRTV WEB-DL AAC 2.0 x264-FFG[Kontant 全16集][25.00 GB]"
+    );
+
+    expect(mytvRelease).toMatchObject({
+      title: "How Dare You",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: undefined,
+      episode: undefined,
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.265",
+      releaseGroup: "HDHWEB"
+    });
+    expect(mytvRelease.providerSearchTitles).toEqual(["成何体统"]);
+    expect(documentaryRelease).toMatchObject({
+      title: "Kontant",
+      year: 2025,
+      mediaType: "TV_SERIES",
+      quality: "1080p",
+      source: "WEB-DL"
+    });
+  });
+
+  it("does not promote explicit movie or audiobook categories with all-episode metadata", () => {
+    const movieRelease = parseReleaseTitle(
+      "[电影]Example Movie 2026 1080p WEB-DL H264-GRP[示例电影 | 全3集 | 类型: 剧情][1.00 GB]"
+    );
+    const audiobookRelease = parseReleaseTitle(
+      "[有声书]Harry Potter 2022 WEB-DL PCM-ZARD[哈利·波特 1-7部全集 |演播：光合积木 | 作者：J.K.罗琳 | 全668集 | 2117kbps | [国语/驻站]][127.33 GB][anonymous]"
+    );
+
+    expect(movieRelease.mediaType).toBe("MOVIE");
+    expect(audiobookRelease.mediaType).not.toBe("TV_SERIES");
+  });
+
   it("does not treat a TV category alone as whole-series evidence", () => {
     const release = parseReleaseTitle(
       "[TV Series/HD]BBC News 2026 06 11 HDTV 1080p WEBRip H264 AAC-D0[BBC News 新闻片段 2026.06.11 英语听力口语 / 雅思托福练习 / 时政素材 / 自录][1.39 GB][N/A]"
