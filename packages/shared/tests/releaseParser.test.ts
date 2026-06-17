@@ -1158,6 +1158,25 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("莫离");
   });
 
+  it("strips dated regional channel prefixes from TV music captures", () => {
+    const release = parseReleaseTitle(
+      "[TVMusic 1080i]20200213 Mnet Japan M!Countdown E652 1080i HDTV H264-HDHTV[韩国音乐节目 Mnet M!Countdown 日本台版本 第652期][8.31 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "M!Countdown",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 652,
+      quality: "1080i",
+      source: "HDTV",
+      codec: "H.264",
+      releaseGroup: "HDHTV"
+    });
+    expect(release.providerSearchTitles).toEqual(["Mnet M!Countdown"]);
+    expect(release.primarySearchTitle).toBe("M!Countdown");
+  });
+
   it("skips Hong Kong channel labels when extracting pipe-delimited metadata titles", () => {
     const release = parseReleaseTitle(
       "[TVSeries 1080i]Jade The Map Of Truth Complete HDTV 1080i H264 2Audio-HDHTV[翡翠台 | 香港探秘地图 | 全20集 | 粤语/普通话 | SRT简繁字幕 *HDHTV 高清家园荣誉出品*][56.32 GB][xiaocilang2023]"
