@@ -1675,6 +1675,47 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("removes source and region bracket labels from short-drama provider search titles", () => {
+    const release = parseReleaseTitle(
+      "[移动视频][大陆][八零再出发][Ba Ling Zai Chu Fa 2026 S01 720p WEB-DL H.265 AAC-GodDramas][八零再出发 | 全41集 | 2026年 | 网络收费短剧 | 类型：年代 穿越 爱情][149.75 MiB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Ba Ling Zai Chu Fa",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "720p",
+      source: "WEB-DL",
+      codec: "H.265",
+      releaseGroup: "GodDramas"
+    });
+    expect(release.providerSearchTitles).toEqual(["八零再出发"]);
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining([
+      "移动视频",
+      "大陆"
+    ]));
+  });
+
+  it("removes mixed-language documentary category labels from provider search titles", () => {
+    const release = parseReleaseTitle(
+      "[Documentaries纪录片]Kontant 2025 1080p DRTV WEB-DL AAC 2.0 x264-FFG[Kontant 全16集][25.00 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Kontant",
+      year: 2025,
+      mediaType: "TV_SERIES",
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      releaseGroup: "FFG"
+    });
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "Documentaries纪录片"
+    ]));
+  });
+
   it("removes CJK diary section subtitles from provider search titles", () => {
     const release = parseReleaseTitle(
       "[综艺]Im So Into You S06E01 Diary 2026 2160p WEB-DL H265 AAC-ADWeb[喜欢你我也是 第六季 日记 喜欢你日记第01期上：女二暖心安慰男一 张馨予孔雪儿甜度爆表 | 喜欢你我也是 旅行季 *银河奇异果*][634.25 MB][anonymous][国语 | 中字 | 官方]"

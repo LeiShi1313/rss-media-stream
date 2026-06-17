@@ -19,9 +19,11 @@ const AKA_RE = /\b(?:AKA|ALIAS)\b/i;
 const SIZE_SEGMENT_RE = /^\d+(?:\.\d+)?\s*(?:gib|gb|mib|mb|tib|tb)$/i;
 const SIZE_ALIAS_RE = /^\d+(?:\s+\d{1,2})?\s*(?:gib|gb|mib|mb|tib|tb|g|m)$/i;
 const CATEGORY_SEGMENT_RE = /^(?:(?:movies?|movie|tv(?:\s*series)?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花))(?:\s+(?:(?:movies?|movie|tv(?:\s*series)?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花)))*$/i;
+const MIXED_CATEGORY_SEGMENT_RE = /^(?:(?:documentaries?|documentary)\s*(?:纪录片|紀錄片)|(?:tv\s*shows?|tv\s*series|series)\s*(?:综艺|綜藝|剧集|劇集)|(?:movies?|movie)\s*(?:电影|電影)|(?:animations?|animation|anime)\s*(?:动漫|動漫|动画|動畫))$/iu;
 const UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE = /^(?:music(?:s)?(?:\s+(?:videos?|mv|lossless))?(?:\s*\([^)]*\))?(?:\s*\/\s*音乐\s*mv)?|sports?(?:\s+\d{3,4}[pi])?|音乐\s*(?:cd|mv|短片)?(?:\s*\([^)]*\))?)$/iu;
 const EXTRA_INFO_RE = /类型|主演|类别|字幕|国语|中字|导演|演员|简繁|第\d|全\d|日语|英语|粤语|内封|内嵌|\|/i;
 const METADATA_INFO_FIELD_RE = /^(?:类型|类别|字幕|导演|主演|演员|语言|音频|视频|格式|地区|年份|年代|上映|首播|播出|国语|中字|简繁|简中|繁中|日语|英语|粤语|汉语普通话|网络收费短剧|4k|1080p|1080i|720p|2160p|uhd|hdr)$/i;
+const METADATA_STANDALONE_LABEL_RE = /^(?:移动视频|移動視頻|大陆|大陸|中国大陆|中國大陸|内地|內地|香港|台湾|台灣|日本|韩国|韓國)$/iu;
 const METADATA_TITLE_PREFIX_RE = /^(?:(?:\d{1,2}|[一二三四五六七八九十两]{1,3})\s*月\s*新番|(?:陸劇|陆剧|港劇|港剧|港綜|港综|日劇|日剧|韓劇|韩剧|美劇|美剧|英劇|英剧|台劇|台剧|劇集|剧集|电视剧|電視劇|綜藝|综艺|動畫|动画|動漫|动漫|電影|电影|国漫|國漫|日漫))\s*[:：]?\s*/iu;
 const PROVIDER_ALIAS_NOISE_RE = /字幕|sub|中字|简繁|簡繁|简体|簡體|繁体|繁體|双语|雙語|国语|國語|粤语|粵語|英语|英語|日语|日語|韩语|韓語|内封|內封|内嵌|內嵌|多国|多國|类别|類別|类型|類型|导演|導演|主演|演员|演員|频道|頻道|高码率|高碼率|码率|碼率|杜比|dolby\s*vision|hdr10|hdr|sdr|菁彩\s*hdr|源码|源碼|小组录制|小組錄製|出品|评论|評論|音轨|音軌|音频|音頻|花絮|特典|幕后|幕後|原盘|原盤|美版|港版|台版|日版|英版|加长版|加長版|完整版|导演剪辑|導演剪輯|官方|纪念版|紀念版|菜单|菜單|按钮|按鈕|原生|新增|shout\s*factory|生肉|自录|自錄|压缩包|壓縮包|破解|自动发种|自動發種|人工编辑|人工編輯/iu;
 const PROVIDER_ALIAS_CATEGORY_PREFIX_RE = /^(?:动漫|動畫|动画|游戏|遊戲|電影|电影|电视剧|電視劇|剧集|劇集|港综|港綜|(?:海外)?综艺|(?:海外)?綜藝|movie|movies|series|tv(?:\s+series)?|pc)\b/iu;
@@ -214,6 +216,10 @@ function categoryWrapperSegment(segment: string) {
     animationMediaCategorySegment(normalized) ||
     strongTvMediaCategorySegment(normalized) ||
     documentaryMediaCategorySegment(normalized);
+}
+
+function categorySegment(segment: string) {
+  return CATEGORY_SEGMENT_RE.test(segment) || MIXED_CATEGORY_SEGMENT_RE.test(segment);
 }
 
 function documentaryMediaCategorySegment(segment: string) {
@@ -427,7 +433,7 @@ function titleSegments(rawTitle: string) {
 }
 
 function scoreReleaseLikeSegment(segment: string): number {
-  if (!segment || SIZE_SEGMENT_RE.test(segment) || CATEGORY_SEGMENT_RE.test(segment) || unsupportedMediaCategorySegment(segment)) return 0;
+  if (!segment || SIZE_SEGMENT_RE.test(segment) || categorySegment(segment) || unsupportedMediaCategorySegment(segment)) return 0;
   let score = 0;
   if (TV_RE.test(segment)) score += 5;
   if (SEASON_PACK_RE.test(segment) || SEASON_WORD_PACK_RE.test(segment)) score += 3;
@@ -443,7 +449,7 @@ function scoreReleaseLikeSegment(segment: string): number {
 }
 
 function isReleaseLikeSegment(segment: string) {
-  if (!segment || SIZE_SEGMENT_RE.test(segment) || CATEGORY_SEGMENT_RE.test(segment) || unsupportedMediaCategorySegment(segment)) return false;
+  if (!segment || SIZE_SEGMENT_RE.test(segment) || categorySegment(segment) || unsupportedMediaCategorySegment(segment)) return false;
   const hasQuality = QUALITY_RE.test(segment) || DIMENSION_RE.test(segment);
   const hasTech = SOURCE_RE.test(segment) || CODEC_RE.test(segment) || AUDIO_RE.test(segment);
   const looksLikeSceneFilename = YEAR_RE.test(segment) &&
@@ -905,7 +911,7 @@ function levenshteinDistance(left: string, right: string) {
 
 function metadataTitleCandidatesFromSegment(segment: string) {
   const cleanedSegment = cleanHumanTitleCandidate(segment);
-  if (!cleanedSegment || CATEGORY_SEGMENT_RE.test(cleanedSegment)) return [];
+  if (!cleanedSegment || categorySegment(cleanedSegment)) return [];
 
   const candidates: string[] = [];
   const regionalAlias = parenthesizedRegionalTitleAlias(segment);
@@ -1059,7 +1065,7 @@ function cleanMetadataTitleField(field: string) {
 
 function metadataInfoField(value: string) {
   const cleaned = cleanHumanTitleCandidate(value);
-  if (!cleaned || CATEGORY_SEGMENT_RE.test(cleaned) || METADATA_INFO_FIELD_RE.test(cleaned)) return true;
+  if (!cleaned || categorySegment(cleaned) || METADATA_INFO_FIELD_RE.test(cleaned) || METADATA_STANDALONE_LABEL_RE.test(cleaned)) return true;
   if (BROADCASTER_METADATA_FIELD_RE.test(cleaned) || ORIGINAL_RECORDING_METADATA_FIELD_RE.test(cleaned)) return true;
   if (/^(?:(?:剧集|劇集)\s*)?(?:分集|合集)$/u.test(cleaned)) return true;
   if (/^\d{1,3}\s*(?:帧|幀|fps)$/iu.test(cleaned)) return true;
@@ -1174,7 +1180,7 @@ function cleanHumanTitleCandidate(value: string): string {
 }
 
 function isTitleCandidate(value: string) {
-  if (!value || SIZE_SEGMENT_RE.test(value) || CATEGORY_SEGMENT_RE.test(value)) return false;
+  if (!value || SIZE_SEGMENT_RE.test(value) || categorySegment(value)) return false;
   if (metadataInfoField(value)) return false;
   if (AKA_RE.test(value)) return false;
   if (!hasLatin(value) && !hasNativeScript(value) && !/\d/.test(value)) return false;
