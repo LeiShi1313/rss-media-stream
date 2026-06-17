@@ -1396,6 +1396,23 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("飞常日志II");
   });
 
+  it("treats typoed complete markers as whole-series stops for regional TV captures", () => {
+    const release = parseReleaseTitle(
+      "[TV Series/HD]Jade.The Map Of Truth.Completet.HDTV.1080p.H264-CNHK[港劇: 香港探秘地圖 (全20集)[粤语][簡体字幕][黎耀祥/龔嘉欣/丁子朗 主演][CNHK製作組榮譽出品]][64.04 GB][N/A]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Map Of Truth",
+      mediaType: "TV_SERIES",
+      quality: "1080p",
+      source: "HDTV",
+      codec: "H.264",
+      releaseGroup: "CNHK"
+    });
+    expect(release.providerSearchTitles).toEqual(["香港探秘地圖"]);
+    expect(release.primarySearchTitle).toBe("香港探秘地圖");
+  });
+
   it("strips TVB Plus as a channel prefix and metadata field", () => {
     const release = parseReleaseTitle(
       "[TVSeries 1080i]TVB Plus Ode To Joy S05 2024 Complete HDTV 1080i H264-HDHTV[TVB Plus | 欢乐颂5 | 全34集 | 粤语/普通话 | 繁体DVB字幕][51.61 GB][xiaocilang2023]"
