@@ -27,8 +27,8 @@ const BROADCAST_CAPTURE_PREFIX_RE = /^(?:ZJTV[- .]?4K|GDTV[- .]?4K|JSWS[- .]?4K|
 const BROADCASTER_METADATA_PREFIX_RE = /^(?:(?:中央电视台|央视|北京卫视|浙江卫视|广东卫视|湖南卫视|江苏卫视|山东卫视)[^ ]*(?:频道)?|中国广电重温经典频道)\s+/u;
 const BROADCASTER_METADATA_FIELD_RE = /^(?:翡翠台|明珠台|中视经典HD|中視經典HD|华视HD|華視HD|台视HD|台視HD|民视HD|民視HD|公视HD|公視HD|TVB(?:\s+(?:Jade|Pearl))?|Jade|CTV|CTS|TTV|FTV|PTS)$/iu;
 const ORIGINAL_RECORDING_METADATA_FIELD_RE = /^(?:(?:台剧|台劇|港剧|港劇)?(?:原创录制|原創錄製)(?:第\d+部)?)(?:\s+(?:翡翠台|明珠台|中视经典HD|中視經典HD|华视HD|華視HD|台视HD|台視HD|民视HD|民視HD|公视HD|公視HD))?$/u;
-const CJK_VARIETY_SECTION_LABEL_RE = /\s+(?:(?:正片|纯享|純享|加更|日记|日記|私藏日记|私藏日記|萌娃当家|副本存档中|同学录|同學錄|直播回看|少年的挑战|少年的挑戰|抢先逛|搶先逛)(?:版)?\s*)+$/u;
-const CJK_VARIETY_SECTION_SUBTITLE_RE = /\s+(?:正片|同学录|同學錄|直播回看|少年的挑战|少年的挑戰|抢先逛|搶先逛)(?:\s+.*)?$/u;
+const CJK_VARIETY_SECTION_LABEL_RE = /\s+(?:(?:正片|纯享|純享|加更|日记|日記|私藏日记|私藏日記|萌娃当家|副本存档中|同学录|同學錄|直播回看|少年的挑战|少年的挑戰|抢先逛|搶先逛|整活局)(?:版)?\s*)+$/u;
+const CJK_VARIETY_SECTION_SUBTITLE_RE = /\s+(?:正片|纯享|純享|同学录|同學錄|直播回看|少年的挑战|少年的挑戰|抢先逛|搶先逛|整活局)(?:版)?(?:\s+.*)?$/u;
 const CJK_ANNUAL_METADATA_RE = /[\p{Script=Han}].*(?:19|20)\d{2}\s*年度/u;
 const TV_CATEGORY_WRAPPER_FIELD_RE = /^(?:tv\s*series|series)\s*[\/|]\s*(?:剧集|劇集)\s*(?:分集|合集)?$/iu;
 const SHORT_DRAMA_METADATA_PREFIX_RE = /^(?:短剧|短劇)\s*[:：]\s*/u;

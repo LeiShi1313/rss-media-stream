@@ -1430,6 +1430,18 @@ describe("parseReleaseTitle", () => {
     expect(peekRelease.providerSearchTitles).toEqual(["你好，星期六"]);
   });
 
+  it("removes CJK variety side-section subtitles after season labels", () => {
+    const pureRelease = parseReleaseTitle(
+      "[综艺]The Melody of You S03E10 Pure 2026 1080p WEB-DL H264 AAC-ADWeb[音你而来 第三季 纯享 纯享版：张碧晨周震南《遗书》太好哭，王琳凯刘雨昕超燃合作 | 音你而来3 *酷喵TV*][807.13 MB][anonymous][国语 | 中字 | 官方]"
+    );
+    const extraRelease = parseReleaseTitle(
+      "[综艺]The Melody of You S03E10 Extra 2026 1080p WEB-DL H264 AAC-ADWeb[音你而来 第三季 整活局 整活局：刘雨昕把王赫野哄成“胚胎”，王琳凯姚晓棠“大战”跳舞机 | 音你而来3 *酷喵TV*][344.79 MB][anonymous][国语 | 中字 | 官方]"
+    );
+
+    expect(pureRelease.providerSearchTitles).toEqual(["音你而来"]);
+    expect(extraRelease.providerSearchTitles).toEqual(["音你而来"]);
+  });
+
   it("keeps diary words that are part of a title token", () => {
     const release = parseReleaseTitle(
       "[动漫]Koala Enikki S01E01 2026 1080p WEB-DL H264 AAC-GRP[考拉绘日记 無尾熊繪日記 コアラ絵日記 | 第01集][300 MB]"
