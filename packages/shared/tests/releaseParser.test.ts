@@ -29,6 +29,55 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("parses chained special-episode markers as TV episodes", () => {
+    const release = parseReleaseTitle(
+      "Doctor Who 2005 S00E09E13E14 60th Anniversary Edition 1080p USA Blu-ray AVC DTS-HD MA 5.1-L0ST"
+    );
+
+    expect(release).toMatchObject({
+      title: "Doctor Who",
+      year: 2005,
+      mediaType: "TV_SERIES",
+      season: 0,
+      episode: 9,
+      episodeEnd: 14,
+      quality: "1080p",
+      source: "BluRay",
+      releaseGroup: "L0ST"
+    });
+  });
+
+  it("parses year-numbered SyyyyEyy releases as TV episodes", () => {
+    const release = parseReleaseTitle(
+      "[综艺]Only You S2026E41 2010 2160p WEB-DL H265 AAC-ADWeb[非你莫属 2026年度 正片 第41期 职点迷津专场，企业家分享人生“动摇”时刻 *酷喵TV*][1.64 GB][anonymous][国语 | 中字 | 官方]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Only You",
+      year: 2010,
+      mediaType: "TV_SERIES",
+      season: 2026,
+      episode: 41,
+      quality: "2160p",
+      source: "WEB-DL",
+      releaseGroup: "ADWeb"
+    });
+  });
+
+  it("does not promote titleless year-numbered episode files to TV", () => {
+    const release = parseReleaseTitle("S2026E11 0 1080p WEB-DL AAC2.0 H.264-BTN");
+
+    expect(release).toMatchObject({
+      title: "S2026E11 0",
+      mediaType: "UNKNOWN",
+      season: undefined,
+      episode: undefined,
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264"
+    });
+  });
+
   it("recognizes season packs but leaves episode empty", () => {
     const release = parseReleaseTitle("Example.Show.S01.1080p.BluRay.x265-GRP");
     expect(release.mediaType).toBe("TV_SERIES");

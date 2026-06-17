@@ -1,12 +1,13 @@
 import type { ParsedRelease } from "./types.js";
 
 const QUALITY_RE = /\b(2160p|4k|1080p|1080i|720p|576p|540p|480p)\b/i;
+const ONLY_QUALITY_RE = /^(?:2160p|4k|1080p|1080i|720p|576p|540p|480p)$/i;
 const DIMENSION_RE = /\b(3840[ ._-]?x[ ._-]?2160|1920[ ._-]?x[ ._-]?1080|1280[ ._-]?x[ ._-]?720|720[ ._-]?x[ ._-]?480)\b/i;
 const SOURCE_RE = /\b(WEB[- .]?DL|WEBRip|Blu[- .]?Ray|BDRip|HDTV|DVDRip|Remux|UHD|HDRip|WEB)\b/i;
 const CODEC_RE = /\b(x265|x264|h[ .]?265|h[ .]?264|hevc|avc|av1|mpeg[ .]?2)\b/i;
 const AUDIO_RE = /\b(DDP?[ .]?(?:5\.1|7\.1|2\.0)?|DD\+[ .]?(?:5\.1|7\.1|2\.0)?|DTS[- .]?HD|TrueHD|Atmos|AAC[ .]?(?:2\.0|5\.1)?|FLAC|OPUS[ .]?(?:2\.0|5\.1)?|LPCM[ .]?(?:2\.0|5\.1)?)\b/i;
 const YEAR_RE = /\b(19\d{2}|20\d{2})\b/;
-const TV_RE = /\bS(\d{1,2})[ ._-]?E(\d{1,3})(?:(?:[- ._]+E?|E)(\d{1,3}))?\b/i;
+const TV_RE = /\bS(\d{1,4})[ ._-]?E(\d{1,3})(?:(?:[- ._]+E?|E)(\d{1,3}))*\b/i;
 const LONG_TV_RE = /\bS(\d{1,2})[ ._-]?E(\d{4})(?:(?:[-_]+E?|[ .]+E|E)(\d{4}))?\b/i;
 const EPISODE_ONLY_RE = /\bEP?(\d{1,3})(?:[- ._]?EP?(\d{1,3}))?\b/i;
 const LONG_EPISODE_ONLY_RE = /\bEP?(\d{4})(?:[- ._]?EP?(\d{4}))?\b/i;
@@ -45,7 +46,8 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const rawNormalized = normalizeReleaseText(cleanedRawTitle);
   const parseInputHasBrackets = /[\[\]]/.test(parseInput);
 
-  const tv = normalized.match(TV_RE) ?? normalized.match(LONG_TV_RE);
+  const tvMatch = normalized.match(TV_RE) ?? normalized.match(LONG_TV_RE);
+  const tv = usableTvMatch(normalized, tvMatch) ? tvMatch : undefined;
   const episodeOnly = tv ? undefined : normalized.match(EPISODE_ONLY_RE);
   const longEpisodeOnly = tv || episodeOnly || !hasLongEpisodeOnlyTvEvidence(rawTitle)
     ? undefined
@@ -164,6 +166,13 @@ function normalizeReleaseText(input: string): string {
     .replace(/\s+/g, ".")
     .replace(/\.+/g, ".")
     .replace(/^\.+|\.+$/g, "");
+}
+
+function usableTvMatch(normalized: string, match: RegExpMatchArray | null) {
+  if (!match || match.index == null || match.index <= 0) return false;
+  const leadingTitle = cleanTitle(normalized.slice(0, match.index));
+  if (!leadingTitle || ONLY_QUALITY_RE.test(leadingTitle)) return false;
+  return /[\p{Letter}\p{Number}]/u.test(leadingTitle);
 }
 
 function stripMediaExtension(input: string): string {
