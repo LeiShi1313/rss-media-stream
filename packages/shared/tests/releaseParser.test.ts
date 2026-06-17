@@ -502,7 +502,7 @@ describe("parseReleaseTitle", () => {
 
     expect(release.year).toBeUndefined();
     expect(release).toMatchObject({
-      title: "Jade How Dare You",
+      title: "How Dare You",
       mediaType: "TV_SERIES",
       season: 1,
       episode: 22,
@@ -672,7 +672,7 @@ describe("parseReleaseTitle", () => {
     );
 
     expect(release).toMatchObject({
-      title: "CCTV9 Crunch And Munch In Macao",
+      title: "Crunch And Munch In Macao",
       year: 2021,
       mediaType: "TV_SERIES",
       season: undefined,
@@ -950,7 +950,7 @@ describe("parseReleaseTitle", () => {
     );
 
     expect(release).toMatchObject({
-      title: "Jade Come Home Love：Lo And Behold",
+      title: "Come Home Love：Lo And Behold",
       mediaType: "TV_SERIES",
       season: 1,
       episode: 2826,
@@ -1138,7 +1138,7 @@ describe("parseReleaseTitle", () => {
     );
 
     expect(release).toMatchObject({
-      title: "CCTV 8 The First Jasmine",
+      title: "The First Jasmine",
       year: 2026,
       mediaType: "TV_SERIES",
       season: 1,
@@ -1146,10 +1146,11 @@ describe("parseReleaseTitle", () => {
       episodeEnd: 15
     });
     expect(release.titleCandidates).toEqual(expect.arrayContaining([
-      "CCTV 8 The First Jasmine",
+      "The First Jasmine",
       "莫离"
     ]));
     expect(release.titleCandidates).not.toEqual(expect.arrayContaining([
+      "CCTV 8 The First Jasmine",
       "电视剧",
       "中央电视台电视剧频道 莫离 第14 15集 AVS+卫星源码｜高码率｜杜比环绕5",
       "导演：林玉芬",
@@ -1183,7 +1184,7 @@ describe("parseReleaseTitle", () => {
     );
 
     expect(release).toMatchObject({
-      title: "Jade The Map Of Truth",
+      title: "The Map Of Truth",
       mediaType: "TV_SERIES",
       quality: "1080i",
       source: "HDTV",
@@ -1200,7 +1201,7 @@ describe("parseReleaseTitle", () => {
     );
 
     expect(release).toMatchObject({
-      title: "CTV Liang Ren",
+      title: "Liang Ren",
       year: 1992,
       mediaType: "TV_SERIES",
       season: 1,
@@ -1222,7 +1223,7 @@ describe("parseReleaseTitle", () => {
     );
 
     expect(release).toMatchObject({
-      title: "CTS Shi Gong Qi An",
+      title: "Shi Gong Qi An",
       year: 1997,
       mediaType: "TV_SERIES",
       season: 1,
@@ -1237,6 +1238,59 @@ describe("parseReleaseTitle", () => {
       "华视HD"
     ]));
     expect(release.primarySearchTitle).toBe("施公奇案");
+  });
+
+  it("strips regional TV channel prefixes without stripping movie titles", () => {
+    const tvRelease = parseReleaseTitle(
+      "[TVSeries 1080i]Jade Born Rich 2009 Complete 1080i HDTV H264 DD5.1-HDHTV[翡翠台 富贵门 全41集  粤语/简繁中字 *2023年重播版*][128.67 GB][suandsu]"
+    );
+    const movieRelease = parseReleaseTitle(
+      "Jade 1995 1080p BluRay x264-GRP"
+    );
+    const pearlTitleRelease = parseReleaseTitle(
+      "[剧集]Pearl in Red S01E65 2026 1080p Viu WEB-DL H264 AAC-ADWeb[红色珍珠 Pearl in Red 붉은 진주 第01季 第65集 | 类型: 剧情 主演: 朴真熙 / 李甫姫 / 李元宗 / 韩振熙 / 李应敬][721.99 MB][anonymous][中字 | 官方]"
+    );
+
+    expect(tvRelease).toMatchObject({
+      title: "Born Rich",
+      year: 2009,
+      mediaType: "TV_SERIES",
+      quality: "1080i",
+      source: "HDTV"
+    });
+    expect(tvRelease.providerSearchTitles).toEqual(expect.arrayContaining(["富贵门"]));
+    expect(tvRelease.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "翡翠台 富贵门"
+    ]));
+    expect(movieRelease).toMatchObject({
+      title: "Jade",
+      year: 1995,
+      mediaType: "MOVIE"
+    });
+    expect(pearlTitleRelease).toMatchObject({
+      title: "Pearl in Red",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 65
+    });
+  });
+
+  it("strips TVB Plus as a channel prefix and metadata field", () => {
+    const release = parseReleaseTitle(
+      "[TVSeries 1080i]TVB Plus Ode To Joy S05 2024 Complete HDTV 1080i H264-HDHTV[TVB Plus | 欢乐颂5 | 全34集 | 粤语/普通话 | 繁体DVB字幕][51.61 GB][xiaocilang2023]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Ode To Joy",
+      year: 2024,
+      mediaType: "TV_SERIES",
+      season: 5,
+      quality: "1080i",
+      source: "HDTV"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["欢乐颂5"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["TVB Plus"]));
   });
 
   it("keeps native compound titles joined by Chinese em dashes", () => {
