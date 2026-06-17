@@ -984,6 +984,51 @@ describe("TMDB title mapper", () => {
     expect(results[0]?.payload).not.toHaveProperty("tvSeasonEpisode");
   });
 
+  it("accepts regional TV suffix matches when TMDB season detail is stale", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            id: 2176,
+            name: "Deal or No Deal",
+            original_name: "Deal or No Deal",
+            first_air_date: "2003-07-13",
+            origin_country: ["AU"]
+          }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 2176,
+          name: "Deal or No Deal",
+          original_name: "Deal or No Deal",
+          first_air_date: "2003-07-13",
+          origin_country: ["AU"],
+          seasons: [{ season_number: 12, episode_count: 116 }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await searchTmdb(
+      {
+        title: "Deal Or No Deal Au",
+        mediaType: "TV_SERIES",
+        year: 2026,
+        season: 14,
+        episode: 38
+      },
+      { credential: "tmdb-key", language: "en-US" }
+    );
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/tv/2176?");
+    expect(results[0]).toMatchObject({
+      title: "Deal or No Deal",
+      matchConfidence: 0.88
+    });
+  });
+
   it("treats US and USA regional TV suffixes as equivalent with TMDB country evidence", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({

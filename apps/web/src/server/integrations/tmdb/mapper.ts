@@ -94,6 +94,18 @@ function scoreTmdbCandidate(input: {
   ) {
     return Math.max(baseScore, input.input.episode ? 0.96 : 0.93);
   }
+  if (
+    input.endpoint === "tv" &&
+    input.input.season &&
+    input.input.episode &&
+    tmdbTitleHasRegionalEvidence({
+      query: input.input.title,
+      candidateTitles: input.candidateTitles,
+      originCountries: input.result.origin_country
+    })
+  ) {
+    return Math.max(baseScore, 0.88);
+  }
   return baseScore;
 }
 
@@ -115,6 +127,29 @@ export function tmdbTitleSupportsSeasonEvidence(input: {
 
   return candidateKeys.some((candidate) => {
     if (candidate === queryRegional.titleKey) return true;
+    const candidateRegional = stripRegionalSuffix(candidate);
+    return candidateRegional?.country === queryRegional.country &&
+      candidateRegional.titleKey === queryRegional.titleKey;
+  });
+}
+
+function tmdbTitleHasRegionalEvidence(input: {
+  query: string;
+  candidateTitles: readonly string[];
+  originCountries?: readonly string[];
+}) {
+  const queryKey = normalizeForScore(input.query);
+  if (!queryKey) return false;
+
+  const queryRegional = stripQueryRegionalSuffix(input.query, queryKey);
+  if (!queryRegional) return false;
+  if (!originCountryMatches(input.originCountries, queryRegional.country)) return false;
+
+  const candidateKeys = input.candidateTitles
+    .map((candidate) => normalizeForScore(candidate))
+    .filter(Boolean);
+  return candidateKeys.some((candidate) => {
+    if (candidate === queryKey || candidate === queryRegional.titleKey) return true;
     const candidateRegional = stripRegionalSuffix(candidate);
     return candidateRegional?.country === queryRegional.country &&
       candidateRegional.titleKey === queryRegional.titleKey;
