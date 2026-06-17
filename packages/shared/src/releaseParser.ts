@@ -7,6 +7,7 @@ const SOURCE_RE = /\b(WEB[- .]?DL|WEBRip|Blu[- .]?Ray|BDRip|HDTV|DVDRip|Remux|UH
 const CODEC_RE = /\b(x265|x264|h[ .]?265|h[ .]?264|hevc|avc|av1|mpeg[ .]?2)\b/i;
 const AUDIO_RE = /\b(DDP?[ .]?(?:5\.1|7\.1|2\.0)?|DD\+[ .]?(?:5\.1|7\.1|2\.0)?|DTS[- .]?HD|TrueHD|Atmos|AAC[ .]?(?:2\.0|5\.1)?|FLAC|OPUS[ .]?(?:2\.0|5\.1)?|LPCM[ .]?(?:2\.0|5\.1)?)\b/i;
 const YEAR_RE = /\b(19\d{2}|20\d{2})\b/;
+const YEAR_GLOBAL_RE = /\b(19\d{2}|20\d{2})\b/g;
 const TV_RE = /\bS(\d{1,4})[ ._-]?E(\d{1,3})(?:(?:[- ._]+E?|E)(\d{1,3}))*\b/i;
 const LONG_TV_RE = /\bS(\d{1,2})[ ._-]?E(\d{4})(?:(?:[-_]+E?|[ .]+E|E)(\d{4}))?\b/i;
 const EPISODE_ONLY_RE = /\bEP?(\d{1,3})(?:[- ._]?EP?(\d{1,3}))?\b/i;
@@ -82,7 +83,15 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const chineseEpisode = parseInputHasBrackets
     ? rawChineseEpisode
     : findChineseEpisode(normalized, "normalized") ?? rawChineseEpisode;
-  const yearMatch = normalized.match(YEAR_RE);
+  const tvMarkerIndex = firstDefinedIndex(
+    tv?.index,
+    episodeOnly?.index,
+    longEpisodeOnly?.index,
+    seasonPack?.index,
+    normalizedChineseSeason?.index,
+    chineseEpisode?.source === "normalized" ? chineseEpisode.index : undefined
+  );
+  const yearMatch = findReleaseYearMatch(normalized, tvMarkerIndex);
   const qualityMatch = normalized.match(QUALITY_RE) ?? rawNormalized.match(QUALITY_RE);
   const dimensionMatch = normalized.match(DIMENSION_RE) ?? rawNormalized.match(DIMENSION_RE);
   const quality = normalizeQuality(qualityMatch?.[1]) ?? normalizeDimensionQuality(dimensionMatch?.[1]);
@@ -228,6 +237,27 @@ function findNumericTitleYear(normalized: string) {
     year: Number(match[2]),
     yearIndex
   };
+}
+
+function findReleaseYearMatch(normalized: string, tvMarkerIndex: number) {
+  const matches = [...normalized.matchAll(YEAR_GLOBAL_RE)];
+  const first = matches[0];
+  if (!first || first.index == null) return undefined;
+  if (tvMarkerIndex < 0 || first.index > tvMarkerIndex) return first;
+
+  const firstYear = Number(first[1]);
+  const technicalStop = firstDefinedIndex(
+    normalized.search(QUALITY_RE),
+    normalized.search(DIMENSION_RE),
+    normalized.search(SOURCE_RE),
+    normalized.search(CODEC_RE)
+  );
+  return matches.find((match) => {
+    if (match.index == null || match.index <= tvMarkerIndex) return false;
+    if (technicalStop >= 0 && match.index >= technicalStop) return false;
+    const laterYear = Number(match[1]);
+    return firstYear - laterYear > 1;
+  }) ?? first;
 }
 
 function stripBroadcastCapturePrefix(input: string): string {

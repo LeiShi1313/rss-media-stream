@@ -321,6 +321,50 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("keeps future year-like title tokens before TV season markers", () => {
+    const firstSeason = parseReleaseTitle(
+      "[Anime 1080p]Ghost in the Shell SAC_2045 S01 2020 Complete 1080p Netflix WEB-DL AVC DDP 5.1 Atmos-DBTV[攻壳机动队：SAC_2045 第 1 季 / 攻殻機動隊 SAC_2045 / Ghost in the Shell: SAC_2045 全 12 集 (2020)][11.81 GB][anonymous]"
+    );
+    const secondSeason = parseReleaseTitle(
+      "[Animations]Ghost in the Shell SAC_2045 S02 2022 Complete 1080p Netflix WEB-DL AVC DDP 5.1 Atmos-DBTV[攻壳机动队：SAC_2045 第 2 季 / 攻殻機動隊 SAC_2045 / Ghost in the Shell: SAC_2045 全 12 集 (2022)][11.99 GB][anonymous]"
+    );
+
+    expect(firstSeason).toMatchObject({
+      title: "Ghost in the Shell SAC 2045",
+      year: 2020,
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "1080p",
+      source: "WEB-DL"
+    });
+    expect(secondSeason).toMatchObject({
+      title: "Ghost in the Shell SAC 2045",
+      year: 2022,
+      mediaType: "TV_SERIES",
+      season: 2,
+      quality: "1080p",
+      source: "WEB-DL"
+    });
+  });
+
+  it("keeps ordinary first-air years before TV episode markers", () => {
+    const release = parseReleaseTitle(
+      "Doctor Who 2005 S01E02 2026 1080p WEB-DL H.264-GRP"
+    );
+
+    expect(release).toMatchObject({
+      title: "Doctor Who",
+      year: 2005,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 2,
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      releaseGroup: "GRP"
+    });
+  });
+
   it("keeps Limited when it is part of a TV title phrase", () => {
     const release = parseReleaseTitle(
       "[综艺]Unplanned Trip Limited Edition S01 2026 1080p WEB-DL AAC H.264-JKCT[韩综|花样青春:限量版/Friends Over Flowers:limited edition][10.05 GB]"
