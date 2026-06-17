@@ -173,6 +173,136 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("uses the PTP display year when the scene filename year conflicts", () => {
+    const release = parseReleaseTitle(
+      "Massacre pour une orgie AKA Massacre of Pleasure [1966] by Jean-Pierre Bastid - x264 / Blu-ray / MKV / 1080p [ Massacre.pour.une.orgie.1996.1080p.BluRay.x264-PTP ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Massacre pour une orgie",
+      year: 1966,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264",
+      releaseGroup: "PTP"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["Massacre of Pleasure"]));
+  });
+
+  it("does not rewrite one-year PTP filename and display year differences", () => {
+    const release = parseReleaseTitle(
+      "Soy Frankelda AKA I Am Frankelda [2025] by Arturo Ambriz and Roy Ambriz - H.265 / WEB / MKV / 2160p / Dual Audio / Dolby Vision [ I.Am.Frankelda.2026.2160p.NF.WEB-DL.DDP5.1.DV.H.265-CHORTLE ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "I Am Frankelda",
+      year: 2026,
+      mediaType: "MOVIE",
+      quality: "2160p",
+      source: "WEB-DL",
+      codec: "H.265",
+      audio: "DDP5.1",
+      releaseGroup: "CHORTLE"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["Soy Frankelda"]));
+  });
+
+  it("uses the PTP display year when the release filename title is not a display alias", () => {
+    const release = parseReleaseTitle(
+      "A la cara AKA Nothing Personal [2025] by Javier Marco - H.265 / WEB / MKV / 2160p / Dolby Atmos / Dolby Vision / HDR10+ [ Pressure.2026.REPACK.2160p.iT.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-WarRunsOnWeather ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Pressure",
+      year: 2025,
+      mediaType: "MOVIE",
+      quality: "2160p",
+      source: "WEB-DL",
+      codec: "H.265",
+      audio: "DDP5.1"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "A la cara",
+      "Nothing Personal"
+    ]));
+  });
+
+  it("keeps one-year transliteration drift on the PTP filename year", () => {
+    const release = parseReleaseTitle(
+      "Moya sobaka kosmonavt AKA My Space Dog [2026] by Mikhail Morskov - x264 / WEB / MKV / 1080p [ Moia.sobaka.kosmonavt.2025.RUSSiAN.1080p.WEB.x264-Altansar ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Moia sobaka kosmonavt",
+      year: 2025,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "WEB",
+      codec: "H.264",
+      releaseGroup: "Altansar"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "Moya sobaka kosmonavt",
+      "My Space Dog"
+    ]));
+  });
+
+  it("keeps the PTP filename year when the display title is unrelated", () => {
+    const release = parseReleaseTitle(
+      "Syriana [2005] by Stephen Gaghan - x264 / WEB / MKV / 1080p [ Another.Life.2019.1080p.WEB-DL.AAC2.0.H.264-aurez29 ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Another Life",
+      year: 2019,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      audio: "AAC2.0",
+      releaseGroup: "aurez29"
+    });
+  });
+
+  it("does not use PTP bundle collection years as individual movie years", () => {
+    const release = parseReleaseTitle(
+      "The Lustful Turk (1968) / The Joys of Jezebel (1970) [2026] by Byron Mabe and Peter Perry Jr. - BD50 / Blu-ray / m2ts / 1080p / 4K Restoration [ The Lustful Turk (1968) & The Joys of Jezebel (1970) 1080p USA Blu-ray AVC DTS-HD MA 2.0 ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Lustful Turk",
+      year: 1968,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "The Lustful Turk 1968",
+      "The Joys of Jezebel 1970"
+    ]));
+  });
+
+  it("uses the PTP display year when a year-like token is part of the title", () => {
+    const release = parseReleaseTitle(
+      "Gojira ni-sen mireniamu AKA Godzilla 2000: Millennium [1999] by Takao Okawara - x264 / Blu-ray / MKV / 1080p / Japanese Version [ Godzilla.2000.Millennium.1999.Japanese.Version.1080p.BluRay.FLAC2.0.x264-iNDORAPTOR ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Godzilla",
+      year: 1999,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264",
+      releaseGroup: "iNDORAPTOR"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "Gojira ni-sen mireniamu",
+      "Godzilla 2000: Millennium"
+    ]));
+  });
+
   it("keeps Limited when it is part of a TV title phrase", () => {
     const release = parseReleaseTitle(
       "[综艺]Unplanned Trip Limited Edition S01 2026 1080p WEB-DL AAC H.264-JKCT[韩综|花样青春:限量版/Friends Over Flowers:limited edition][10.05 GB]"

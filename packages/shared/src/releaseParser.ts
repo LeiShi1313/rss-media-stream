@@ -79,7 +79,9 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const codec = normalizeCodec((normalized.match(CODEC_RE) ?? rawNormalized.match(CODEC_RE))?.[1]);
   const audio = normalizeAudio((normalized.match(AUDIO_RE) ?? rawNormalized.match(AUDIO_RE))?.[1]);
   const numericTitleYear = findNumericTitleYear(normalized);
-  const year = numericTitleYear?.year ?? (yearMatch ? Number(yearMatch[1]) : inferMetadataYear(rawTitle));
+  const releaseYear = numericTitleYear?.year ?? (yearMatch ? Number(yearMatch[1]) : undefined);
+  const ptpDisplayYear = findPtpDisplayMetadataYear(rawTitle, parseInput);
+  const year = preferredReleaseYear(releaseYear, ptpDisplayYear) ?? inferMetadataYear(rawTitle);
   const completeIndex = categorySeriesEvidence ? normalized.search(COMPLETE_WORD_RE) : -1;
   const hasTvEvidence = Boolean(tv || episodeOnly || longEpisodeOnly || seasonPack || chineseSeason || chineseEpisode || categorySeriesEvidence);
 
@@ -582,6 +584,86 @@ function nativeEmDashTitleCandidate(value: string) {
 function humanMetadataTitleCandidates(rawTitle: string) {
   const match = rawTitle.match(/^\s*(.+?)\s*[\[(](?:19|20)\d{2}[\])]\s+by\b/i);
   return match?.[1] ? [match[1]] : [];
+}
+
+function findPtpDisplayMetadataYear(rawTitle: string, parseInput: string) {
+  const match = rawTitle.match(/^\s*(.+?)\s*[\[(]((?:19|20)\d{2})[\])]\s+by\b/i);
+  if (!match?.[1] || !match[2]) return undefined;
+  const prefixHasYear = YEAR_RE.test(match[1]);
+  if (prefixHasYear && /\s\/\s/.test(match[1])) return undefined;
+  const prefixCandidates = validTitleCandidatesFromValue(match[1]);
+  const releaseTitleCandidates = releaseSegmentTitleCandidates(parseInput);
+  return {
+    year: Number(match[2]),
+    prefixHasYear,
+    titleCompatible: ptpDisplayTitleCompatible(prefixCandidates, releaseTitleCandidates),
+    preferForAliasMismatch: AKA_RE.test(match[1]) &&
+      releaseTitleCandidates.length > 0 &&
+      prefixCandidates.length > 0 &&
+      releaseTitleCandidates.every((candidate) =>
+        !prefixCandidates.some((prefixCandidate) => compatibleTitleKey(prefixCandidate, candidate))
+      )
+  };
+}
+
+function preferredReleaseYear(
+  releaseYear: number | undefined,
+  ptpDisplayYear: { year: number; prefixHasYear: boolean; titleCompatible: boolean; preferForAliasMismatch: boolean } | undefined
+) {
+  if (releaseYear == null) return ptpDisplayYear?.year;
+  if (ptpDisplayYear == null) return releaseYear;
+  const yearDelta = Math.abs(releaseYear - ptpDisplayYear.year);
+  if (yearDelta <= 1 && (ptpDisplayYear.prefixHasYear || ptpDisplayYear.preferForAliasMismatch)) {
+    return ptpDisplayYear.year;
+  }
+  if (!ptpDisplayYear.titleCompatible) return releaseYear;
+  return yearDelta > 5 ? ptpDisplayYear.year : releaseYear;
+}
+
+function releaseSegmentTitleCandidates(parseInput: string) {
+  const normalized = normalizeReleaseText(parseInput);
+  const stop = firstDefinedIndex(
+    normalized.search(YEAR_RE),
+    normalized.search(QUALITY_RE),
+    normalized.search(DIMENSION_RE),
+    normalized.search(SOURCE_RE)
+  );
+  const titleSegment = stop >= 0 ? normalized.slice(0, stop) : normalized;
+  return validTitleCandidatesFromValue(titleSegment);
+}
+
+function ptpDisplayTitleCompatible(prefixCandidates: string[], releaseTitleCandidates: string[]) {
+  if (prefixCandidates.length === 0 || releaseTitleCandidates.length === 0) return false;
+  return releaseTitleCandidates.some((candidate) =>
+    prefixCandidates.some((prefixCandidate) => compatibleTitleKey(prefixCandidate, candidate))
+  );
+}
+
+function compatibleTitleKey(left: string, right: string) {
+  const leftKey = equivalentTitleKey(left);
+  const rightKey = equivalentTitleKey(right);
+  if (!leftKey || !rightKey) return false;
+  if (leftKey === rightKey) return true;
+  if (leftKey.length < 5 || rightKey.length < 5) return false;
+  if (leftKey.startsWith(rightKey) || rightKey.startsWith(leftKey)) return true;
+  return Math.min(leftKey.length, rightKey.length) >= 8 &&
+    levenshteinDistance(leftKey, rightKey) / Math.max(leftKey.length, rightKey.length) <= 0.12;
+}
+
+function levenshteinDistance(left: string, right: string) {
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    const current = [leftIndex + 1];
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      current[rightIndex + 1] = Math.min(
+        previous[rightIndex + 1] + 1,
+        current[rightIndex] + 1,
+        previous[rightIndex] + (left[leftIndex] === right[rightIndex] ? 0 : 1)
+      );
+    }
+    previous = current;
+  }
+  return previous[right.length] ?? 0;
 }
 
 function metadataTitleCandidatesFromSegment(segment: string) {
