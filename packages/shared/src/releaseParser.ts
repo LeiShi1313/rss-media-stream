@@ -301,6 +301,11 @@ function findReleaseYearMatch(
     : undefined;
   if (titleYearReleaseMatch) return titleYearReleaseMatch;
 
+  const akaTitleYearReleaseMatch = context.hasTvContext
+    ? undefined
+    : findAkaTitleYearReleaseMatch(normalized, matches, technicalStop);
+  if (akaTitleYearReleaseMatch) return akaTitleYearReleaseMatch;
+
   if (context.tvMarkerIndex < 0 || first.index > context.tvMarkerIndex) return first;
 
   return matches.find((match) => {
@@ -309,6 +314,30 @@ function findReleaseYearMatch(
     const laterYear = Number(match[1]);
     return firstYear - laterYear > 1;
   }) ?? first;
+}
+
+function findAkaTitleYearReleaseMatch(
+  normalized: string,
+  matches: RegExpMatchArray[],
+  technicalStop: number
+) {
+  const akaMatch = normalized.match(AKA_RE);
+  if (!akaMatch?.[0] || akaMatch.index == null) return undefined;
+
+  const titleYearMatch = matches.find((match) =>
+    match.index != null &&
+    match.index < akaMatch.index! &&
+    match[1] != null
+  );
+  if (!titleYearMatch?.[1]) return undefined;
+
+  const titleYear = Number(titleYearMatch[1]);
+  return matches.slice().reverse().find((match) => {
+    if (!match[1] || match.index == null) return false;
+    if (match.index <= akaMatch.index!) return false;
+    if (technicalStop >= 0 && match.index >= technicalStop) return false;
+    return Number(match[1]) !== titleYear;
+  });
 }
 
 function findTvTitleYearAliasReleaseMatch(

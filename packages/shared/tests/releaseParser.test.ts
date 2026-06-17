@@ -321,6 +321,37 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("uses the later release year when an AKA title contains a year-like title token", () => {
+    const godzilla = parseReleaseTitle(
+      "Godzilla 2000: Millennium AKA Gojira ni-sen mireniamu 1999 1080p BluRay FLAC 2.0 x264-iNDORAPTOR"
+    );
+    const yearTitle = parseReleaseTitle(
+      "1987: When the Day Comes AKA 1987 2017 1080p ATV WEB-DL AAC 2.0 H.264-DUSKLiGHT"
+    );
+
+    expect(godzilla).toMatchObject({
+      title: "Godzilla 2000: Millennium",
+      year: 1999,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264",
+      releaseGroup: "iNDORAPTOR"
+    });
+    expect(godzilla.providerSearchTitles).toEqual(expect.arrayContaining([
+      "Gojira ni sen mireniamu"
+    ]));
+    expect(yearTitle).toMatchObject({
+      title: "1987: When the Day Comes",
+      year: 2017,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      releaseGroup: "DUSKLiGHT"
+    });
+  });
+
   it("keeps future year-like title tokens before TV season markers", () => {
     const firstSeason = parseReleaseTitle(
       "[Anime 1080p]Ghost in the Shell SAC_2045 S01 2020 Complete 1080p Netflix WEB-DL AVC DDP 5.1 Atmos-DBTV[攻壳机动队：SAC_2045 第 1 季 / 攻殻機動隊 SAC_2045 / Ghost in the Shell: SAC_2045 全 12 集 (2020)][11.81 GB][anonymous]"
