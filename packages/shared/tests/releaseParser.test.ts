@@ -133,6 +133,29 @@ describe("parseReleaseTitle", () => {
     expect(release.parseConfidence).toBe(1);
   });
 
+  it("removes leading category wrappers when release text has no resolution token", () => {
+    const release = parseReleaseTitle(
+      "[动漫(Animations)]Love Live Nijigasaki Gakuen School Idol Doukoukai 2022 S02 Blu-ray x265 FLAC-VCB-Studio[Love Live! Nijigasaki High School Idol Club Season 2/爱与演唱会 虹咲学园学园偶像同好会 第二季][83.37 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Love Live Nijigasaki Gakuen School Idol Doukoukai",
+      year: 2022,
+      mediaType: "TV_SERIES",
+      season: 2,
+      source: "BluRay",
+      codec: "H.265",
+      audio: "FLAC"
+    });
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining([
+      "Animations Love Live Nijigasaki Gakuen School Idol Doukoukai",
+      "动漫 Animations Love Live Nijigasaki Gakuen School Idol Doukoukai"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "动漫 Animations Love Live Nijigasaki Gakuen School Idol Doukoukai"
+    ]));
+  });
+
   it("prefers PTP bracketed release filenames over human metadata", () => {
     const release = parseReleaseTitle(
       "Moolyam [2026] by PV Avinash Varma - H.264 / WEB / MKV / 2160p [ Moolyam.2160p.ETVWIN.WEB-DL.Telugu.AAC.2.0.H264-CloudMovieZ ]"
@@ -720,6 +743,28 @@ describe("parseReleaseTitle", () => {
       "中字"
     ]));
     expect(release.primarySearchTitle).toBe("都市古医仙");
+  });
+
+  it("keeps category prefixes out of TV titles when release text has no resolution token", () => {
+    const release = parseReleaseTitle(
+      "[电视剧 (TV Series)]Lotus Lantern Prequel 2009 E01-E46 NTSC DVD5-Dave[宝莲灯前传 国版DVD原盘 国语 简体字幕 全46集][64.09 GB][anonymous][Free]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Lotus Lantern Prequel",
+      year: 2009,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 1,
+      episodeEnd: 46
+    });
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining([
+      "TV Series Lotus Lantern Prequel",
+      "电视剧 TV Series Lotus Lantern Prequel"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "电视剧 TV Series Lotus Lantern Prequel"
+    ]));
   });
 
   it("extracts broadcaster metadata title candidates without keeping channel prefixes", () => {

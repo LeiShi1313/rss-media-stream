@@ -139,13 +139,14 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
 }
 
 function releaseParseInput(rawTitle: string): string {
-  const releaseSegment = releaseLikeSegments(rawTitle)[0];
+  const categoryStrippedTitle = stripLeadingCategoryWrappers(rawTitle);
+  const releaseSegment = releaseLikeSegments(categoryStrippedTitle)[0];
   if (releaseSegment) return releaseSegment.segment;
 
-  const bracketSegments = [...rawTitle.matchAll(/\[([^\]]*)\]/g)]
+  const bracketSegments = [...categoryStrippedTitle.matchAll(/\[([^\]]*)\]/g)]
     .map((match) => match[1]?.trim())
     .filter((segment): segment is string => Boolean(segment));
-  const rawWithoutBracketSegments = rawTitle.replace(/\[[^\]]*\]/g, " ").trim();
+  const rawWithoutBracketSegments = categoryStrippedTitle.replace(/\[[^\]]*\]/g, " ").trim();
   const bestBracketSegment = bracketSegments
     .map((segment) => ({ segment, score: scoreReleaseLikeSegment(segment) }))
     .filter((candidate) => candidate.score >= 3 && isReleaseLikeSegment(candidate.segment))
@@ -160,9 +161,31 @@ function releaseParseInput(rawTitle: string): string {
     return bestBracketSegment.segment;
   }
 
-  return rawTitle
+  return categoryStrippedTitle
     .replace(/\[[^\]]*(?:ourbits|torrent|rss)[^\]]*\]/gi, " ")
     .replace(/\([^\)]*(?:ourbits|torrent|rss)[^\)]*\)/gi, " ");
+}
+
+function stripLeadingCategoryWrappers(rawTitle: string) {
+  const stripped = rawTitle.trimStart();
+  const match = stripped.match(/^\[([^\]]+)\]\s*/u);
+  if (!match?.[1] || !categoryWrapperSegment(match[1])) return stripped;
+
+  const afterWrapper = stripped.slice(match[0].length).trimStart();
+  return afterWrapper.startsWith("[") ? stripped : afterWrapper;
+}
+
+function categoryWrapperSegment(segment: string) {
+  const normalized = segment.trim();
+  return movieMediaCategorySegment(normalized) ||
+    animationMediaCategorySegment(normalized) ||
+    strongTvMediaCategorySegment(normalized) ||
+    documentaryMediaCategorySegment(normalized);
+}
+
+function documentaryMediaCategorySegment(segment: string) {
+  const trimmed = segment.trim();
+  return /^(?:纪录片|紀錄片|documentaries?|documentary)(?:$|\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
 }
 
 function normalizeReleaseText(input: string): string {
