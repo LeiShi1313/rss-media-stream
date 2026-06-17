@@ -91,7 +91,12 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     normalizedChineseSeason?.index,
     chineseEpisode?.source === "normalized" ? chineseEpisode.index : undefined
   );
-  const yearMatch = findReleaseYearMatch(normalized, tvMarkerIndex);
+  const hasTvContext = Boolean(tv || episodeOnly || longEpisodeOnly || seasonPack || chineseSeason || chineseEpisode || categorySeriesEvidence);
+  const yearMatch = findReleaseYearMatch(normalized, {
+    tvMarkerIndex,
+    rawTitle,
+    hasTvContext
+  });
   const qualityMatch = normalized.match(QUALITY_RE) ?? rawNormalized.match(QUALITY_RE);
   const dimensionMatch = normalized.match(DIMENSION_RE) ?? rawNormalized.match(DIMENSION_RE);
   const quality = normalizeQuality(qualityMatch?.[1]) ?? normalizeDimensionQuality(dimensionMatch?.[1]);
@@ -104,7 +109,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const ptpDisplayYear = findPtpDisplayMetadataYear(rawTitle, parseInput);
   const year = preferredReleaseYear(releaseYear, ptpDisplayYear) ?? inferMetadataYear(rawTitle);
   const completeIndex = categorySeriesEvidence ? normalized.search(COMPLETE_WORD_RE) : -1;
-  const hasTvEvidence = Boolean(tv || episodeOnly || longEpisodeOnly || seasonPack || chineseSeason || chineseEpisode || categorySeriesEvidence);
+  const hasTvEvidence = hasTvContext;
 
   const titleStop = firstDefinedIndex(
     tv?.index,
@@ -239,11 +244,17 @@ function findNumericTitleYear(normalized: string) {
   };
 }
 
-function findReleaseYearMatch(normalized: string, tvMarkerIndex: number) {
+function findReleaseYearMatch(
+  normalized: string,
+  context: {
+    tvMarkerIndex: number;
+    rawTitle: string;
+    hasTvContext: boolean;
+  }
+) {
   const matches = [...normalized.matchAll(YEAR_GLOBAL_RE)];
   const first = matches[0];
   if (!first || first.index == null) return undefined;
-  if (tvMarkerIndex < 0 || first.index > tvMarkerIndex) return first;
 
   const firstYear = Number(first[1]);
   const technicalStop = firstDefinedIndex(
@@ -252,12 +263,76 @@ function findReleaseYearMatch(normalized: string, tvMarkerIndex: number) {
     normalized.search(SOURCE_RE),
     normalized.search(CODEC_RE)
   );
+
+  const titleYearReleaseMatch = context.hasTvContext
+    ? findTvTitleYearAliasReleaseMatch(normalized, matches, technicalStop, context.rawTitle)
+    : undefined;
+  if (titleYearReleaseMatch) return titleYearReleaseMatch;
+
+  if (context.tvMarkerIndex < 0 || first.index > context.tvMarkerIndex) return first;
+
   return matches.find((match) => {
-    if (match.index == null || match.index <= tvMarkerIndex) return false;
+    if (match.index == null || match.index <= context.tvMarkerIndex) return false;
     if (technicalStop >= 0 && match.index >= technicalStop) return false;
     const laterYear = Number(match[1]);
     return firstYear - laterYear > 1;
   }) ?? first;
+}
+
+function findTvTitleYearAliasReleaseMatch(
+  normalized: string,
+  matches: RegExpMatchArray[],
+  technicalStop: number,
+  rawTitle: string
+) {
+  const first = matches[0];
+  if (!first?.[1] || first.index == null) return undefined;
+
+  const titlePrefix = cleanTitle(normalized.slice(0, first.index));
+  if (!oneWordLatinTitlePrefix(titlePrefix)) return undefined;
+
+  const titleYear = Number(first[1]);
+  const releaseYearMatch = matches.slice(1).find((match) => {
+    if (!match[1] || match.index == null) return false;
+    if (technicalStop >= 0 && match.index >= technicalStop) return false;
+    return Number(match[1]) - titleYear > 1;
+  });
+  if (!releaseYearMatch) return undefined;
+
+  return hasTitleYearAliasEvidence(rawTitle, titlePrefix, first[1])
+    ? releaseYearMatch
+    : undefined;
+}
+
+function oneWordLatinTitlePrefix(value: string) {
+  const words = value.split(/\s+/).filter(Boolean);
+  return words.length === 1 && hasLatin(value) && !hasNativeScript(value);
+}
+
+function hasTitleYearAliasEvidence(rawTitle: string, titlePrefix: string, titleYear: string) {
+  const expectedLatinKey = equivalentTitleKey(`${titlePrefix} ${titleYear}`);
+  for (const candidate of metadataAliasCandidates(rawTitle)) {
+    const cleaned = cleanCandidateTitle(candidate);
+    if (!isTitleCandidate(cleaned)) continue;
+    if (equivalentTitleKey(cleaned) === expectedLatinKey) return true;
+    if (hasNativeScript(cleaned) && cleaned.includes(titleYear)) {
+      const withoutYear = cleanCandidateTitle(cleaned.replace(titleYear, " "));
+      if (withoutYear && hasNativeScript(withoutYear) && !metadataInfoField(withoutYear)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function metadataAliasCandidates(rawTitle: string) {
+  const candidates: string[] = [];
+  for (const segment of titleSegments(rawTitle)) {
+    if (scoreReleaseLikeSegment(segment) >= 3 && !releaseLikeMetadataTitleSegment(segment)) continue;
+    candidates.push(...metadataTitleCandidatesFromSegment(segment));
+    candidates.push(...titleCandidatesFromValue(segment));
+  }
+  return candidates;
 }
 
 function stripBroadcastCapturePrefix(input: string): string {

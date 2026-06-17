@@ -365,6 +365,62 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("keeps a one-word TV title year when metadata aliases include that year", () => {
+    const release = parseReleaseTitle(
+      "[电视剧 (TV Series)]Reply 1988 S01 2015 1080p NF WEB-DL x264 AAC 2.0-CMCTV[请回答1988 / Reply 1988 / 回应吧1988 | 全20集 | 成东日 / 李一花 / 罗美兰 [韩语] [简繁英字幕]][61.87 GB][anonymous][Free]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Reply 1988",
+      year: 2015,
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      audio: "AAC.2.0",
+      releaseGroup: "CMCTV"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "回应吧1988"
+    ]));
+  });
+
+  it("uses the later release year for a one-word TV title-year alias without an explicit season token", () => {
+    const release = parseReleaseTitle(
+      "[电视剧 (TV Series)]Reply 1988 2015 1080p WEB-DL H265 AAC-PTerWEB[请回答1988 | 全20集 | 导演: 申源浩 | 主演: 成东日 李一花 罗美兰 金成钧 崔武成 [韩语中字]][60.20 GB][anonymous][Free]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Reply 1988",
+      year: 2015,
+      mediaType: "TV_SERIES",
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.265",
+      audio: "AAC",
+      releaseGroup: "PTerWEB"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["请回答1988"]));
+  });
+
+  it("does not treat multi-word TV first-air years as title-year aliases", () => {
+    const release = parseReleaseTitle(
+      "Doctor Who 2005 S01 2026 Complete 1080p WEB-DL H.264-GRP[Doctor Who 2005 全13集]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Doctor Who",
+      year: 2005,
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      releaseGroup: "GRP"
+    });
+  });
+
   it("keeps Limited when it is part of a TV title phrase", () => {
     const release = parseReleaseTitle(
       "[综艺]Unplanned Trip Limited Edition S01 2026 1080p WEB-DL AAC H.264-JKCT[韩综|花样青春:限量版/Friends Over Flowers:limited edition][10.05 GB]"
