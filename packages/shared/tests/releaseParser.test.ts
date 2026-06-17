@@ -821,6 +821,40 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["国风超有戏·寻风季"]));
   });
 
+  it("removes CJK variety section labels from provider search titles", () => {
+    const release = parseReleaseTitle(
+      "[综艺]Im So Into You S06E04 2026 2160p WEB-DL H265 AAC-ADWeb[喜欢你我也是 第六季 正片 第02期上 社牛男五1V4约会女嘉宾 晨晨拆小朱炼炼CP | 喜欢你我也是 旅行季 *银河奇异果*][1.58 GB][anonymous][国语 | 中字 | 官方]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Im So Into You",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 6,
+      episode: 4
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["喜欢你我也是"]));
+    expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining([
+      "喜欢你我也是 正片"
+    ]));
+  });
+
+  it("removes CJK plus-section labels without removing the show title", () => {
+    const release = parseReleaseTitle(
+      "[综艺]Love Actually S05E02 Plus 2026 2160p WEB-DL H265 AAC-ADWeb[半熟恋人 第五季 加更 第02期加更上：你是明星吗？年下弟弟好会撩 *云视听极光*][604.02 MB][anonymous][国语 | 中字 | 官方]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(["半熟恋人"]);
+  });
+
+  it("keeps diary words that are part of a title token", () => {
+    const release = parseReleaseTitle(
+      "[动漫]Koala Enikki S01E01 2026 1080p WEB-DL H264 AAC-GRP[考拉绘日记 無尾熊繪日記 コアラ絵日記 | 第01集][300 MB]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["考拉绘日记 無尾熊繪日記 コアラ絵日記"]));
+  });
+
   it("uses Chinese metadata episode ranges when the release segment only has a season pack", () => {
     const release = parseReleaseTitle(
       "[电视剧]Cang Yue Xing Lan S01 2026 1080p WEB-DL H264 AAC-HHWEB[沧月星澜 | 第19-23集 | 1080p  | 类型: 剧情/爱情/奇幻 | 导演: 钟大维 | 主演: 朱致灵/邵思涵/靳旺/罗予甜][913.03 MB][anonymous]"
