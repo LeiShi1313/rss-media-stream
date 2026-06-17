@@ -1386,6 +1386,18 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(["半熟恋人"]);
   });
 
+  it("removes CJK variety side-section subtitles from provider search titles", () => {
+    const bookRelease = parseReleaseTitle(
+      "[综艺]VOWS S01E01 Book 2026 1080p WEB-DL H264 AAC-ADWeb[少年无尽夏 第一季 同学录 同学录：吴晗大型破防现场！安仔竟是隐藏绘画大佬！ *酷喵TV*][209.20 MB][anonymous][国语 | 中字 | 官方]"
+    );
+    const liveRelease = parseReleaseTitle(
+      "[综艺]VOWS S01E01 Live 2026 1080p WEB-DL H264 AAC-ADWeb[少年无尽夏 第一季 直播回看 直播回看：《》开播唠嗑局，全员集结线上畅聊 *酷喵TV*][296.79 MB][anonymous][国语 | 中字 | 官方]"
+    );
+
+    expect(bookRelease.providerSearchTitles).toEqual(["少年无尽夏"]);
+    expect(liveRelease.providerSearchTitles).toEqual(["少年无尽夏"]);
+  });
+
   it("keeps diary words that are part of a title token", () => {
     const release = parseReleaseTitle(
       "[动漫]Koala Enikki S01E01 2026 1080p WEB-DL H264 AAC-GRP[考拉绘日记 無尾熊繪日記 コアラ絵日記 | 第01集][300 MB]"
