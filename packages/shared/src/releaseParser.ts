@@ -48,6 +48,7 @@ const NATIVE_YEARLY_TITLE_RE = /(?:^|\s)([\p{Script=Han}\p{Script=Hiragana}\p{Sc
 const LATIN_RE = /[A-Za-z]/;
 const SLASH_NUMERIC_TITLE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const CHINESE_SEASON_RE = /(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|([一二三四五六七八九十两\d]{1,3})\s*季)/u;
+const CHINESE_SEASON_ONLY_RE = /(?:^|[\s[({【「『|｜:：,，;；/])(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*季|([一二三四五六七八九十两\d]{1,3})\s*季)/u;
 const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,4})(?:\s*[-~至到－—]\s*([一二三四五六七八九十两\d]{1,4}))?\s*(?:集|话|話)/u;
 const WHOLE_SERIES_EPISODE_RE = /全\s*(?!0*1\s*(?:集|话|話)|一\s*(?:集|话|話))[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)/u;
 const CJK_COMPLETE_EPISODE_RANGE_RE = /\d{1,4}\s*[-~至到－—]\s*\d{1,4}\s*(?:集|话|話)\s*(?:全|完|完结|完結)/u;
@@ -77,6 +78,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const strippedRegionalTvBroadcastPrefix = parseInput !== releaseInput;
   const unsupportedMediaCategory = hasUnsupportedLeadingMediaCategory(rawTitle);
   const movieMediaCategory = hasMovieLeadingMediaCategory(rawTitle);
+  const movieCategorySeasonMetadataEvidence = hasMovieCategorySeasonMetadataEvidence(rawTitle);
   const categorySeriesEvidence =
     regionalTvSeriesEvidence ||
     hasStackedTvDramaCategoryEvidence(rawTitle) ||
@@ -84,7 +86,8 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     hasTvShowsLeadingMediaCategory(rawTitle) ||
     (hasDocumentaryLeadingMediaCategory(rawTitle) && WHOLE_SERIES_EPISODE_RE.test(rawTitle)) ||
     hasUncategorizedWholeSeriesEvidence(rawTitle) ||
-    hasAnimationSeriesEvidence(rawTitle);
+    hasAnimationSeriesEvidence(rawTitle) ||
+    movieCategorySeasonMetadataEvidence;
   const releaseGroup = extractReleaseGroup(parseInput);
   const normalized = normalizeReleaseText(parseInput);
   const rawNormalized = normalizeReleaseText(cleanedRawTitle);
@@ -98,7 +101,11 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     : normalized.match(LONG_EPISODE_ONLY_RE);
   const seasonPack = normalized.match(SEASON_PACK_RE) ?? normalized.match(SEASON_WORD_PACK_RE);
   const normalizedChineseSeason = parseInputHasBrackets ? undefined : findChineseSeason(normalized, "normalized");
-  const chineseSeason = normalizedChineseSeason ?? (movieMediaCategory ? undefined : findChineseSeason(rawTitle, "raw"));
+  const chineseSeason = normalizedChineseSeason ?? (movieCategorySeasonMetadataEvidence
+    ? findChineseSeasonOnly(rawTitle, "raw")
+    : movieMediaCategory
+      ? undefined
+      : findChineseSeason(rawTitle, "raw"));
   const rawChineseEpisode = tv || episodeOnly || seasonPack || chineseSeason
     ? findChineseEpisode(rawTitle, "raw")
     : undefined;
@@ -563,6 +570,16 @@ function hasUnsupportedLeadingMediaCategory(rawTitle: string) {
 function hasMovieLeadingMediaCategory(rawTitle: string) {
   const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
   return Boolean(bracketed && movieMediaCategorySegment(bracketed));
+}
+
+function hasMovieCategorySeasonMetadataEvidence(rawTitle: string) {
+  if (!hasMovieLeadingMediaCategory(rawTitle)) return false;
+  return titleSegments(rawTitle).slice(1).some((segment) => {
+    if (!CHINESE_SEASON_ONLY_RE.test(segment)) return false;
+    return CHINESE_EPISODE_RE.test(segment) ||
+      /[|｜]/u.test(segment) ||
+      /(?:类型|類型|类别|類別)[:：]/u.test(segment);
+  });
 }
 
 function hasStrongTvLeadingMediaCategory(rawTitle: string) {
@@ -1331,6 +1348,14 @@ function hasLatin(value: string) {
 
 function findChineseSeason(value: string, source: "normalized" | "raw") {
   const match = value.match(CHINESE_SEASON_RE);
+  if (!match || match.index == null) return undefined;
+  if (nonTvCollectionPartBeforeChineseSeason(value, match.index)) return undefined;
+  const season = parseChineseNumber(match[1] ?? match[2]);
+  return season == null ? undefined : { index: match.index, season, source };
+}
+
+function findChineseSeasonOnly(value: string, source: "normalized" | "raw") {
+  const match = value.match(CHINESE_SEASON_ONLY_RE);
   if (!match || match.index == null) return undefined;
   if (nonTvCollectionPartBeforeChineseSeason(value, match.index)) return undefined;
   const season = parseChineseNumber(match[1] ?? match[2]);

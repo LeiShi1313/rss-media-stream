@@ -1302,6 +1302,78 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("uses explicit season metadata when a movie category wraps a dated TV release", () => {
+    const release = parseReleaseTitle(
+      "[Movies/电影]The Daily Show 2026-06-15 1080p WEB-DL DDP 2.0 H.264-EDITH[司徒囧每日秀 第一季 | 类型：喜剧][3.08 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Daily Show",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      releaseGroup: "EDITH"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "司徒囧每日秀"
+    ]));
+  });
+
+  it("uses explicit season and episode metadata when a movie category wraps a series episode", () => {
+    const release = parseReleaseTitle(
+      "[Movie/HD]Sheng Hua Ju Shou 2160p TX WEB-DL AAC2.0 H.265-MWeb[生化巨兽 | 2026 | 中国大陆 | 战争 | 郑建强 林秉翰 | 第1季第1集][1.25 GB][N/A]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Sheng Hua Ju Shou",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 1,
+      quality: "2160p",
+      source: "WEB-DL",
+      codec: "H.265",
+      releaseGroup: "MWeb"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "生化巨兽"
+    ]));
+  });
+
+  it("does not use movie part labels as season metadata", () => {
+    const firstPart = parseReleaseTitle(
+      "[电影]Mektoub, My Love: Canto Uno 2017 1080i FRA Blu-ray AVC DTS-HD MA 5.1[宿命，吾爱：第一部 / 宿命 / 宿命，吾爱：首部曲 / Les Dés sont jetés | 类别：剧情 爱情 [法版原盘]][46.36 GB][anonymous][]"
+    );
+    const bondPart = parseReleaseTitle(
+      "[电影(Movie)]Live and Let Die 1973 1080p TWN BluRay x265 10bit DTS-HD MA 5.1-UBits[007第八部：007之你死我活/铁金刚勇破黑魔党/生死关头 | 导演：盖伊·汉弥尔顿 | 主演: 罗杰·摩尔 亚非特·科托 简·西摩 | 繁体中文][14.58 GB][anonymous]"
+    );
+    const fourSeasonsTitle = parseReleaseTitle(
+      "[电影 (Movie)]Conte de printemps 1990 1080p ESP Blu-ray AVC DTS-HD MA 2.0-PTer[春天的故事/  A Tale of Springtime /人间四季之春天的故事 | 侯麦导演 ][44.55 GB][Voner369][Free]"
+    );
+
+    expect(firstPart).toMatchObject({
+      title: "Mektoub, My Love: Canto Uno",
+      year: 2017,
+      mediaType: "MOVIE",
+      season: undefined
+    });
+    expect(bondPart).toMatchObject({
+      title: "Live and Let Die",
+      year: 1973,
+      mediaType: "MOVIE",
+      season: undefined
+    });
+    expect(fourSeasonsTitle).toMatchObject({
+      title: "Conte de printemps",
+      year: 1990,
+      mediaType: "MOVIE",
+      season: undefined
+    });
+  });
+
   it("prefers bracketed release identity over conflicting PTP display metadata", () => {
     const release = parseReleaseTitle(
       "Newboen [1977] by Heather Cook - DVD5 / DVD / VOB IFO / NTSC [ The.Nature.of.Things.S17E03.Newborn.1977.NTSC.DVD5 ]"
