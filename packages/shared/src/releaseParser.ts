@@ -52,12 +52,26 @@ const ANIMATION_TV_EPISODE_RANGE_RE = /\bTV\b[^\[\]]{0,40}\d{1,4}\s*[-~－—]\s
 const NESTED_SEASON_METADATA_ALIAS_RE = /\[([^\[\]\r\n|/]{2,80}?)\s+\[(?:第\s*[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)(?:\s+第\s*[一二三四五六七八九十两\d]{1,4}\s*(?:集|话|話|期))?|Season\s*\d{1,2}|S\d{1,2}(?:E\d{1,4})?)[^\]]*\]\s*\/\s*([^|\[\]]{2,120}?)(?=\s*(?:\||\]))/giu;
 const REGIONAL_VARIANT_CODE_TOKENS = new Set(["AU", "AUS", "US", "USA", "UK", "GB", "NZ", "CA", "NL", "PT", "BE"]);
 const REGIONAL_VARIANT_NAME_TOKENS = new Set(["australia", "canada", "netherlands", "portugal", "belgium"]);
+const ROMAN_SEASON_NUMBERS: Record<string, number> = {
+  II: 2,
+  III: 3,
+  IV: 4,
+  V: 5,
+  VI: 6,
+  VII: 7,
+  VIII: 8,
+  IX: 9,
+  X: 10,
+  XI: 11,
+  XII: 12
+};
 
 export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const cleanedRawTitle = stripMediaExtension(rawTitle);
   const releaseInput = stripBroadcastCapturePrefix(stripMediaExtension(releaseParseInput(rawTitle)));
   const regionalTvSeriesEvidence = hasRegionalTvWholeSeriesEvidence(releaseInput, rawTitle);
   const parseInput = stripRegionalTvBroadcastPrefix(releaseInput, rawTitle);
+  const strippedRegionalTvBroadcastPrefix = parseInput !== releaseInput;
   const unsupportedMediaCategory = hasUnsupportedLeadingMediaCategory(rawTitle);
   const movieMediaCategory = hasMovieLeadingMediaCategory(rawTitle);
   const categorySeriesEvidence =
@@ -129,20 +143,26 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
 
   const rawName = titleStop >= 0 ? normalized.slice(0, titleStop) : normalized;
   const fallbackTitle = cleanTitle(rawName) || cleanTitle(normalized);
+  const romanSeasonSuffix = inferRegionalRomanSeasonSuffix({
+    fallbackTitle,
+    hasEpisodeOnlyMarker: Boolean(episodeOnly || longEpisodeOnly || chineseEpisode),
+    hasExplicitSeasonMarker: Boolean(tv || seasonPack || chineseSeason),
+    strippedRegionalTvBroadcastPrefix
+  });
   const titleInfo = deriveTitleInfo({
     rawTitle,
-    rawName,
-    fallbackTitle
+    rawName: romanSeasonSuffix?.title ?? rawName,
+    fallbackTitle: romanSeasonSuffix?.title ?? fallbackTitle
   });
   const title = titleInfo.title;
   const mediaType = unsupportedMediaCategory
     ? "UNKNOWN"
     : hasTvEvidence
-      ? "TV_SERIES"
-      : year
-        ? "MOVIE"
-        : "UNKNOWN";
-  const season = tv ? Number(tv[1]) : seasonPack ? Number(seasonPack[1]) : chineseSeason?.season ?? (episodeOnly || longEpisodeOnly || chineseEpisode ? 1 : undefined);
+    ? "TV_SERIES"
+    : year
+      ? "MOVIE"
+      : "UNKNOWN";
+  const season = tv ? Number(tv[1]) : seasonPack ? Number(seasonPack[1]) : chineseSeason?.season ?? romanSeasonSuffix?.season ?? (episodeOnly || longEpisodeOnly || chineseEpisode ? 1 : undefined);
   const episode = tv ? Number(tv[2]) : episodeOnly ? Number(episodeOnly[1]) : longEpisodeOnly ? Number(longEpisodeOnly[1]) : chineseEpisode?.episode;
   const episodeEnd = tv?.[3] ? Number(tv[3]) : episodeOnly?.[2] ? Number(episodeOnly[2]) : longEpisodeOnly?.[2] ? Number(longEpisodeOnly[2]) : chineseEpisode?.episodeEnd;
   const parseConfidence = scoreConfidence({
@@ -329,6 +349,26 @@ function hasTitleYearAliasEvidence(rawTitle: string, titlePrefix: string, titleY
     }
   }
   return false;
+}
+
+function inferRegionalRomanSeasonSuffix(input: {
+  fallbackTitle: string;
+  hasEpisodeOnlyMarker: boolean;
+  hasExplicitSeasonMarker: boolean;
+  strippedRegionalTvBroadcastPrefix: boolean;
+}) {
+  if (!input.strippedRegionalTvBroadcastPrefix || !input.hasEpisodeOnlyMarker || input.hasExplicitSeasonMarker) {
+    return undefined;
+  }
+
+  const match = input.fallbackTitle.match(/\s+(II|III|IV|V|VI|VII|VIII|IX|X|XI|XII)$/i);
+  const roman = match?.[1]?.toUpperCase();
+  const season = roman ? ROMAN_SEASON_NUMBERS[roman] : undefined;
+  if (!match || !season || match.index == null) return undefined;
+
+  const title = input.fallbackTitle.slice(0, match.index).trim();
+  if (!isTitleCandidate(title)) return undefined;
+  return { title, season };
 }
 
 function metadataAliasCandidates(rawTitle: string) {

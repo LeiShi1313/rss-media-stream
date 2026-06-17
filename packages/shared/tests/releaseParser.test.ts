@@ -1376,6 +1376,26 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("uses roman sequel suffixes as season markers for regional episode-only TV captures", () => {
+    const release = parseReleaseTitle(
+      "[TV Series]Jade The Airport Diary II Ep02 20260616 HDTV 1080i H264-CHDHKTV[港劇:飞常日志II(第02集)[粤语][簡繁英SUB字幕][馬國明/高海寧/劉穎鏇/周嘉洛    主演][CHDHKTV港劇聯盟榮譽出品]][3.07 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Airport Diary",
+      mediaType: "TV_SERIES",
+      season: 2,
+      episode: 2,
+      quality: "1080i",
+      source: "HDTV",
+      codec: "H.264",
+      releaseGroup: "CHDHKTV"
+    });
+    expect(release.year).toBeUndefined();
+    expect(release.providerSearchTitles).toEqual(["飞常日志II"]);
+    expect(release.primarySearchTitle).toBe("飞常日志II");
+  });
+
   it("strips TVB Plus as a channel prefix and metadata field", () => {
     const release = parseReleaseTitle(
       "[TVSeries 1080i]TVB Plus Ode To Joy S05 2024 Complete HDTV 1080i H264-HDHTV[TVB Plus | 欢乐颂5 | 全34集 | 粤语/普通话 | 繁体DVB字幕][51.61 GB][xiaocilang2023]"
