@@ -575,6 +575,13 @@ function metadataTitleCandidatesFromSegment(segment: string) {
     if (!titleField || metadataInfoField(titleField)) {
       continue;
     }
+    const nativeWhitespaceCandidates = releaseLikeMetadataTitleSegment(segment)
+      ? nativeWhitespaceTitleCandidates(titleField)
+      : [];
+    if (nativeWhitespaceCandidates.length > 0) {
+      candidates.push(...nativeWhitespaceCandidates);
+      break;
+    }
     for (const candidate of titleCandidatesFromValue(titleField)) {
       candidates.push(candidate);
     }
@@ -625,7 +632,26 @@ function metadataTitleFields(segment: string) {
 }
 
 function releaseLikeMetadataTitleSegment(segment: string) {
-  return /(?:^|\|)\s*(?:(?:19|20)\d{2}\s*年\s*)?\d{1,2}\s*月\s*新番/u.test(segment);
+  return /(?:(?:19|20)\d{2}\s*年\s*)?\d{1,2}\s*月\s*新番/u.test(segment);
+}
+
+function nativeWhitespaceTitleCandidates(value: string) {
+  if (/[\/|]/u.test(value)) return [];
+  const splitParts = value
+    .replace(/([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])\s*Season\s*\d{1,2}\b/giu, "$1")
+    .split(/\s+/u)
+    .map((part) => cleanCandidateTitle(part));
+  if (splitParts.length < 2) return [];
+  const parts = splitParts.filter((part) => nativeWhitespaceTitleCandidate(part));
+  return parts;
+}
+
+function nativeWhitespaceTitleCandidate(value: string) {
+  if (!hasNativeScript(value) || !isTitleCandidate(value)) return false;
+  if (/^(?:(?:第\s*)?[一二三四五六七八九十两\d]{1,3}\s*(?:季|期)|第?\s*\d+\s*シリーズ|\d+\s*年[级級]篇|第?[一二三四五六七八九十两\d]{1,3}\s*(?:学期|學期)|(?:最终|最終)季|(?:无修|無修|修正|未删减|未刪減)版)$/u.test(value)) {
+    return false;
+  }
+  return true;
 }
 
 function cleanMetadataTitleField(field: string) {

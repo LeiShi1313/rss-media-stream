@@ -595,6 +595,56 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("杖与剑的魔剑谭");
   });
 
+  it("extracts anime title aliases when the new-season marker is at the end of metadata", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Tsue to Tsurugi no Wistoria S02E10 2026 1080p LINETV WEB-DL H264 AAC-ADWeb[杖与剑的魔剑谭 杖與劍的魔劍譚Season2 杖と剣のウィストリア 第02季 第10集 | 类型: 动画 / 奇幻 主演: 天崎滉平 / 关根明良 2026年4月新番][552.68 MB][anonymous][中字 | 动画 | 官方]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Tsue to Tsurugi no Wistoria",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 2,
+      episode: 10
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "杖与剑的魔剑谭",
+      "杖與劍的魔劍譚",
+      "杖と剣のウィストリア"
+    ]));
+    expect(release.primarySearchTitle).toBe("杖与剑的魔剑谭");
+  });
+
+  it("does not use anime season arc labels as title aliases", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Classroom of the Elite S04E14 2026 1080p LINETV WEB-DL H264 AAC-ADWeb[欢迎来到实力至上主义教室 歡迎來到實力至上主義的教室 第四季 2年級篇 第一學期 ようこそ実力至上主義の教室へ 4th Season 第04季 第14集 | 类型: 动画 主演: 千叶翔也 2026年4月新番][550.69 MB][anonymous][中字 | 动画 | 官方]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "欢迎来到实力至上主义教室",
+      "歡迎來到實力至上主義的教室",
+      "ようこそ実力至上主義の教室へ"
+    ]));
+    expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining([
+      "第四季",
+      "2年級篇",
+      "第一學期",
+      "第4シリーズ"
+    ]));
+  });
+
+  it("does not use anime edit labels as title aliases", () => {
+    const release = parseReleaseTitle(
+      "[动漫(Animations)]Yowayowa Sensei 2026 S01E10 1080p friDay WEB-DL H264 AAC-UBWEB[2026年4月新番 | 弱弱老师 (无修版) | 第10集 [日语/简繁中字]][1.62 GB][anonymous]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(["弱弱老师"]);
+    expect(release.providerSearchTitles).not.toEqual(expect.arrayContaining([
+      "无修版",
+      "弱弱老师 无修版"
+    ]));
+  });
+
   it("uses animation TV episode-range pack markers as series evidence", () => {
     const release = parseReleaseTitle(
       "[动漫(Animations)]Cat Ninden Teyandee 1990 BluRay 1080p x264 FLAC-jsum@U2[功夫猫党 TV 01-54 Fin+SP][80.24 GB][anonymous]"
