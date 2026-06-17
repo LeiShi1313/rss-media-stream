@@ -150,6 +150,64 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("keeps Limited when it is part of a TV title phrase", () => {
+    const release = parseReleaseTitle(
+      "[综艺]Unplanned Trip Limited Edition S01 2026 1080p WEB-DL AAC H.264-JKCT[韩综|花样青春:限量版/Friends Over Flowers:limited edition][10.05 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Unplanned Trip Limited Edition",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "1080p",
+      source: "WEB-DL",
+      releaseGroup: "JKCT"
+    });
+  });
+
+  it("keeps Limited when it is part of a movie title phrase", () => {
+    const release = parseReleaseTitle(
+      "Milky Subway The Galactic Limited Express 2026 1080p NF WEB-DL H264 DDP5.1-UBWEB"
+    );
+
+    expect(release).toMatchObject({
+      title: "Milky Subway The Galactic Limited Express",
+      year: 2026,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "WEB-DL",
+      releaseGroup: "UBWEB"
+    });
+  });
+
+  it("still removes trailing Limited release flags", () => {
+    const release = parseReleaseTitle("Example Movie LIMITED 1080p WEB-DL H264-GRP");
+
+    expect(release).toMatchObject({
+      title: "Example Movie",
+      mediaType: "UNKNOWN",
+      quality: "1080p",
+      source: "WEB-DL",
+      releaseGroup: "GRP"
+    });
+  });
+
+  it("does not keep Limited from deluxe edition labels", () => {
+    const release = parseReleaseTitle(
+      "In this Corner of the World (Deluxe Limited Edition) 2016 1080p Blu-ray AVC TrueHD 5.1-GRP"
+    );
+
+    expect(release).toMatchObject({
+      title: "In this Corner of the World Deluxe Edition",
+      year: 2016,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      releaseGroup: "GRP"
+    });
+  });
+
   it("keeps slash-delimited numeric movie titles intact", () => {
     const release = parseReleaseTitle("11/11/11 2011 UNCUT 1080p GER Blu-ray AVC DTS-HD MA 5.1-MAMA");
 

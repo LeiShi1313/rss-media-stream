@@ -762,7 +762,10 @@ function cleanTitle(value: string): string {
   return value
     .replace(/[.\-_]+/g, " ")
     .replace(/\s+/g, " ")
-    .replace(/\b(PROPER|REPACK|LIMITED|EXTENDED|UNCUT)\b/gi, "")
+    .replace(/\bDeluxe\s+Limited\s+Edition\b/gi, "Deluxe Edition")
+    .replace(/\bLimited\s+(Edition)\b(?=\s+(?:CD|FLAC)\b)/gi, "$1")
+    .replace(/\b(PROPER|REPACK|EXTENDED|UNCUT)\b/gi, "")
+    .replace(/\bLIMITED\b(?!\s+(?:Edition|Express)\b)/gi, "")
     .trim();
 }
 
