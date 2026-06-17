@@ -1523,6 +1523,25 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("歌手2026");
   });
 
+  it("uses TV Shows variety labels and broadcaster metadata for regional TV captures without episode markers", () => {
+    const release = parseReleaseTitle(
+      "[TV Shows/综艺]HunanTV Singer 2026 20260612 HDTV 1080i H264-HDSTV[湖南卫视 歌手2026 20260612][8.26 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Singer",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      quality: "1080i",
+      source: "HDTV",
+      codec: "H.264",
+      releaseGroup: "HDSTV"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["歌手2026", "歌手"]));
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["HunanTV Singer", "TV Shows"]));
+    expect(release.primarySearchTitle).toBe("歌手2026");
+  });
+
   it("does not keep long native em dash descriptions as title aliases", () => {
     const release = parseReleaseTitle(
       "Example Movie 2026 1080p WEB-DL H264-GRP[这是一段很长很长的剧情描述，不是标题本身——后面仍然是在继续描述剧情内容和人物关系][1.00 GB]"

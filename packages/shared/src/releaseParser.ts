@@ -18,7 +18,7 @@ const COMPLETE_WORD_RE = /\bCompletet?\b/i;
 const AKA_RE = /\b(?:AKA|ALIAS)\b/i;
 const SIZE_SEGMENT_RE = /^\d+(?:\.\d+)?\s*(?:gib|gb|mib|mb|tib|tb)$/i;
 const SIZE_ALIAS_RE = /^\d+(?:\s+\d{1,2})?\s*(?:gib|gb|mib|mb|tib|tb|g|m)$/i;
-const CATEGORY_SEGMENT_RE = /^(?:(?:movies?|movie|tv(?:\s*series)?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花))(?:\s+(?:(?:movies?|movie|tv(?:\s*series)?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花)))*$/i;
+const CATEGORY_SEGMENT_RE = /^(?:(?:movies?|movie|tv(?:\s*(?:series|shows?))?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花))(?:\s+(?:(?:movies?|movie|tv(?:\s*(?:series|shows?))?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花)))*$/i;
 const MIXED_CATEGORY_SEGMENT_RE = /^(?:(?:documentaries?|documentary)\s*(?:纪录片|紀錄片)|(?:tv\s*shows?|tv\s*series|series)\s*(?:综艺|綜藝|剧集|劇集)|(?:movies?|movie)\s*(?:电影|電影)|(?:animations?|animation|anime)\s*(?:动漫|動漫|动画|動畫))$/iu;
 const UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE = /^(?:music(?:s)?(?:\s+(?:videos?|mv|lossless))?(?:\s*\([^)]*\))?(?:\s*\/\s*音乐\s*mv)?|sports?(?:\s+\d{3,4}[pi])?|音乐\s*(?:cd|mv|短片)?(?:\s*\([^)]*\))?)$/iu;
 const EXTRA_INFO_RE = /类型|主演|类别|字幕|国语|中字|导演|演员|简繁|第\d|全\d|日语|英语|粤语|内封|内嵌|\|/i;
@@ -28,6 +28,7 @@ const METADATA_TITLE_PREFIX_RE = /^(?:(?:\d{1,2}|[一二三四五六七八九十
 const PROVIDER_ALIAS_NOISE_RE = /字幕|sub|中字|简繁|簡繁|简体|簡體|繁体|繁體|双语|雙語|国语|國語|粤语|粵語|英语|英語|日语|日語|韩语|韓語|内封|內封|内嵌|內嵌|多国|多國|类别|類別|类型|類型|导演|導演|主演|演员|演員|频道|頻道|高码率|高碼率|码率|碼率|杜比|dolby\s*vision|hdr10|hdr|sdr|菁彩\s*hdr|源码|源碼|小组录制|小組錄製|出品|评论|評論|音轨|音軌|音频|音頻|花絮|特典|幕后|幕後|原盘|原盤|美版|港版|台版|日版|英版|加长版|加長版|完整版|导演剪辑|導演剪輯|官方|纪念版|紀念版|菜单|菜單|按钮|按鈕|原生|新增|shout\s*factory|生肉|自录|自錄|压缩包|壓縮包|破解|自动发种|自動發種|人工编辑|人工編輯/iu;
 const PROVIDER_ALIAS_CATEGORY_PREFIX_RE = /^(?:动漫|動畫|动画|游戏|遊戲|電影|电影|电视剧|電視劇|剧集|劇集|港综|港綜|(?:海外)?综艺|(?:海外)?綜藝|movie|movies|series|tv(?:\s+series)?|pc)\b/iu;
 const BROADCAST_CAPTURE_PREFIX_RE = /^(?:ZJTV[- .]?4K|GDTV[- .]?4K|JSWS[- .]?4K|HNTV[- .]?4K|SDTV[- .]?4K|BRTV[- .]?WS4K|CCTV[- .]?3|CWJDTV|(?:\d{8}[ ._-]+)?Mnet[ ._-]+Japan)[ ._-]+/i;
+const TV_SHOWS_BROADCAST_CAPTURE_PREFIX_RE = /^(?:CCTV[- .]?\d+|HunanTV|DragonTV|PhoenixTV|JSTV|ZJTV|SZTV|SHANGHAI[- .]?4K)[ ._-]+/i;
 const BROADCASTER_METADATA_PREFIX_RE = /^(?:(?:中央电视台|央视|北京卫视|浙江卫视|广东卫视|湖南卫视|江苏卫视|山东卫视)[^ ]*(?:频道)?|中国广电重温经典频道)\s+/u;
 const BROADCASTER_METADATA_FIELD_RE = /^(?:翡翠台|明珠台|中视经典HD|中視經典HD|华视HD|華視HD|台视HD|台視HD|民视HD|民視HD|公视HD|公視HD|TVB(?:\s+(?:Jade|Pearl|Plus))?|ViuTV|Jade|Pearl|CTV|CTS|TTV|FTV|PTS)$/iu;
 const BROADCASTER_METADATA_FIELD_PREFIX_RE = /^(?:翡翠台|明珠台|中视经典HD|中視經典HD|华视HD|華視HD|台视HD|台視HD|民视HD|民視HD|公视HD|公視HD|TVB(?:\s+(?:Jade|Pearl|Plus))?|ViuTV|Jade|Pearl|CTV|CTS|TTV|FTV|PTS)\s+/iu;
@@ -36,7 +37,7 @@ const ORIGINAL_RECORDING_METADATA_FIELD_RE = /^(?:(?:台剧|台劇|港剧|港劇
 const CJK_VARIETY_SECTION_LABEL_RE = /\s+(?:(?:正片|纯享|純享|加更|日记|日記|私藏日记|私藏日記|萌娃当家|副本存档中|同学录|同學錄|直播回看|少年的挑战|少年的挑戰|抢先逛|搶先逛|整活局)(?:版)?\s*)+$/u;
 const CJK_VARIETY_SECTION_SUBTITLE_RE = /\s+(?:正片|纯享|純享|同学录|同學錄|直播回看|少年的挑战|少年的挑戰|抢先逛|搶先逛|整活局)(?:版)?(?:\s+.*)?$/u;
 const CJK_ANNUAL_METADATA_RE = /[\p{Script=Han}].*(?:19|20)\d{2}\s*年度/u;
-const TV_CATEGORY_WRAPPER_FIELD_RE = /^(?:tv\s*series|series)\s*[\/|]\s*(?:剧集|劇集)\s*(?:分集|合集)?$/iu;
+const TV_CATEGORY_WRAPPER_FIELD_RE = /^(?:tv\s*(?:series|shows?)|series)\s*[\/|]\s*(?:剧集|劇集|综艺|綜藝)\s*(?:分集|合集)?$/iu;
 const SHORT_DRAMA_METADATA_PREFIX_RE = /^(?:短剧|短劇)\s*[:：]\s*/u;
 const MIN_METADATA_YEAR = 1900;
 const NATIVE_SCRIPT_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
@@ -68,7 +69,7 @@ const ROMAN_SEASON_NUMBERS: Record<string, number> = {
 
 export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const cleanedRawTitle = stripMediaExtension(rawTitle);
-  const releaseInput = stripBroadcastCapturePrefix(stripMediaExtension(releaseParseInput(rawTitle)));
+  const releaseInput = stripBroadcastCapturePrefix(stripMediaExtension(releaseParseInput(rawTitle)), rawTitle);
   const regionalTvSeriesEvidence = hasRegionalTvWholeSeriesEvidence(releaseInput, rawTitle);
   const parseInput = stripRegionalTvBroadcastPrefix(releaseInput, rawTitle);
   const strippedRegionalTvBroadcastPrefix = parseInput !== releaseInput;
@@ -77,6 +78,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const categorySeriesEvidence =
     regionalTvSeriesEvidence ||
     (hasStrongTvLeadingMediaCategory(rawTitle) && hasWholeSeriesTvMarker(rawTitle)) ||
+    hasTvShowsLeadingMediaCategory(rawTitle) ||
     (hasDocumentaryLeadingMediaCategory(rawTitle) && WHOLE_SERIES_EPISODE_RE.test(rawTitle)) ||
     hasAnimationSeriesEvidence(rawTitle);
   const releaseGroup = extractReleaseGroup(parseInput);
@@ -373,16 +375,25 @@ function inferRegionalRomanSeasonSuffix(input: {
 
 function metadataAliasCandidates(rawTitle: string) {
   const candidates: string[] = [];
+  const allowDatedBroadcastAlias = hasTvShowsLeadingMediaCategory(rawTitle);
   for (const segment of titleSegments(rawTitle)) {
-    if (scoreReleaseLikeSegment(segment) >= 3 && !releaseLikeMetadataTitleSegment(segment)) continue;
+    if (
+      scoreReleaseLikeSegment(segment) >= 3 &&
+      !releaseLikeMetadataTitleSegment(segment) &&
+      !(allowDatedBroadcastAlias && broadcasterDatedNativeMetadataTitleSegment(segment))
+    ) continue;
     candidates.push(...metadataTitleCandidatesFromSegment(segment));
     candidates.push(...titleCandidatesFromValue(segment));
   }
   return candidates;
 }
 
-function stripBroadcastCapturePrefix(input: string): string {
-  return input.replace(BROADCAST_CAPTURE_PREFIX_RE, "");
+function stripBroadcastCapturePrefix(input: string, rawTitle: string): string {
+  const stripped = input.replace(BROADCAST_CAPTURE_PREFIX_RE, "");
+  if (stripped !== input) return stripped;
+  return hasTvShowsLeadingMediaCategory(rawTitle)
+    ? input.replace(TV_SHOWS_BROADCAST_CAPTURE_PREFIX_RE, "")
+    : input;
 }
 
 function stripRegionalTvBroadcastPrefix(input: string, rawTitle: string): string {
@@ -526,6 +537,11 @@ function hasStrongTvLeadingMediaCategory(rawTitle: string) {
   return Boolean(bracketed && strongTvMediaCategorySegment(bracketed));
 }
 
+function hasTvShowsLeadingMediaCategory(rawTitle: string) {
+  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1]?.trim();
+  return /^(?:tv\s*shows?|tvshow)(?:\b|[\s(/]|\p{Script=Han})/iu.test(bracketed ?? "");
+}
+
 function hasDocumentaryLeadingMediaCategory(rawTitle: string) {
   const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
   return Boolean(bracketed && documentaryMediaCategorySegment(bracketed));
@@ -567,7 +583,7 @@ function animationMediaCategorySegment(segment: string) {
 function strongTvMediaCategorySegment(segment: string) {
   const trimmed = segment.trim();
   return /^(?:电视剧|電視劇|剧集|劇集|综艺|綜藝)/u.test(trimmed) ||
-    /^(?:tv\s*series|series)(?:\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
+    /^(?:tv\s*(?:series|shows?)|series)(?:\b|[\s(/]|\p{Script=Han})/iu.test(trimmed);
 }
 
 function hasExplicitTvBracketSegment(rawTitle: string) {
@@ -672,6 +688,7 @@ function deriveTitleInfo(input: {
   const explicitAliasCandidates: string[] = [];
   const releaseNameCandidates: string[] = [];
   const humanCandidates: string[] = [];
+  const allowDatedBroadcastAlias = hasTvShowsLeadingMediaCategory(input.rawTitle);
   const addCandidate = (candidate: string | undefined, options: { preservePunctuation?: boolean } = {}) => {
     const cleaned = options.preservePunctuation
       ? cleanHumanTitleCandidate(candidate ?? "")
@@ -706,7 +723,8 @@ function deriveTitleInfo(input: {
       scoreReleaseLikeSegment(segment) >= 3 &&
       segment !== input.rawName &&
       !releaseLikeMetadataTitleSegment(segment) &&
-      !cjkAnnualMetadataTitleSegment(segment)
+      !cjkAnnualMetadataTitleSegment(segment) &&
+      !(allowDatedBroadcastAlias && broadcasterDatedNativeMetadataTitleSegment(segment))
     ) continue;
     for (const candidate of metadataCandidates) {
       addCandidate(candidate, { preservePunctuation: true });
@@ -993,6 +1011,7 @@ function nativeYearlyTitleCandidate(field: string) {
     .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
     .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
     .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
+    .replace(/\s+(?:19|20)\d{6}(?:\s*[-~至到－—]\s*(?:19|20)\d{6})?\b.*$/u, " ")
     .replace(/\s+/g, " ")
     .trim();
   const match = cleaned.match(NATIVE_YEARLY_TITLE_RE);
@@ -1049,6 +1068,13 @@ function releaseLikeMetadataTitleSegment(segment: string) {
 
 function cjkAnnualMetadataTitleSegment(segment: string) {
   return CJK_ANNUAL_METADATA_RE.test(segment);
+}
+
+function broadcasterDatedNativeMetadataTitleSegment(segment: string) {
+  const cleaned = cleanHumanTitleCandidate(segment);
+  return hasNativeScript(cleaned) &&
+    BROADCASTER_METADATA_PREFIX_RE.test(cleaned) &&
+    /\s(?:19|20)\d{6}(?:\s*[-~至到－—]\s*(?:19|20)\d{6})?\b/u.test(cleaned);
 }
 
 function nativeWhitespaceTitleCandidates(value: string) {
