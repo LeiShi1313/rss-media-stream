@@ -1079,6 +1079,68 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("莫离");
   });
 
+  it("skips Hong Kong channel labels when extracting pipe-delimited metadata titles", () => {
+    const release = parseReleaseTitle(
+      "[TVSeries 1080i]Jade The Map Of Truth Complete HDTV 1080i H264 2Audio-HDHTV[翡翠台 | 香港探秘地图 | 全20集 | 粤语/普通话 | SRT简繁字幕 *HDHTV 高清家园荣誉出品*][56.32 GB][xiaocilang2023]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Jade The Map Of Truth",
+      mediaType: "TV_SERIES",
+      quality: "1080i",
+      source: "HDTV",
+      codec: "H.264"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["香港探秘地图"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["翡翠台"]));
+    expect(release.primarySearchTitle).toBe("香港探秘地图");
+  });
+
+  it("skips Taiwanese channel labels when extracting pipe-delimited metadata titles", () => {
+    const release = parseReleaseTitle(
+      "[电视剧(TV Series)]CTV Liang Ren 1992 S01E37-S01E38 1080p HDTV H264 AAC-UBTV[中视经典HD | 良人 | 第37~38集 | 导演: 阮虔芷 | 主演: 杨贵媚 刘林 素珠 杨怀民 [闽南语/繁中]][2.14 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "CTV Liang Ren",
+      year: 1992,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 37,
+      episodeEnd: 38,
+      quality: "1080p",
+      source: "HDTV",
+      codec: "H.264"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["良人"]));
+    expect(release.providerSearchTitles ?? []).not.toContain("中视经典HD");
+    expect(release.providerSearchTitles ?? []).not.toContain("闽南语");
+    expect(release.primarySearchTitle).toBe("良人");
+  });
+
+  it("skips original-recording labels before Taiwanese metadata titles", () => {
+    const release = parseReleaseTitle(
+      "[电视剧(TV Series)]CTS Shi Gong Qi An 1997 S01 Complete 1080i HDTV H264 AAC-UBTV[[台剧原创录制第070部] 华视HD | 施公奇案 | 全272集 | 导演: 陈俊良 | 主演: 廖峻 侯炳莹 崔浩然 邰智源 [国语 闽南语/繁中]][460.86 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "CTS Shi Gong Qi An",
+      year: 1997,
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "1080i",
+      source: "HDTV",
+      codec: "H.264"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["施公奇案"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "原创录制",
+      "原创录制第070部",
+      "华视HD"
+    ]));
+    expect(release.primarySearchTitle).toBe("施公奇案");
+  });
+
   it("keeps native compound titles joined by Chinese em dashes", () => {
     const release = parseReleaseTitle(
       "CCTV-3 Heavenly Voices  Chinese Folk Song Festival S01E09 1080i HDTV AVS+ DD5.1-QHstudIo[中央电视台综艺频道 原声天籁——中国民歌盛典 第一季第九期 重播版【AVS+卫星源码｜高码率 | 杜比环绕音5.1】QHstudIo小组录制作品][4.50 GB]"
