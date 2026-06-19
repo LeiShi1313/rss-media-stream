@@ -114,6 +114,33 @@ describe("parseReleaseTitle", () => {
     expect(release.parseConfidence).toBeGreaterThanOrEqual(0.8);
   });
 
+  it("uses structured bracket metadata titles instead of leading wrappers", () => {
+    const release = parseReleaseTitle(
+      "[综艺][2021][欧美][克拉克森的农场【一到五季全集】(内嵌中文字幕)][][英语][92.58 GiB][DeadFire007]"
+    );
+
+    expect(release).toMatchObject({
+      title: "克拉克森的农场",
+      year: 2021,
+      mediaType: "TV_SERIES",
+      season: 5
+    });
+  });
+
+  it("strips repeated media wrappers before unbracketed titles", () => {
+    const release = parseReleaseTitle(
+      "[电影][4K电影]极盗车神、玩命再劫 2017 [全景声2160P](蓝光原版)[极盗车神 | Baby Driver | 2017 | 玩命再劫(台) | 宝贝神车手(港) | 娃娃脸司机][57.34 GB][biketiger]"
+    );
+
+    expect(release).toMatchObject({
+      title: "极盗车神、玩命再劫",
+      year: 2017,
+      mediaType: "MOVIE",
+      quality: "2160P"
+    });
+    expect(release.title).not.toContain("[");
+  });
+
   it("parses UBits category-prefixed titles from the release text", () => {
     const release = parseReleaseTitle(
       "[动漫(Animations)]Kami no Niwatsuki Kusunoki-tei 2026 S01E10 1080p LINETV WEB-DL H264 AAC-UBWEB[2026年4月新番 | 楠木邸的神明庭院/Kusunoki's Garden of Gods | 第10集 [日语/简繁中字]][569.44 MB][anonymous]"
