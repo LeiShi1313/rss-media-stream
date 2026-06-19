@@ -813,6 +813,7 @@ function deriveTitleInfo(input: {
   const releaseNameCandidates: string[] = [];
   const humanCandidates: string[] = [];
   const allowDatedBroadcastAlias = hasTvShowsLeadingMediaCategory(input.rawTitle);
+  const stackedAnimationTvInfo = stackedAnimationTvBracketTitleInfo(input.rawTitle);
   const addCandidate = (candidate: string | undefined, options: { preservePunctuation?: boolean } = {}) => {
     const cleaned = options.preservePunctuation
       ? cleanHumanTitleCandidate(candidate ?? "")
@@ -830,17 +831,21 @@ function deriveTitleInfo(input: {
     }
   };
 
-  for (const candidate of titleCandidatesFromValue(input.rawName)) {
-    const cleaned = addCandidate(candidate);
+  const releaseTitleCandidates = stackedAnimationTvInfo?.candidates ?? titleCandidatesFromValue(input.rawName);
+  for (const candidate of releaseTitleCandidates) {
+    const cleaned = addCandidate(candidate, stackedAnimationTvInfo ? { preservePunctuation: true } : {});
     if (cleaned && !releaseNameCandidates.some((existing) => sameCandidate(existing, cleaned))) {
       releaseNameCandidates.push(cleaned);
     }
   }
-  for (const candidate of explicitAliasTitleCandidatesFromValue(input.rawName)) {
-    addExplicitAliasCandidate(candidate);
+  if (!stackedAnimationTvInfo) {
+    for (const candidate of explicitAliasTitleCandidatesFromValue(input.rawName)) {
+      addExplicitAliasCandidate(candidate);
+    }
   }
 
   for (const segment of titleSegments(input.rawTitle)) {
+    if (stackedAnimationTvInfo?.ignoredSegments.includes(segment)) continue;
     if (!hasNativeScript(segment) && !AKA_RE.test(segment) && !hasParenthesizedRegionalVariant(segment)) continue;
     const metadataCandidates = metadataTitleCandidatesFromSegment(segment, { season: input.season });
     if (
@@ -894,6 +899,74 @@ function deriveTitleInfo(input: {
       ? nativeCandidate
       : canonical
   };
+}
+
+function stackedAnimationTvBracketTitleInfo(rawTitle: string) {
+  const segments = titleSegments(rawTitle);
+  if (!segments[0] || !animationMediaCategorySegment(segments[0])) return undefined;
+  if (!/^(?:tv)$/iu.test(segments[1]?.trim() ?? "")) return undefined;
+
+  const withGroup = stackedAnimationTvTitlePair(segments[3], segments[4]);
+  if (withGroup.length > 0 && segments[2]) {
+    return {
+      candidates: withGroup,
+      ignoredSegments: [segments[0], segments[1], segments[2]]
+    };
+  }
+
+  const withoutGroup = stackedAnimationTvTitlePair(segments[2], segments[3]);
+  if (withoutGroup.length === 0) return undefined;
+  return {
+    candidates: withoutGroup,
+    ignoredSegments: [segments[0], segments[1]]
+  };
+}
+
+function stackedAnimationTvTitlePair(nativeSegment: string | undefined, latinSegment: string | undefined) {
+  if (!stackedAnimationTvNativeTitleSegment(nativeSegment) || !stackedAnimationTvLatinTitleSegment(latinSegment)) {
+    return [];
+  }
+
+  const nativeTitleSegment = nativeSegment ?? "";
+  const latinTitleSegment = latinSegment ?? "";
+  const candidates: string[] = [];
+  for (const candidate of [
+    ...titleCandidatesFromValue(nativeTitleSegment),
+    ...titleCandidatesFromValue(latinTitleSegment)
+  ]) {
+    const cleaned = cleanHumanTitleCandidate(candidate);
+    if (!isTitleCandidate(cleaned)) continue;
+    if (!candidates.some((existing) => sameCandidate(existing, cleaned))) {
+      candidates.push(cleaned);
+    }
+  }
+  return candidates;
+}
+
+function stackedAnimationTvNativeTitleSegment(segment: string | undefined) {
+  const cleaned = cleanHumanTitleCandidate(segment ?? "");
+  return Boolean(cleaned) &&
+    hasNativeScript(cleaned) &&
+    !categorySegment(cleaned) &&
+    !metadataInfoField(cleaned) &&
+    !SIZE_SEGMENT_RE.test(cleaned) &&
+    !unsupportedMediaCategorySegment(cleaned);
+}
+
+function stackedAnimationTvLatinTitleSegment(segment: string | undefined) {
+  const cleaned = cleanHumanTitleCandidate(segment ?? "");
+  return Boolean(cleaned) &&
+    hasLatin(cleaned) &&
+    !hasNativeScript(cleaned) &&
+    !categorySegment(cleaned) &&
+    !metadataInfoField(cleaned) &&
+    !SIZE_SEGMENT_RE.test(cleaned) &&
+    !QUALITY_RE.test(cleaned) &&
+    !SOURCE_RE.test(cleaned) &&
+    !CODEC_RE.test(cleaned) &&
+    !AUDIO_RE.test(cleaned) &&
+    !/^(?:tv|ova|ona|sp|disc|vol(?:ume)?)\b/iu.test(cleaned) &&
+    isTitleCandidate(cleaned);
 }
 
 function providerSearchTitles(candidates: string[], canonical: string, explicitAliasCandidates: string[] = []) {

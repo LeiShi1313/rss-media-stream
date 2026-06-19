@@ -2548,6 +2548,49 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("斗罗大陆Ⅱ绝世唐门");
   });
 
+  it("uses structured anime TV title brackets instead of category and group prefixes", () => {
+    const release = parseReleaseTitle(
+      "[动漫][TV][VARYG][动物狂想曲 最终季 第二部分][Beastars Final Season Part 2][01-24 Fin][1080p][WEB-DL][MKV][2026.03][日漫][完结撒花 | 最终季 第二部分  |  板垣巴留 |  HEVC-8bit AAC | 内封多语言字幕（含简中） |][25.44 GiB][jys210]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Beastars Final Season Part 2",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 2
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining([
+      "动物狂想曲 最终季 第二部分",
+      "Beastars Final Season Part 2"
+    ]));
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["TV VARYG"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "动漫 TV VARYG 动物狂想曲 最终季 分 Beastars Final Season Part 2 Fin"
+    ]));
+    expect(release.primarySearchTitle).toBe("动物狂想曲 最终季 第二部分");
+  });
+
+  it("does not mistake native characters in anime TV release groups for title brackets", () => {
+    const release = parseReleaseTitle(
+      "[动漫][TV][U2娘@Share][青兰圆舞曲/亲亲天使心/青涩花园][Oniisama e / Dear Brother][Blu-ray BOX DISC×5][1080p][BDMV][M2TS][1991.07][日漫][转自U2(#25885)][212.63 GiB][kallerwu]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Oniisama e",
+      year: 1991,
+      mediaType: "TV_SERIES"
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining([
+      "青兰圆舞曲",
+      "亲亲天使心",
+      "青涩花园",
+      "Oniisama e",
+      "Dear Brother"
+    ]));
+    expect(release.titleCandidates).not.toEqual(expect.arrayContaining(["U2娘@Share"]));
+    expect(release.primarySearchTitle).toBe("青兰圆舞曲");
+  });
+
   it("classifies leading music category releases as unsupported instead of movies", () => {
     const release = parseReleaseTitle(
       "[Music]Torkil Bye & Helge Myhren - The Sound of Gold and Palladium Flutes (2026) - FLAC - CHDMusic[专辑 | Torkil Bye & Helge Myhren - The Sound of Gold and Palladium Flutes | Classical | WEB | 24bit 192khz][1.60 GB][anonymous]"
