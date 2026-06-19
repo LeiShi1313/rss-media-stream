@@ -2471,6 +2471,51 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("uses trailing Chinese whole-series counts as TV evidence for TV category releases", () => {
+    const release = parseReleaseTitle(
+      "[TVSeries 2160p]Under The Power 2019 2160p WEB-DL H265 AAC-HDHWEB[锦衣之下 55集全 导演: 尹涛 编剧: 胡娜 主演: 任嘉伦 / 谭松韵 / 韩栋 / 叶青 / 姚奕辰][80.92 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Under The Power",
+      year: 2019,
+      mediaType: "TV_SERIES",
+      quality: "2160p",
+      source: "WEB-DL",
+      codec: "H.265",
+      releaseGroup: "HDHWEB"
+    });
+    expect(release.providerSearchTitles).toEqual(["锦衣之下"]);
+  });
+
+  it("uses Chinese complete-series labels as TV evidence for TV category releases", () => {
+    const release = parseReleaseTitle(
+      "[电视剧 (TV Series)]Kamen Rider Kuuga 2000 1080p BluRay x264 AAC - BIO[假面骑士空我/Kamen Rider Kuuga/仮面ライダークウガ 全集附SP 中日双字 日语][32.44 GB][anonymous][Free]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Kamen Rider Kuuga",
+      year: 2000,
+      mediaType: "TV_SERIES",
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264"
+    });
+    expect(release.providerSearchTitles).toEqual(["假面骑士空我"]);
+  });
+
+  it("does not treat single-episode TV category metadata as whole-series evidence", () => {
+    const release = parseReleaseTitle(
+      "[电视剧]Sherlock The Abominable Bride 2016 1080p MYVIDEO WEB-DL AAC2 0 H264-HHWEB[神探夏洛克：可恶的新娘 / 神探夏洛克：2016新年特别篇 | 全1集 | 1080p | 类型: 剧情/悬疑/犯罪][2.93 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Sherlock The Abominable Bride",
+      year: 2016,
+      mediaType: "MOVIE"
+    });
+  });
+
   it("removes mixed-language documentary category labels from provider search titles", () => {
     const release = parseReleaseTitle(
       "[Documentaries纪录片]Kontant 2025 1080p DRTV WEB-DL AAC 2.0 x264-FFG[Kontant 全16集][25.00 GB][anonymous]"
