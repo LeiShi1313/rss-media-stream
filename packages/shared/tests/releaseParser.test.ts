@@ -2570,6 +2570,57 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("动物狂想曲 最终季 第二部分");
   });
 
+  it("uses serialized anime title brackets instead of release group prefixes", () => {
+    const release = parseReleaseTitle(
+      "[动漫][连载][GM-Team][师兄啊师兄 第二季][Shixiong A Shixiong 2nd Season][2160p][145][MP4/WEB-DL][2023年12月][师兄啊师兄/ 我师兄实在太稳健了 第145集 跟据言归正传同名小说改编，玄机科技出品 4K版][687.62 MiB][]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Shixiong A Shixiong 2nd Season",
+      year: 2023,
+      mediaType: "TV_SERIES",
+      season: 2,
+      episode: 145
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining([
+      "师兄啊师兄 第二季",
+      "Shixiong A Shixiong 2nd Season"
+    ]));
+    expect(release.titleCandidates ?? []).not.toEqual(expect.arrayContaining([
+      "GM Team",
+      "动漫 连载 GM Team 师兄啊师兄 Shixiong A Shixiong 2nd Season"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "动漫 连载 GM Team 师兄啊师兄 Shixiong A Shixiong 2nd Season"
+    ]));
+    expect(release.primarySearchTitle).toBe("师兄啊师兄");
+  });
+
+  it("extracts bare episode brackets from serialized anime title layouts", () => {
+    const release = parseReleaseTitle(
+      "[动漫][连载][Nekomoe kissaten][上伊那牡丹，酒醉身姿似百合花般][Kamiina Botan, Yoeru Sugata wa Yuri no Hana][10][1080p][WebRip][MP4][2026.04][日漫][[喵萌奶茶屋]上伊那牡丹，酒醉身姿似百合花般[10][1080p][简日双语]][383.54 MiB][banned404]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Kamiina Botan, Yoeru Sugata wa Yuri no Hana",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      episode: 10
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining([
+      "上伊那牡丹，酒醉身姿似百合花般",
+      "Kamiina Botan, Yoeru Sugata wa Yuri no Hana"
+    ]));
+    expect(release.titleCandidates ?? []).not.toEqual(expect.arrayContaining([
+      "Nekomoe kissaten",
+      "Kamiina Botan, Yoeru Sugata wa Yuri no Hana 10"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "动漫 连载 Nekomoe kissaten 上伊那牡丹，酒醉身姿似百合花般 Kamiina Botan, Yoeru Sugata wa Yuri no Hana 10"
+    ]));
+    expect(release.primarySearchTitle).toBe("上伊那牡丹，酒醉身姿似百合花般");
+  });
+
   it("does not mistake native characters in anime TV release groups for title brackets", () => {
     const release = parseReleaseTitle(
       "[动漫][TV][U2娘@Share][青兰圆舞曲/亲亲天使心/青涩花园][Oniisama e / Dear Brother][Blu-ray BOX DISC×5][1080p][BDMV][M2TS][1991.07][日漫][转自U2(#25885)][212.63 GiB][kallerwu]"

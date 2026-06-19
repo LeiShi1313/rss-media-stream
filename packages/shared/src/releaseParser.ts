@@ -54,6 +54,9 @@ const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,4})(?
 const WHOLE_SERIES_EPISODE_RE = /全\s*(?!0*1\s*(?:集|话|話)|一\s*(?:集|话|話))[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)/u;
 const CJK_COMPLETE_EPISODE_RANGE_RE = /\d{1,4}\s*[-~至到－—]\s*\d{1,4}\s*(?:集|话|話)\s*(?:全|完|完结|完結)/u;
 const ANIMATION_TV_EPISODE_RANGE_RE = /\bTV\b[^\[\]]{0,40}\d{1,4}\s*[-~－—]\s*\d{1,4}/iu;
+const ANIMATION_TV_LAYOUT_MARKER_RE = /^(?:tv|连载|連載|完结|完結|完结撒花)$/iu;
+const ANIMATION_TV_EPISODE_BRACKET_RE = /^(\d{1,4})(?:\s*\(\s*\d{1,4}\s*\))?$/u;
+const ANIMATION_TV_EPISODE_RANGE_BRACKET_RE = /^(\d{1,4})\s*[-~－—]\s*(\d{1,4})(?:\s*(?:fin(?:\+sp)?|合集|完结|完結))?$/iu;
 const NESTED_SEASON_METADATA_ALIAS_RE = /\[([^\[\]\r\n|/]{2,80}?)\s+\[(?:第\s*[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)(?:\s+第\s*[一二三四五六七八九十两\d]{1,4}\s*(?:集|话|話|期))?|Season\s*\d{1,2}|S\d{1,2}(?:E\d{1,4})?)[^\]]*\]\s*\/\s*([^|\[\]]{2,120}?)(?=\s*(?:\||\]))/giu;
 const REGIONAL_VARIANT_CODE_TOKENS = new Set(["AU", "AUS", "US", "USA", "UK", "GB", "NZ", "CA", "NL", "PT", "BE"]);
 const REGIONAL_VARIANT_NAME_TOKENS = new Set(["australia", "canada", "netherlands", "portugal", "belgium"]);
@@ -77,6 +80,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const regionalTvSeriesEvidence = hasRegionalTvWholeSeriesEvidence(releaseInput, rawTitle);
   const parseInput = stripRegionalTvBroadcastPrefix(releaseInput, rawTitle);
   const strippedRegionalTvBroadcastPrefix = parseInput !== releaseInput;
+  const stackedAnimationTvEpisode = findStackedAnimationTvBracketEpisode(rawTitle);
   const unsupportedMediaCategory = hasUnsupportedLeadingMediaCategory(rawTitle);
   const movieMediaCategory = hasMovieLeadingMediaCategory(rawTitle);
   const movieCategorySeasonMetadataEvidence = hasMovieCategorySeasonMetadataEvidence(rawTitle);
@@ -121,7 +125,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     normalizedChineseSeason?.index,
     chineseEpisode?.source === "normalized" ? chineseEpisode.index : undefined
   );
-  const hasTvContext = Boolean(tv || episodeOnly || longEpisodeOnly || seasonPack || chineseSeason || chineseEpisode || categorySeriesEvidence);
+  const hasTvContext = Boolean(tv || episodeOnly || longEpisodeOnly || seasonPack || chineseSeason || chineseEpisode || stackedAnimationTvEpisode || categorySeriesEvidence);
   const yearMatch = findReleaseYearMatch(normalized, {
     tvMarkerIndex,
     rawTitle,
@@ -178,8 +182,8 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     season: mediaType === "TV_SERIES" ? season : undefined
   });
   const title = titleInfo.title;
-  const episode = tv ? Number(tv[2]) : episodeOnly ? Number(episodeOnly[1]) : longEpisodeOnly ? Number(longEpisodeOnly[1]) : chineseEpisode?.episode;
-  const episodeEnd = tv?.[3] ? Number(tv[3]) : episodeOnly?.[2] ? Number(episodeOnly[2]) : longEpisodeOnly?.[2] ? Number(longEpisodeOnly[2]) : chineseEpisode?.episodeEnd;
+  const episode = tv ? Number(tv[2]) : episodeOnly ? Number(episodeOnly[1]) : longEpisodeOnly ? Number(longEpisodeOnly[1]) : chineseEpisode?.episode ?? stackedAnimationTvEpisode?.episode;
+  const episodeEnd = tv?.[3] ? Number(tv[3]) : episodeOnly?.[2] ? Number(episodeOnly[2]) : longEpisodeOnly?.[2] ? Number(longEpisodeOnly[2]) : chineseEpisode?.episodeEnd ?? stackedAnimationTvEpisode?.episodeEnd;
   const parseConfidence = scoreConfidence({
     title,
     mediaType,
@@ -665,6 +669,7 @@ function hasAnimationSeriesEvidence(rawTitle: string) {
   return hasAnimationLeadingMediaCategory(rawTitle) &&
     !hasMangaBracketCategory(rawTitle) &&
     (
+      hasAnimationTvLayoutBracketEvidence(rawTitle) ||
       hasExplicitTvBracketSegment(rawTitle) ||
       hasAnimationTvEpisodeRange(rawTitle) ||
       hasBracketEpisodeRange(rawTitle) ||
@@ -708,6 +713,15 @@ function strongTvMediaCategorySegment(segment: string) {
 function hasExplicitTvBracketSegment(rawTitle: string) {
   return titleSegments(rawTitle).some((segment) =>
     /^(?:tv|テレビ|テレビアニメ)$/iu.test(segment.trim())
+  );
+}
+
+function hasAnimationTvLayoutBracketEvidence(rawTitle: string) {
+  const segments = titleSegments(rawTitle);
+  return Boolean(
+    segments[0] &&
+    animationMediaCategorySegment(segments[0]) &&
+    animationTvLayoutMarkerSegment(segments[1])
   );
 }
 
@@ -879,7 +893,9 @@ function deriveTitleInfo(input: {
     }
   }
 
-  addCandidate(input.fallbackTitle);
+  if (!stackedAnimationTvInfo) {
+    addCandidate(input.fallbackTitle);
+  }
 
   const fallbackCandidates = validTitleCandidatesFromValue(input.fallbackTitle);
   const baseCanonical = chooseCanonicalTitle(
@@ -904,7 +920,7 @@ function deriveTitleInfo(input: {
 function stackedAnimationTvBracketTitleInfo(rawTitle: string) {
   const segments = titleSegments(rawTitle);
   if (!segments[0] || !animationMediaCategorySegment(segments[0])) return undefined;
-  if (!/^(?:tv)$/iu.test(segments[1]?.trim() ?? "")) return undefined;
+  if (!animationTvLayoutMarkerSegment(segments[1])) return undefined;
 
   const withGroup = stackedAnimationTvTitlePair(segments[3], segments[4]);
   if (withGroup.length > 0 && segments[2]) {
@@ -920,6 +936,38 @@ function stackedAnimationTvBracketTitleInfo(rawTitle: string) {
     candidates: withoutGroup,
     ignoredSegments: [segments[0], segments[1]]
   };
+}
+
+function animationTvLayoutMarkerSegment(segment: string | undefined) {
+  return ANIMATION_TV_LAYOUT_MARKER_RE.test(segment?.trim() ?? "");
+}
+
+function findStackedAnimationTvBracketEpisode(rawTitle: string) {
+  const info = stackedAnimationTvBracketTitleInfo(rawTitle);
+  if (!info) return undefined;
+
+  const segments = titleSegments(rawTitle);
+  const startIndex = info.ignoredSegments.length + 2;
+  for (const segment of segments.slice(startIndex, startIndex + 4)) {
+    const cleaned = segment.trim();
+    const rangeMatch = cleaned.match(ANIMATION_TV_EPISODE_RANGE_BRACKET_RE);
+    if (rangeMatch?.[1]) {
+      return {
+        episode: Number(rangeMatch[1]),
+        episodeEnd: rangeMatch[2] ? Number(rangeMatch[2]) : undefined
+      };
+    }
+
+    const episodeMatch = cleaned.match(ANIMATION_TV_EPISODE_BRACKET_RE);
+    if (episodeMatch?.[1]) {
+      return {
+        episode: Number(episodeMatch[1]),
+        episodeEnd: undefined
+      };
+    }
+  }
+
+  return undefined;
 }
 
 function stackedAnimationTvTitlePair(nativeSegment: string | undefined, latinSegment: string | undefined) {
