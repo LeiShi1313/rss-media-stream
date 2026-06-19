@@ -1120,6 +1120,54 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("adds base aliases for compact native season suffixes when explicit season metadata matches", () => {
+    const release = parseReleaseTitle(
+      "[Animations/动漫]The OutCast S06 2026 1080p WEB-DL DDP2.0 H265-HDSWEB[国漫: 一人之下6 第6季 全26集 | 主演: 曹云图 小连杀 藤新][2.73 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The OutCast",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 6
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "一人之下",
+      "一人之下6"
+    ]));
+    expect(release.primarySearchTitle).toBe("一人之下");
+  });
+
+  it("does not strip compact native numeric aliases when explicit season metadata conflicts", () => {
+    const release = parseReleaseTitle(
+      "[Animations/动漫]The OutCast S05 2026 1080p WEB-DL DDP2.0 H265-HDSWEB[国漫: 一人之下6 第5季 全10集 | 主演: 曹云图 小连杀 藤新][2.73 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The OutCast",
+      mediaType: "TV_SERIES",
+      season: 5
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["一人之下6"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["一人之下"]));
+  });
+
+  it("does not strip title-internal Latin numeric suffixes from native aliases", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Diamond no Ace act II S02E11 2026 1080p friDay WEB-DL H264 AAC-AnimeS@ADWeb[2026年4月新番 钻石王牌act2 第二季 / 鑽石王牌act2 第二季 / Ace of the Diamond actⅡ -Second Season- 第11集][1.61 GB][anonymous][中字 | 动画 | 官方]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "钻石王牌act2",
+      "鑽石王牌act2",
+      "Ace of the Diamond actⅡ -Second Season"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "钻石王牌act",
+      "鑽石王牌act"
+    ]));
+  });
+
   it("does not use anime edit labels as title aliases", () => {
     const release = parseReleaseTitle(
       "[动漫(Animations)]Yowayowa Sensei 2026 S01E10 1080p friDay WEB-DL H264 AAC-UBWEB[2026年4月新番 | 弱弱老师 (无修版) | 第10集 [日语/简繁中字]][1.62 GB][anonymous]"

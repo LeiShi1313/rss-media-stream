@@ -1051,6 +1051,10 @@ function metadataTitleCandidatesFromSegment(segment: string) {
     if (seasonEpisodeBaseTitle) {
       candidates.push(seasonEpisodeBaseTitle);
     }
+    const compactSeasonBaseTitle = nativeCompactSeasonSuffixBaseTitleCandidate(field);
+    if (compactSeasonBaseTitle) {
+      candidates.push(compactSeasonBaseTitle);
+    }
     const titleField = cleanMetadataTitleField(field);
     if (!titleField || metadataInfoField(titleField)) {
       continue;
@@ -1109,6 +1113,34 @@ function nativeSeasonEpisodeBaseTitleCandidate(field: string) {
     cleaned.match(/^(.+?)\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*季\s+[^|/]{1,40}[:：]/u);
   const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
   if (!candidate || !hasNativeScript(candidate)) return undefined;
+  if (/[A-Za-z]/u.test(candidate)) return undefined;
+  if (/\s/u.test(candidate)) return undefined;
+  if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
+  return candidate;
+}
+
+function nativeCompactSeasonSuffixBaseTitleCandidate(field: string) {
+  let cleaned = cleanHumanTitleCandidate(field);
+  cleaned = cleaned.replace(/^(?:19|20)\d{2}\s*年?\s*/u, "");
+  while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
+    cleaned = cleaned.replace(METADATA_TITLE_PREFIX_RE, "");
+  }
+  cleaned = cleaned
+    .replace(/【[^】]*】/gu, " ")
+    .replace(TV_CATEGORY_WRAPPER_FIELD_RE, " ")
+    .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
+    .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
+    .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = cleaned.match(/^(.+?)(\d{1,2})\s+(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|S0?(\d{1,2})\b|Season\s*(\d{1,2})\b)/iu);
+  const suffixSeason = match?.[2] ? Number(match[2]) : undefined;
+  const markerSeason = parseChineseNumber(match?.[3] ?? match?.[4] ?? match?.[5]);
+  if (!suffixSeason || !markerSeason || suffixSeason !== markerSeason) return undefined;
+
+  const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
+  if (!candidate || !hasNativeScript(candidate)) return undefined;
+  if (/[A-Za-z]/u.test(candidate)) return undefined;
   if (/\s/u.test(candidate)) return undefined;
   if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
   return candidate;
