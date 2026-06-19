@@ -2621,6 +2621,44 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("上伊那牡丹，酒醉身姿似百合花般");
   });
 
+  it("skips source group fields before structured anime metadata aliases", () => {
+    const release = parseReleaseTitle(
+      "[动漫][连载][orion origin][石纪元 科学与未来 第3部分][Dr. Stone: Science Future Part 3][1080p][34][MP4/WEB-DL][2026年04月][猎户发布组/猎户压制部 | 新石纪 第四季 第三部分 / Dr.STONE SCIENCE FUTURE 第3クール / Dr. Stone 4th Season Part 3 [H265 AAC] [简日内嵌]][491.77 MiB][]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Dr. Stone: Science Future Part 3",
+      mediaType: "TV_SERIES",
+      season: 3,
+      episode: 34
+    });
+    expect(release.providerSearchTitles ?? []).toEqual(expect.arrayContaining([
+      "石纪元 科学与未来 第3部分",
+      "新石纪 第三部分",
+      "Dr. Stone 4th Season Part 3"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "猎户发布组",
+      "猎户压制部",
+      "第3クール"
+    ]));
+  });
+
+  it("does not replace source attribution aliases with deletion disclaimers", () => {
+    const release = parseReleaseTitle(
+      "[电影][少林门][Shao.Lin.men.1976.BluRay.1080p.x265.10bit.MNHD-FRDS][动作][华语][导演: 吴宇森 主演: 谭道良 / 田俊 / 成龙 / 朱青 / 洪金宝|转自MNHD-FRDS|如有侵权请立刻联系删除][6.04 GiB][Box2002]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Shao Lin men",
+      year: 1976,
+      mediaType: "MOVIE"
+    });
+    expect(release.providerSearchTitles ?? []).toEqual(expect.arrayContaining(["少林门"]));
+    expect(release.providerSearchTitles ?? []).not.toContain("转自MNHD");
+    expect(release.providerSearchTitles ?? []).not.toContain("如有侵权请立刻联系删除");
+  });
+
   it("does not mistake native characters in anime TV release groups for title brackets", () => {
     const release = parseReleaseTitle(
       "[动漫][TV][U2娘@Share][青兰圆舞曲/亲亲天使心/青涩花园][Oniisama e / Dear Brother][Blu-ray BOX DISC×5][1080p][BDMV][M2TS][1991.07][日漫][转自U2(#25885)][212.63 GiB][kallerwu]"
