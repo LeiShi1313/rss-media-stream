@@ -17,6 +17,8 @@ const SEASON_PACK_RE = /\bS(\d{1,2})(?:\b|[- .])(?!E\d)/i;
 const SEASON_WORD_PACK_RE = /\bSeason[ ._-]?(\d{1,2})\b/i;
 const COMPLETE_WORD_RE = /\bCompletet?\b/i;
 const AKA_RE = /\b(?:AKA|ALIAS)\b/i;
+const PTP_DISPLAY_WITH_CREATOR_RE = /^\s*(.+?)\s*[\[(]((?:19|20)\d{2})[\])]\s+by\b/i;
+const PTP_DISPLAY_WITH_FORMAT_RE = /^\s*(.+?)\s*[\[(]((?:19|20)\d{2})[\])]\s+-\s+(?=[^\[\]\r\n]{1,120}\s\/)/i;
 const SIZE_SEGMENT_RE = /^\d+(?:\.\d+)?\s*(?:gib|gb|mib|mb|tib|tb)$/i;
 const SIZE_ALIAS_RE = /^\d+(?:\s+\d{1,2})?\s*(?:gib|gb|mib|mb|tib|tb|g|m)$/i;
 const CATEGORY_SEGMENT_RE = /^(?:(?:movies?|movie|tv(?:\s*(?:series|shows?))?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花))(?:\s+(?:(?:movies?|movie|tv(?:\s*(?:series|shows?))?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花)))*$/i;
@@ -1243,7 +1245,7 @@ function nativeEmDashTitleCandidate(value: string) {
 
 function humanMetadataTitleCandidates(rawTitle: string) {
   const metadata = ptpDisplayMetadata(rawTitle);
-  return metadata?.title ? [metadata.title] : [];
+  return metadata?.kind === "creator" ? [metadata.title] : [];
 }
 
 function nestedSeasonMetadataTitleCandidates(rawTitle: string) {
@@ -1259,7 +1261,7 @@ function findPtpDisplayMetadataYear(rawTitle: string, parseInput: string) {
   const metadata = ptpDisplayMetadata(rawTitle);
   if (!metadata) return undefined;
   const prefixHasYear = YEAR_RE.test(metadata.title);
-  if (prefixHasYear && /\s\/\s/.test(metadata.title)) return undefined;
+  if (prefixHasYear && (metadata.kind === "format" || /\s\/\s/.test(metadata.title))) return undefined;
   const prefixCandidates = ptpDisplayTitleCandidates(metadata.title);
   const releaseTitleCandidates = releaseSegmentTitleCandidates(parseInput);
   return {
@@ -1279,12 +1281,23 @@ function findPtpDisplayMetadataYear(rawTitle: string, parseInput: string) {
 }
 
 function ptpDisplayMetadata(rawTitle: string) {
-  const match = rawTitle.match(/^\s*(.+?)\s*[\[(]((?:19|20)\d{2})[\])]\s+by\b/i);
+  const creatorMatch = rawTitle.match(PTP_DISPLAY_WITH_CREATOR_RE);
+  if (creatorMatch?.[1] && creatorMatch[2]) {
+    return {
+      title: creatorMatch[1],
+      year: Number(creatorMatch[2]),
+      technicalText: rawTitle.slice(creatorMatch[0].length),
+      kind: "creator" as const
+    };
+  }
+
+  const match = rawTitle.match(PTP_DISPLAY_WITH_FORMAT_RE);
   if (!match?.[1] || !match[2]) return undefined;
   return {
     title: match[1],
     year: Number(match[2]),
-    technicalText: rawTitle.slice(match[0].length)
+    technicalText: rawTitle.slice(match[0].length),
+    kind: "format" as const
   };
 }
 
@@ -1332,6 +1345,7 @@ function releaseSegmentTitleCandidates(parseInput: string) {
 function ptpDisplayTitleOverride(rawTitle: string, baseCanonical: string) {
   const metadata = ptpDisplayMetadata(rawTitle);
   if (!metadata || AKA_RE.test(metadata.title) || /\//u.test(metadata.title)) return undefined;
+  if (metadata.kind === "format" && YEAR_RE.test(metadata.title)) return undefined;
 
   const displayCanonical = ptpDisplayTitleCandidate(metadata.title);
   if (!displayCanonical) return undefined;

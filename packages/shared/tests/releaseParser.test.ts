@@ -207,6 +207,69 @@ describe("parseReleaseTitle", () => {
     expect(release.titleCandidates).toEqual(expect.arrayContaining(["Fungi: The"]));
   });
 
+  it("uses PTP display titles without creator metadata when filenames extend them", () => {
+    const release = parseReleaseTitle(
+      "Robert E. Lee [1996] - x264 / DVD / MKV / Other [ Robert.E.Lee.Reluctant.Warrior.1996.DVDRip.x264-HANDJOB ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Robert E. Lee",
+      year: 1996,
+      mediaType: "MOVIE",
+      source: "DVDRip",
+      codec: "H.264",
+      releaseGroup: "HANDJOB"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["Robert E Lee Reluctant Warrior"]));
+  });
+
+  it("preserves punctuation from PTP display titles without creator metadata", () => {
+    const release = parseReleaseTitle(
+      "Lucky Luciano: Chairman of the Mob [1996] - x264 / DVD / MKV / Other [ Lucky.Luciano.Chairman.of.the.Mob.1996.DVDRip.x264-HANDJOB ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Lucky Luciano: Chairman of the Mob",
+      year: 1996,
+      mediaType: "MOVIE",
+      source: "DVDRip",
+      codec: "H.264",
+      releaseGroup: "HANDJOB"
+    });
+  });
+
+  it("does not let PTP display years override title-year ranges", () => {
+    const release = parseReleaseTitle(
+      "The Kennedy Films of Robert Drew & Associates (1960-1964) [2016] - x264 / Blu-ray / MKV / 1080p / Extras / The Criterion Collection [ The.Kennedy.Films.of.Robert.Drew.and.Associates.Criterion.Collection.Extras ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Kennedy Films of Robert Drew & Associates",
+      year: 1960,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264"
+    });
+  });
+
+  it("does not add incompatible PTP display titles without creator metadata as provider aliases", () => {
+    const release = parseReleaseTitle(
+      "Ghosts of the British Isles, Part 2 [2024] - x264 / WEB / MKV / 1080p [ Ghost.Island.2024.1080p.NF.WEB-DL.AAC2.0.H.264-KQRM ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Ghost Island",
+      year: 2024,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      releaseGroup: "KQRM"
+    });
+    expect(release.providerSearchTitles).toBeUndefined();
+  });
+
   it("uses the PTP display year when the scene filename year conflicts", () => {
     const release = parseReleaseTitle(
       "Massacre pour une orgie AKA Massacre of Pleasure [1966] by Jean-Pierre Bastid - x264 / Blu-ray / MKV / 1080p [ Massacre.pour.une.orgie.1996.1080p.BluRay.x264-PTP ]"
