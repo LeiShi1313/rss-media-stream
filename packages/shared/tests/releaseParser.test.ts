@@ -1340,6 +1340,62 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("removes anime edit labels from slash-separated native aliases", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Yowayowa Sensei (superyowayowa) S01E10 2026 1080p friDay WEB-DL H264 AAC-AnimeS@ADWeb[2026年4月新番 弱弱老师（无修版） / 弱弱老師（無修版） / Yowayowa Sensei （superyowayowa） 第10集][1.62 GB][anonymous][中字 | 动画 | 官方]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Yowayowa Sensei superyowayowa",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 10
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "弱弱老师",
+      "弱弱老師"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "无修版",
+      "無修版",
+      "弱弱老师 无修版",
+      "弱弱老師 無修版"
+    ]));
+  });
+
+  it("keeps Latin anime aliases after removing native season suffixes", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Youkoso Jitsuryoku Shijou Shugi no Kyoushitsu e S04E14 2026 1080p friDay WEB-DL H264 AAC-AnimeS@ADWeb[2026年4月新番 欢迎来到实力至上主义的教室 第4季 2年级篇 第一学期 / 歡迎來到實力至上主義的教室 第4季 2年級篇 第一學期 / Classroom of the Elite 4th Season： Second Year， First Semester 第14集][1.62 GB][anonymous][中字 | 动画 | 官方]"
+    );
+
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "欢迎来到实力至上主义的教室",
+      "歡迎來到實力至上主義的教室",
+      "Classroom of the Elite 4th Season： Second Year， First Semester"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "欢迎来到实力至上主义的教室 2年级篇 第一学期",
+      "歡迎來到實力至上主義的教室 第4季 2年級篇 第一學期"
+    ]));
+  });
+
+  it("adds separate provider aliases for simplified/traditional title variants", () => {
+    const release = parseReleaseTitle(
+      "[Movies]The Mindful Architects 2021 1080p WEB-DL H.264 AAC 2.0-UBWEB[建筑慢慢 建築慢慢 | 导演：陈芝安 / 谢欣志 | 主演：江文淵 | 类别：纪录片 | 音频:汉语普通话 | 字幕:简中/英][2.82 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Mindful Architects",
+      year: 2021,
+      mediaType: "MOVIE"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "建筑慢慢",
+      "建築慢慢"
+    ]));
+  });
+
   it("uses animation TV episode-range pack markers as series evidence", () => {
     const release = parseReleaseTitle(
       "[动漫(Animations)]Cat Ninden Teyandee 1990 BluRay 1080p x264 FLAC-jsum@U2[功夫猫党 TV 01-54 Fin+SP][80.24 GB][anonymous]"

@@ -960,6 +960,7 @@ function explicitAliasTitleCandidatesFromValue(value: string) {
 function titleCandidatesFromAliasPart(aliasPart: string) {
   const candidates: string[] = [];
   for (const part of splitTitlePart(aliasPart)) {
+    candidates.push(...nativeVariantWhitespaceTitleCandidates(part));
     for (const scriptPart of splitScriptRuns(part)) {
       candidates.push(scriptPart);
     }
@@ -1127,11 +1128,11 @@ function metadataTitleCandidatesFromSegment(segment: string, options: { season?:
     if (!titleField || metadataInfoField(titleField)) {
       continue;
     }
-    const nativeWhitespaceCandidates = releaseLikeMetadataTitleSegment(segment)
-      ? nativeWhitespaceTitleCandidates(titleField)
+    const releaseLikeCandidates = releaseLikeMetadataTitleSegment(segment)
+      ? releaseLikeMetadataTitleCandidates(titleField)
       : [];
-    if (nativeWhitespaceCandidates.length > 0) {
-      candidates.push(...nativeWhitespaceCandidates);
+    if (releaseLikeCandidates.length > 0) {
+      candidates.push(...releaseLikeCandidates);
       break;
     }
     for (const candidate of titleCandidatesFromValue(titleField)) {
@@ -1366,12 +1367,80 @@ function nativeWhitespaceTitleCandidates(value: string) {
   return parts;
 }
 
+function releaseLikeMetadataTitleCandidates(value: string) {
+  const candidates = nativeWhitespaceTitleCandidates(value);
+  if (candidates.length > 0) return candidates;
+  if (!/[\/|]/u.test(value)) return [];
+
+  const unique: string[] = [];
+  let foundNativeWhitespaceCandidate = false;
+  for (const part of splitTitlePart(value)) {
+    const nativeCandidates = nativeWhitespaceTitleCandidates(part);
+    if (nativeCandidates.length > 0) {
+      foundNativeWhitespaceCandidate = true;
+    }
+    const partCandidates = nativeCandidates.length > 0
+      ? nativeCandidates
+      : titleCandidatesFromValue(part);
+    for (const candidate of partCandidates) {
+      if (!unique.some((existing) => sameCandidate(existing, candidate))) {
+        unique.push(candidate);
+      }
+    }
+  }
+  for (const candidate of titleCandidatesFromValue(value)) {
+    if (nativeEditLabelAlias(candidate)) continue;
+    if (hasNativeScript(candidate) && !hasLatin(candidate)) continue;
+    if (!unique.some((existing) => sameCandidate(existing, candidate))) {
+      unique.push(candidate);
+    }
+  }
+  return foundNativeWhitespaceCandidate ? unique : [];
+}
+
 function nativeWhitespaceTitleCandidate(value: string) {
   if (!hasNativeScript(value) || !isTitleCandidate(value)) return false;
   if (/^(?:(?:第\s*)?[一二三四五六七八九十两\d]{1,3}\s*(?:季|期)|第?\s*\d+\s*シリーズ|\d+\s*年[级級]篇|第?[一二三四五六七八九十两\d]{1,3}\s*(?:学期|學期)|(?:最终|最終)季|(?:无修|無修|修正|未删减|未刪減)版)$/u.test(value)) {
     return false;
   }
   return true;
+}
+
+function nativeEditLabelAlias(value: string) {
+  const cleaned = cleanCandidateTitle(value);
+  return hasNativeScript(cleaned) &&
+    /(?:无修|無修|修正|未删减|未刪減)版/u.test(cleaned);
+}
+
+function nativeVariantWhitespaceTitleCandidates(value: string) {
+  if (/[\/|]/u.test(value)) return [];
+  const parts = cleanCandidateTitle(value)
+    .split(/\s+/u)
+    .filter(Boolean);
+  if (parts.length !== 2) return [];
+  if (!parts.every(nativeVariantWhitespaceTitleCandidate)) return [];
+  return likelySimplifiedTraditionalPair(parts[0], parts[1]) ? parts : [];
+}
+
+function nativeVariantWhitespaceTitleCandidate(value: string) {
+  const chars = Array.from(value);
+  return chars.length >= 4 &&
+    chars.length <= 16 &&
+    hasNativeScript(value) &&
+    !hasLatin(value) &&
+    !/\d/u.test(value) &&
+    isTitleCandidate(value) &&
+    !PROVIDER_ALIAS_NOISE_RE.test(value);
+}
+
+function likelySimplifiedTraditionalPair(left: string, right: string) {
+  const leftChars = Array.from(left);
+  const rightChars = Array.from(right);
+  if (leftChars.length !== rightChars.length) return false;
+
+  const samePositions = leftChars.reduce((count, char, index) =>
+    count + (char === rightChars[index] ? 1 : 0), 0);
+  return samePositions / leftChars.length >= 0.5;
 }
 
 function cleanMetadataTitleField(field: string) {
