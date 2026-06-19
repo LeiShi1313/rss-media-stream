@@ -2524,6 +2524,26 @@ describe("parseReleaseTitle", () => {
     expect(release.mediaType).toBe("UNKNOWN");
   });
 
+  it("classifies leading Chinese sports categories as unsupported", () => {
+    const release = parseReleaseTitle(
+      "[体育]Premier League Round 37 2025-26 1080p WEB-DL H.264 AAC 2.0-TJUPT[英格兰足球超级联赛 | 类别：运动][67.32 GB][anonymous]"
+    );
+
+    expect(release.mediaType).toBe("UNKNOWN");
+  });
+
+  it("classifies leading mixed sports categories as unsupported", () => {
+    const mixed = parseReleaseTitle(
+      "[Sports/体育]CCTV5 2025-2026 National Basketball Association 20260611 HDTV 1080i H264-HDSTV[央视体育频道 2025/2026赛季美国职业篮球联赛-总决赛][10.83 GB][anonymous]"
+    );
+    const parenthesized = parseReleaseTitle(
+      "[体育 (Sport)]The 15th National Games 2025 1080i HDTV H.264-NGB[中华人民共和国第十五届运动会（香港地面波版本）][1.469 TB][anonymous][Free]"
+    );
+
+    expect(mixed.mediaType).toBe("UNKNOWN");
+    expect(parenthesized.mediaType).toBe("UNKNOWN");
+  });
+
   it("classifies leading music-video categories as unsupported", () => {
     const release = parseReleaseTitle(
       "[Music Videos/音乐MV]LE SSERAFIM-2023 LE SSERAFIM TOUR 'FLAME RISES' IN JAPAN Blu-ray 1080i AVC LPCM 2.0[2023 年 Le Sserafim 日本巡演“火焰崛起”][52.55 GB][anonymous]"
