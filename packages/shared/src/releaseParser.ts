@@ -4,6 +4,7 @@ const QUALITY_RE = /\b(2160p|4k|1080p|1080i|720p|576p|540p|480p)\b/i;
 const ONLY_QUALITY_RE = /^(?:2160p|4k|1080p|1080i|720p|576p|540p|480p)$/i;
 const DIMENSION_RE = /\b(3840[ ._-]?x[ ._-]?2160|1920[ ._-]?x[ ._-]?1080|1280[ ._-]?x[ ._-]?720|720[ ._-]?x[ ._-]?480)\b/i;
 const SOURCE_RE = /\b(WEB[- .]?DL|WEBRip|Blu[- .]?Ray|BDRip|HDTV|DVDRip|Remux|UHD|HDRip|WEB)\b/i;
+const PTP_METADATA_SOURCE_RE = /\b(DVD)\b/i;
 const CODEC_RE = /\b(x265|x264|h[ .]?265|h[ .]?264|hevc|avc|av1|mpeg[ .]?2)\b/i;
 const AUDIO_RE = /\b(DDP?[ .]?(?:5\.1|7\.1|2\.0)?|DD\+[ .]?(?:5\.1|7\.1|2\.0)?|DTS[- .]?HD|TrueHD|Atmos|AAC[ .]?(?:2\.0|5\.1)?|FLAC|OPUS[ .]?(?:2\.0|5\.1)?|LPCM[ .]?(?:2\.0|5\.1)?)\b/i;
 const YEAR_RE = /\b(19\d{2}|20\d{2})\b/;
@@ -137,16 +138,33 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     rawTitle,
     hasTvContext
   });
-  const qualityMatch = normalized.match(QUALITY_RE) ?? rawNormalized.match(QUALITY_RE);
-  const dimensionMatch = normalized.match(DIMENSION_RE) ?? rawNormalized.match(DIMENSION_RE);
+  const ptpDisplayYear = findPtpDisplayMetadataYear(rawTitle, parseInput);
+  const technicalNormalized = ptpDisplayYear
+    ? technicalSearchInputAfterYear(normalized, yearMatch)
+    : normalized;
+  const ptpTechnicalNormalized = ptpDisplayYear
+    ? ptpDisplayTechnicalSearchInput(rawTitle)
+    : undefined;
+  const primaryTechnicalInput = ptpDisplayYear && !yearMatch && !releaseGroup
+    ? ptpTechnicalNormalized ?? technicalNormalized
+    : technicalNormalized;
+  const secondaryTechnicalInput = primaryTechnicalInput === technicalNormalized
+    ? ptpTechnicalNormalized
+    : technicalNormalized;
+  const qualityMatch = primaryTechnicalInput.match(QUALITY_RE) ?? secondaryTechnicalInput?.match(QUALITY_RE) ?? rawNormalized.match(QUALITY_RE);
+  const dimensionMatch = primaryTechnicalInput.match(DIMENSION_RE) ?? secondaryTechnicalInput?.match(DIMENSION_RE) ?? rawNormalized.match(DIMENSION_RE);
   const quality = normalizeQuality(qualityMatch?.[1]) ?? normalizeDimensionQuality(dimensionMatch?.[1]);
   const resolution = normalizeResolution(quality) ?? normalizeDimensionResolution(dimensionMatch?.[1]);
-  const source = normalizeSource((normalized.match(SOURCE_RE) ?? rawNormalized.match(SOURCE_RE))?.[1]);
-  const codec = normalizeCodec((normalized.match(CODEC_RE) ?? rawNormalized.match(CODEC_RE))?.[1]);
-  const audio = normalizeAudio((normalized.match(AUDIO_RE) ?? rawNormalized.match(AUDIO_RE))?.[1]);
+  const primarySourceMatch = primaryTechnicalInput.match(SOURCE_RE);
+  const ptpMetadataSourceMatch = ptpTechnicalNormalized?.match(PTP_METADATA_SOURCE_RE);
+  const sourceMatch = ptpMetadataSourceMatch && normalizeSource(primarySourceMatch?.[1]) === "WEB"
+    ? ptpMetadataSourceMatch
+    : primarySourceMatch ?? ptpMetadataSourceMatch ?? secondaryTechnicalInput?.match(SOURCE_RE) ?? rawNormalized.match(SOURCE_RE);
+  const source = normalizeSource(sourceMatch?.[1]);
+  const codec = normalizeCodec((primaryTechnicalInput.match(CODEC_RE) ?? secondaryTechnicalInput?.match(CODEC_RE) ?? rawNormalized.match(CODEC_RE))?.[1]);
+  const audio = normalizeAudio((primaryTechnicalInput.match(AUDIO_RE) ?? secondaryTechnicalInput?.match(AUDIO_RE) ?? rawNormalized.match(AUDIO_RE))?.[1]);
   const numericTitleYear = findNumericTitleYear(normalized);
   const releaseYear = numericTitleYear?.year ?? (yearMatch ? Number(yearMatch[1]) : undefined);
-  const ptpDisplayYear = findPtpDisplayMetadataYear(rawTitle, parseInput);
   const year = preferredReleaseYear(releaseYear, ptpDisplayYear) ?? inferMetadataYear(rawTitle);
   const completeIndex = categorySeriesEvidence ? normalized.search(COMPLETE_WORD_RE) : -1;
   const hasTvEvidence = hasTvContext;
@@ -344,6 +362,20 @@ function technicalTokenFollowsYear(value: string) {
 
 function technicalPatternStarts(pattern: RegExp, value: string) {
   return value.match(pattern)?.index === 0;
+}
+
+function technicalSearchInputAfterYear(normalized: string, yearMatch: RegExpMatchArray | undefined) {
+  if (!yearMatch?.[1] || yearMatch.index == null) return normalized;
+  const afterYear = normalized.slice(yearMatch.index + yearMatch[1].length);
+  return afterYear || normalized;
+}
+
+function ptpDisplayTechnicalSearchInput(rawTitle: string) {
+  const metadata = ptpDisplayMetadata(rawTitle);
+  const technicalText = metadata?.technicalText?.replace(/\s*\[[\s\S]*$/u, " ");
+  return technicalText
+    ? normalizeReleaseText(technicalText)
+    : undefined;
 }
 
 function findReleaseYearMatch(
@@ -909,9 +941,10 @@ function deriveTitleInfo(input: {
     input.rawName,
     releaseNameCandidates.length > 0 ? releaseNameCandidates : fallbackCandidates
   ) || input.fallbackTitle;
-  const canonical = weakCanonicalTitle(baseCanonical)
+  const ptpDisplayCanonical = ptpDisplayTitleOverride(input.rawTitle, baseCanonical);
+  const canonical = ptpDisplayCanonical ?? (weakCanonicalTitle(baseCanonical)
     ? chooseCanonicalTitle(input.rawName, humanCandidates) ?? humanCandidates[0] ?? baseCanonical
-    : humanCandidates.find((candidate) => equivalentTitleKey(candidate) === equivalentTitleKey(baseCanonical)) ?? baseCanonical;
+    : humanCandidates.find((candidate) => equivalentTitleKey(candidate) === equivalentTitleKey(baseCanonical)) ?? baseCanonical);
   const searchTitles = providerSearchTitles(candidates, canonical, explicitAliasCandidates);
   const nativeCandidate = searchTitles?.find((candidate) => hasNativeScript(candidate));
   return {
@@ -1209,8 +1242,8 @@ function nativeEmDashTitleCandidate(value: string) {
 }
 
 function humanMetadataTitleCandidates(rawTitle: string) {
-  const match = rawTitle.match(/^\s*(.+?)\s*[\[(](?:19|20)\d{2}[\])]\s+by\b/i);
-  return match?.[1] ? [match[1]] : [];
+  const metadata = ptpDisplayMetadata(rawTitle);
+  return metadata?.title ? [metadata.title] : [];
 }
 
 function nestedSeasonMetadataTitleCandidates(rawTitle: string) {
@@ -1223,18 +1256,20 @@ function nestedSeasonMetadataTitleCandidates(rawTitle: string) {
 }
 
 function findPtpDisplayMetadataYear(rawTitle: string, parseInput: string) {
-  const match = rawTitle.match(/^\s*(.+?)\s*[\[(]((?:19|20)\d{2})[\])]\s+by\b/i);
-  if (!match?.[1] || !match[2]) return undefined;
-  const prefixHasYear = YEAR_RE.test(match[1]);
-  if (prefixHasYear && /\s\/\s/.test(match[1])) return undefined;
-  const prefixCandidates = validTitleCandidatesFromValue(match[1]);
+  const metadata = ptpDisplayMetadata(rawTitle);
+  if (!metadata) return undefined;
+  const prefixHasYear = YEAR_RE.test(metadata.title);
+  if (prefixHasYear && /\s\/\s/.test(metadata.title)) return undefined;
+  const prefixCandidates = ptpDisplayTitleCandidates(metadata.title);
   const releaseTitleCandidates = releaseSegmentTitleCandidates(parseInput);
   return {
-    year: Number(match[2]),
+    year: metadata.year,
     prefixHasYear,
     titleCompatible: ptpDisplayTitleCompatible(prefixCandidates, releaseTitleCandidates),
     exactTitleMatch: ptpDisplayTitleExactMatch(prefixCandidates, releaseTitleCandidates),
-    preferForAliasMismatch: AKA_RE.test(match[1]) &&
+    prefixTitleVariant: !AKA_RE.test(metadata.title) &&
+      ptpDisplayPrefixTitleVariant(prefixCandidates, releaseTitleCandidates),
+    preferForAliasMismatch: AKA_RE.test(metadata.title) &&
       releaseTitleCandidates.length > 0 &&
       prefixCandidates.length > 0 &&
       releaseTitleCandidates.every((candidate) =>
@@ -1243,14 +1278,39 @@ function findPtpDisplayMetadataYear(rawTitle: string, parseInput: string) {
   };
 }
 
+function ptpDisplayMetadata(rawTitle: string) {
+  const match = rawTitle.match(/^\s*(.+?)\s*[\[(]((?:19|20)\d{2})[\])]\s+by\b/i);
+  if (!match?.[1] || !match[2]) return undefined;
+  return {
+    title: match[1],
+    year: Number(match[2]),
+    technicalText: rawTitle.slice(match[0].length)
+  };
+}
+
 function preferredReleaseYear(
   releaseYear: number | undefined,
-  ptpDisplayYear: { year: number; prefixHasYear: boolean; titleCompatible: boolean; exactTitleMatch: boolean; preferForAliasMismatch: boolean } | undefined
+  ptpDisplayYear: {
+    year: number;
+    prefixHasYear: boolean;
+    titleCompatible: boolean;
+    exactTitleMatch: boolean;
+    prefixTitleVariant: boolean;
+    preferForAliasMismatch: boolean;
+  } | undefined
 ) {
   if (releaseYear == null) return ptpDisplayYear?.year;
   if (ptpDisplayYear == null) return releaseYear;
   const yearDelta = Math.abs(releaseYear - ptpDisplayYear.year);
-  if (yearDelta <= 1 && (ptpDisplayYear.prefixHasYear || ptpDisplayYear.preferForAliasMismatch || ptpDisplayYear.exactTitleMatch)) {
+  if (
+    yearDelta <= 1 &&
+    (
+      ptpDisplayYear.prefixHasYear ||
+      ptpDisplayYear.preferForAliasMismatch ||
+      ptpDisplayYear.exactTitleMatch ||
+      ptpDisplayYear.prefixTitleVariant
+    )
+  ) {
     return ptpDisplayYear.year;
   }
   if (!ptpDisplayYear.titleCompatible) return releaseYear;
@@ -1267,6 +1327,59 @@ function releaseSegmentTitleCandidates(parseInput: string) {
   );
   const titleSegment = stop >= 0 ? normalized.slice(0, stop) : normalized;
   return validTitleCandidatesFromValue(titleSegment);
+}
+
+function ptpDisplayTitleOverride(rawTitle: string, baseCanonical: string) {
+  const metadata = ptpDisplayMetadata(rawTitle);
+  if (!metadata || AKA_RE.test(metadata.title) || /\//u.test(metadata.title)) return undefined;
+
+  const displayCanonical = ptpDisplayTitleCandidate(metadata.title);
+  if (!displayCanonical) return undefined;
+  return ptpDisplayPrefixTitleVariant([displayCanonical], [baseCanonical])
+    ? displayCanonical
+    : undefined;
+}
+
+function ptpDisplayTitleCandidates(value: string) {
+  const candidates: string[] = [];
+  const displayCandidate = ptpDisplayTitleCandidate(value);
+  if (displayCandidate) candidates.push(displayCandidate);
+  for (const candidate of validTitleCandidatesFromValue(value)) {
+    if (!candidates.some((existing) => sameCandidate(existing, candidate))) {
+      candidates.push(candidate);
+    }
+  }
+  return candidates;
+}
+
+function ptpDisplayTitleCandidate(value: string) {
+  const cleaned = cleanHumanTitleCandidate(value);
+  if (!cleaned || SIZE_SEGMENT_RE.test(cleaned) || categorySegment(cleaned)) return undefined;
+  if (metadataInfoField(cleaned)) return undefined;
+  if (AKA_RE.test(cleaned)) return undefined;
+  if (!hasLatin(cleaned) && !hasNativeScript(cleaned) && !/\d/.test(cleaned)) return undefined;
+  if (YEAR_RE.test(cleaned) && cleaned.replace(YEAR_RE, "").trim().length === 0) return undefined;
+  if (ONLY_QUALITY_RE.test(cleaned)) return undefined;
+  if (cleaned.match(SOURCE_RE)?.[0]?.length === cleaned.length) return undefined;
+  if (cleaned.match(CODEC_RE)?.[0]?.length === cleaned.length) return undefined;
+  if (cleaned.match(AUDIO_RE)?.[0]?.length === cleaned.length) return undefined;
+  return cleaned;
+}
+
+function ptpDisplayPrefixTitleVariant(prefixCandidates: string[], releaseTitleCandidates: string[]) {
+  if (prefixCandidates.length === 0 || releaseTitleCandidates.length === 0) return false;
+  return releaseTitleCandidates.some((candidate) =>
+    prefixCandidates.some((prefixCandidate) => titleKeyPrefixVariant(prefixCandidate, candidate))
+  );
+}
+
+function titleKeyPrefixVariant(left: string, right: string) {
+  const leftKey = equivalentTitleKey(left);
+  const rightKey = equivalentTitleKey(right);
+  if (!leftKey || !rightKey) return false;
+  if (leftKey === rightKey) return true;
+  if (leftKey.length < 5 || rightKey.length < 5) return false;
+  return leftKey.startsWith(rightKey) || rightKey.startsWith(leftKey);
 }
 
 function ptpDisplayTitleCompatible(prefixCandidates: string[], releaseTitleCandidates: string[]) {

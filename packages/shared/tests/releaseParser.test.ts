@@ -174,6 +174,39 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("uses the PTP display title when the filename only extends it", () => {
+    const release = parseReleaseTitle(
+      "Free to Go [2015] by John Koster and Marie Elisa Scheidt - x264 / WEB / MKV / 1080p [ Free.to.go.Mit.leichtem.Gepack.2016.GERMAN.1080p.WEB-DL.AAC2.0.H.264-aurez29 ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Free to Go",
+      year: 2015,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      audio: "AAC2.0",
+      releaseGroup: "aurez29"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["Free to go Mit leichtem Gepack"]));
+  });
+
+  it("keeps PTP display titles when title words look like source tokens", () => {
+    const release = parseReleaseTitle(
+      "Fungi: The Web of Life [2023] by Gisela Kaufmann and Joseph Nizeti - x264 / DVD / MKV / Other [ Fungi.The.Web.Of.Life.2023.DVDRip.h264 ]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Fungi: The Web of Life",
+      year: 2023,
+      mediaType: "MOVIE",
+      source: "DVD",
+      codec: "H.264"
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining(["Fungi: The"]));
+  });
+
   it("uses the PTP display year when the scene filename year conflicts", () => {
     const release = parseReleaseTitle(
       "Massacre pour une orgie AKA Massacre of Pleasure [1966] by Jean-Pierre Bastid - x264 / Blu-ray / MKV / 1080p [ Massacre.pour.une.orgie.1996.1080p.BluRay.x264-PTP ]"
