@@ -2608,6 +2608,18 @@ describe("parseReleaseTitle", () => {
     expect(release.mediaType).toBe("UNKNOWN");
   });
 
+  it("classifies leading lossless-audio categories as unsupported", () => {
+    const release = parseReleaseTitle(
+      "[HQ Audio/无损音乐]Ennio Morricone - Veruschka - 1971 - FLAC分轨[453.84 MB][anonymous]"
+    );
+    const compact = parseReleaseTitle(
+      "[HQ Audio音乐]VA - The Best Of Disco Fox: Vol. 1, 2 (2012-2013) [FLAC][1.95 GB][anonymous]"
+    );
+
+    expect(release.mediaType).toBe("UNKNOWN");
+    expect(compact.mediaType).toBe("UNKNOWN");
+  });
+
   it("classifies leading Chinese music-video categories as unsupported", () => {
     const release = parseReleaseTitle(
       "[音乐短片 (MV)]Ava Max - Maybe You're The Problem 2022 2160p WEB-DL ProRes PCM-PTerMV[Ava Max - Maybe You're The Problem][15.27 GB][anonymous][Free]"
@@ -2616,12 +2628,62 @@ describe("parseReleaseTitle", () => {
     expect(release.mediaType).toBe("UNKNOWN");
   });
 
+  it("classifies leading game and software categories as unsupported", () => {
+    const game = parseReleaseTitle(
+      "[PCGame]PC Racing MX vs ATV Legends Deluxe Edition-FitGirl[MX vs ATV Legends：豪华版 [版本 5.04 + 全部DLC] [2022] [重新打包]][27.09 GB][N/A]"
+    );
+    const software = parseReleaseTitle(
+      "[软件]Topaz Video AI 6.0.0 x64[Topaz Video AI 6.0.0][6.12 GB][anonymous]"
+    );
+
+    expect(game.mediaType).toBe("UNKNOWN");
+    expect(software.mediaType).toBe("UNKNOWN");
+  });
+
+  it("classifies leading ebook and audiobook categories as unsupported", () => {
+    const ebook = parseReleaseTitle(
+      "[电子书 (Ebook)]有声书 宿命之环 爱潜水的乌贼 729声工厂 2023 MP3 320kbps[宿命之环 | 起点独家 | 诡秘之主第二部 | 729声工厂 | 完结][31.56 GB][anonymous][Free]"
+    );
+    const audiobook = parseReleaseTitle(
+      "[有声书]Chao Ji Dao Zei 2016 WEB-DL MP3-ZARD[超级盗贼 |演播：Lovskey斯基 | 作者：不是浮云 | 全511集 | 64Kbs | [国语/单播]][5.77 GB][anonymous]"
+    );
+
+    expect(ebook.mediaType).toBe("UNKNOWN");
+    expect(audiobook.mediaType).toBe("UNKNOWN");
+  });
+
+  it("classifies leading data and adult categories as unsupported", () => {
+    const data = parseReleaseTitle(
+      "[资料][BBC 新闻片段][BBC.News.2024.11.17.HDTV.1080p.WEBRip.H264.AAC-D0][外语学习][MP4][2024.11.17/英语听力口语 / 雅思托福练习 / 时政素材 / 转自M-Team][1.05 GiB][anonymous]"
+    );
+    const adult = parseReleaseTitle(
+      "[AV(無碼)/HD Uncensored]OFJE-593 本郷愛 引退 S1全19作コンプリート 15時間BOX[restored][29.07 GB][N/A]"
+    );
+    const imageVideo = parseReleaseTitle(
+      "[IV/Video Collection]GirlsDelta 2022 July - September x264 AAC[null][44.9 GB][N/A]"
+    );
+
+    expect(data.mediaType).toBe("UNKNOWN");
+    expect(adult.mediaType).toBe("UNKNOWN");
+    expect(imageVideo.mediaType).toBe("UNKNOWN");
+  });
+
   it("does not treat music as unsupported when it is part of a normal movie title", () => {
     const release = parseReleaseTitle("The.Sound.of.Music.1965.1080p.BluRay.x264-GROUP");
 
     expect(release).toMatchObject({
       title: "The Sound of Music",
       year: 1965,
+      mediaType: "MOVIE"
+    });
+  });
+
+  it("does not treat game as unsupported when it is part of a normal movie title", () => {
+    const release = parseReleaseTitle("Game.Night.2018.1080p.BluRay.x264-GROUP");
+
+    expect(release).toMatchObject({
+      title: "Game Night",
+      year: 2018,
       mediaType: "MOVIE"
     });
   });

@@ -20,7 +20,8 @@ const SIZE_SEGMENT_RE = /^\d+(?:\.\d+)?\s*(?:gib|gb|mib|mb|tib|tb)$/i;
 const SIZE_ALIAS_RE = /^\d+(?:\s+\d{1,2})?\s*(?:gib|gb|mib|mb|tib|tb|g|m)$/i;
 const CATEGORY_SEGMENT_RE = /^(?:(?:movies?|movie|tv(?:\s*(?:series|shows?))?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花))(?:\s+(?:(?:movies?|movie|tv(?:\s*(?:series|shows?))?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花)))*$/i;
 const MIXED_CATEGORY_SEGMENT_RE = /^(?:(?:documentaries?|documentary)\s*(?:纪录片|紀錄片)|(?:tv\s*shows?|tv\s*series|series)\s*(?:综艺|綜藝|剧集|劇集)|(?:movies?|movie)\s*(?:电影|電影)|(?:animations?|animation|anime)\s*(?:动漫|動漫|动画|動畫))$/iu;
-const UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE = /^(?:music(?:s)?(?:\s+(?:videos?|mv|lossless))?(?:\s*\([^)]*\))?(?:\s*\/\s*音乐\s*mv)?|sports?(?:\s*\/?\s*体育)?(?:\s+\d{3,4}[pi])?|体育(?:\s*\([^)]*\))?(?:\s*\/\s*sports?)?(?:\s+\d{3,4}[pi])?|音乐\s*(?:cd|mv|短片)?(?:\s*\([^)]*\))?)$/iu;
+const UNSUPPORTED_BARE_MEDIA_CATEGORY_SEGMENT_RE = /^(?:music(?:s)?(?:\s+(?:videos?|mv|lossless))?(?:\s*\([^)]*\))?(?:\s*\/\s*音乐\s*mv)?|sports?(?:\s*\/?\s*体育)?(?:\s+\d{3,4}[pi])?|体育(?:\s*\([^)]*\))?(?:\s*\/\s*sports?)?(?:\s+\d{3,4}[pi])?|音乐\s*(?:cd|mv|短片)?(?:\s*\([^)]*\))?)$/iu;
+const UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE = /^(?:music(?:s)?(?:\s+(?:videos?|mv|lossless))?(?:\s*\([^)]*\))?(?:\s*\/\s*音乐\s*mv)?|sports?(?:\s*\/?\s*体育)?(?:\s+\d{3,4}[pi])?|体育(?:\s*\([^)]*\))?(?:\s*\/\s*sports?)?(?:\s+\d{3,4}[pi])?|音乐\s*(?:cd|mv|短片)?(?:\s*\([^)]*\))?|hq\s*audio(?:\s*\/?\s*(?:无损音乐|無損音樂|音乐|音樂))?|(?:(?:pc\s*)?games?|pcgame|游戏|遊戲|software|applications?|软件|軟件|应用软件|應用軟體|ebooks?|电子书|電子書|auibook|audiobooks?|有声书|有聲書|有声读物|有聲讀物)(?:\s*\([^)]*\))?|资料|資料|h-?comic|iv(?:\s*\/\s*video\s+collection)?|av(?:\([^)]*\))?(?:\s*\/\s*(?:hd|sd|blu[- .]?ray)(?:\s+(?:un)?censored)?)?|(?:hd|sd|blu[- .]?ray)\s+(?:un)?censored)$/iu;
 const EXTRA_INFO_RE = /类型|主演|类别|字幕|国语|中字|导演|演员|简繁|第\d|全\d|日语|英语|粤语|内封|内嵌|\|/i;
 const METADATA_INFO_FIELD_RE = /^(?:类型|类别|字幕|导演|主演|演员|语言|音频|视频|格式|地区|年份|年代|上映|首播|播出|国语|中字|简繁|简中|繁中|日语|英语|粤语|汉语普通话|网络收费短剧|4k|1080p|1080i|720p|2160p|uhd|hdr)$/i;
 const METADATA_STANDALONE_LABEL_RE = /^(?:移动视频|移動視頻|大陆|大陸|中国大陆|中國大陸|内地|內地|香港|台湾|台灣|日本|韩国|韓國|(?:国创|國創|国漫|國漫|日漫|动漫|動漫|动画|動畫)?(?:连载|連載)|(?:bilibili|哔哩哔哩|嗶哩嗶哩)(?:大陆|大陸)?|(?:酷喵|芒果)tv|云视听极光|精简版|精簡版|首集保留片头片尾|首集保留片頭片尾)$/iu;
@@ -616,7 +617,7 @@ function hasUnsupportedLeadingMediaCategory(rawTitle: string) {
   const bracketed = trimmed.match(/^\[([^\]]+)\]/)?.[1];
   if (bracketed && unsupportedMediaCategorySegment(bracketed)) return true;
   const leadingWord = trimmed.match(/^([^\s[\]:：]+)/u)?.[1];
-  return Boolean(leadingWord && unsupportedMediaCategorySegment(leadingWord));
+  return Boolean(leadingWord && unsupportedBareMediaCategorySegment(leadingWord));
 }
 
 function hasMovieLeadingMediaCategory(rawTitle: string) {
@@ -734,6 +735,10 @@ function hasWholeSeriesTvMarker(rawTitle: string) {
 
 function unsupportedMediaCategorySegment(segment: string) {
   return UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE.test(segment.trim());
+}
+
+function unsupportedBareMediaCategorySegment(segment: string) {
+  return UNSUPPORTED_BARE_MEDIA_CATEGORY_SEGMENT_RE.test(segment.trim());
 }
 
 function extractReleaseGroup(input: string): string | undefined {
