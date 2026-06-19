@@ -1347,6 +1347,53 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["国乐无双"]));
   });
 
+  it("skips standalone native serialization labels before metadata titles", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Legendary Su Dongpo S01E01 2026 1080p WEB-DL H264 AAC-ADWeb[[国创连载] 苏东坡与杭州的故事 第01集 | 类型：剧情 动画 历史 *酷喵TV*][127.97 MB][anonymous][国语 | 中字 | 动画 | 官方]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Legendary Su Dongpo",
+      mediaType: "TV_SERIES",
+      year: 2026,
+      season: 1,
+      episode: 1
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["苏东坡与杭州的故事"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["国创连载", "酷喵TV"]));
+  });
+
+  it("skips standalone streaming platform labels after metadata titles", () => {
+    const release = parseReleaseTitle(
+      "[纪录片]FOOD with the MOVE S01E01 2026 2160p WEB-DL H264 AAC-ADWeb[[连载] 一招一食 / FOOD with the MOVE 第01集 4K [Bilibili大陆]][3.21 GB][anonymous][官方 | 国语 | 中字]"
+    );
+
+    expect(release).toMatchObject({
+      title: "FOOD with the MOVE",
+      mediaType: "TV_SERIES",
+      year: 2026,
+      season: 1,
+      episode: 1
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["一招一食"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["连载", "Bilibili大陆"]));
+  });
+
+  it("does not expose presentation labels after platform labels are removed", () => {
+    const release = parseReleaseTitle(
+      "Wonder Wall 2026 S01E09 2160p WEB-DL H.265 DV DDP5.1 Pure-AilMWeb[迷墙 | 第1季 第09集 | 主演：任素汐 / 郭京飞 / 谷嘉诚 | 普通话 | [简] 硬字幕 | 云视听极光 | 精简版 [首集保留片头片尾]][3.06 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Wonder Wall",
+      mediaType: "TV_SERIES",
+      year: 2026,
+      season: 1,
+      episode: 9
+    });
+    expect(release.providerSearchTitles).toEqual(["迷墙"]);
+  });
+
   it("keeps complete when it is part of the title", () => {
     const release = parseReleaseTitle("Indiana Jones The Complete Adventures 1981-2008 UHD Blu-Ray 2160p HEVC-CHDBits");
 
