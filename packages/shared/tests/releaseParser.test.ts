@@ -127,6 +127,38 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("uses no-year structured bracket TV title segments with embedded episode markers", () => {
+    const release = parseReleaseTitle(
+      "[剧集][日剧][孤独的美食家S08E05][kodoku no gurume S08E05][猪猪字幕组作品][502.92 MiB][]"
+    );
+
+    expect(release).toMatchObject({
+      title: "kodoku no gurume",
+      mediaType: "TV_SERIES",
+      season: 8,
+      episode: 5
+    });
+    expect(release.title).not.toContain("剧集");
+    expect(release.title).not.toContain("日剧");
+  });
+
+  it("uses no-year structured bracket movie title segments without mixing in size text", () => {
+    const release = parseReleaseTitle("[电影][澳大利亚][再再醉一次][One More Shot][1.68 GiB][]");
+
+    expect(release).toMatchObject({
+      title: "One More Shot",
+      mediaType: "UNKNOWN"
+    });
+    expect(release.title).not.toContain("GiB");
+    expect(release.title).not.toContain("1 68");
+  });
+
+  it("does not promote native-only bad seed bracket metadata into known media", () => {
+    const release = parseReleaseTitle("[Anime]错误种子[错误种子][1.17 GB][N/A]");
+
+    expect(release.mediaType).toBe("UNKNOWN");
+  });
+
   it("strips repeated media wrappers before unbracketed titles", () => {
     const release = parseReleaseTitle(
       "[电影][4K电影]极盗车神、玩命再劫 2017 [全景声2160P](蓝光原版)[极盗车神 | Baby Driver | 2017 | 玩命再劫(台) | 宝贝神车手(港) | 娃娃脸司机][57.34 GB][biketiger]"

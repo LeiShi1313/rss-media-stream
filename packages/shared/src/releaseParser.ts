@@ -296,12 +296,54 @@ function structuredBracketMetadataParseInput(rawTitle: string) {
   }
 
   const yearIndex = metadata.segments.findIndex((segment) => /^(?:19|20)\d{2}$/.test(segment.trim()));
-  if (yearIndex < 0) return undefined;
+  if (yearIndex < 0) return structuredBracketNoYearTitle(metadata.segments);
   const title = metadata.segments
     .slice(yearIndex + 1)
     .map((segment) => structuredBracketTitleSegment(segment))
     .find((segment): segment is string => Boolean(segment));
   return title ? `${title} ${metadata.segments[yearIndex]}` : undefined;
+}
+
+function structuredBracketNoYearTitle(segments: string[]) {
+  if (segments.slice(1).some((segment) => YEAR_RE.test(cleanHumanTitleCandidate(segment)))) {
+    return undefined;
+  }
+
+  const metadataSegments = segments.slice(1);
+  const sizeIndex = metadataSegments.findIndex((segment) =>
+    SIZE_SEGMENT_RE.test(cleanHumanTitleCandidate(segment))
+  );
+  const candidateSegments = sizeIndex >= 0 ? metadataSegments.slice(0, sizeIndex) : metadataSegments;
+  const candidates = candidateSegments
+    .map((segment, index) => {
+      const title = structuredBracketTitleSegment(segment);
+      if (!title || structuredBracketMetadataLabelSegment(title)) return undefined;
+      const normalized = normalizeReleaseText(title);
+      const hasTvMarker = TV_RE.test(normalized) ||
+        LONG_TV_RE.test(normalized) ||
+        EPISODE_ONLY_RE.test(normalized) ||
+        LONG_EPISODE_ONLY_RE.test(normalized) ||
+        SEASON_PACK_RE.test(normalized) ||
+        SEASON_WORD_PACK_RE.test(normalized);
+      const hasLatinTitle = hasLatin(title) && !hasNativeScript(title);
+      if (!hasLatinTitle && !hasTvMarker) return undefined;
+      return {
+        title,
+        index,
+        score: (hasTvMarker ? 4 : 0) + (hasLatinTitle ? 3 : 0)
+      };
+    })
+    .filter((candidate): candidate is { title: string; index: number; score: number } => Boolean(candidate))
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  return candidates[0]?.title;
+}
+
+function structuredBracketMetadataLabelSegment(segment: string) {
+  const cleaned = cleanHumanTitleCandidate(segment);
+  return /^(?:日剧|日劇|韩剧|韓劇|美剧|美劇|英剧|英劇|港剧|港劇|台剧|台劇|陆剧|陸劇|大陆|大陸|内地|內地|tv|ova|ona|sp|imax|web|web[- .]?dl|webrip|blu[- .]?ray|bdrip|hdtv|mp4|mkv|rar|zip|n\s*\/?\s*a|anonymous|free|(?:\d+x\s*)?free)$/iu.test(cleaned) ||
+    standaloneProviderRegionAlias(cleaned) ||
+    standaloneProviderGenreAlias(cleaned);
 }
 
 function leadingBracketMetadata(rawTitle: string) {
