@@ -40,6 +40,7 @@ const SOURCE_ATTRIBUTION_RE = /(?:转自|轉自|转载自|轉載自)/u;
 const RELEASE_GROUP_ATTRIBUTION_RE = /(?:发布组|發布組|压制组|壓制組|压制部|壓制部)/u;
 const LEGAL_DISCLAIMER_ALIAS_RE = /(?:如有侵[权權]|联系删除|聯繫刪除|刪除|删除)/u;
 const BROADCAST_CAPTURE_PREFIX_RE = /^(?:ZJTV[- .]?4K|GDTV[- .]?4K|JSWS[- .]?4K|HNTV[- .]?4K|SDTV[- .]?4K|BRTV[- .]?WS4K|CCTV[- .]?3|CWJDTV|(?:\d{8}[ ._-]+)?Mnet[ ._-]+Japan)[ ._-]+/i;
+const CCTV_4K_BROADCAST_PREFIX_RE = /^CCTV[- .]?4K[ ._-]+/i;
 const TV_SHOWS_BROADCAST_CAPTURE_PREFIX_RE = /^(?:CCTV[- .]?\d+|HunanTV|DragonTV|PhoenixTV|JSTV|ZJTV|SZTV|SHANGHAI[- .]?4K)[ ._-]+/i;
 const BROADCASTER_METADATA_PREFIX_RE = /^(?:(?:中央电视台|央视|北京卫视|浙江卫视|广东卫视|湖南卫视|江苏卫视|山东卫视)[^ ]*(?:频道)?|中国广电重温经典频道)\s+/u;
 const BROADCASTER_METADATA_FIELD_RE = /^(?:翡翠台|明珠台|中视经典HD|中視經典HD|华视HD|華視HD|台视HD|台視HD|民视HD|民視HD|公视HD|公視HD|TVB(?:\s+(?:Jade|Pearl|Plus))?|ViuTV|Jade|Pearl|CTV|CTS|TTV|FTV|PTS)$/iu;
@@ -593,11 +594,33 @@ function metadataAliasCandidates(rawTitle: string) {
 }
 
 function stripBroadcastCapturePrefix(input: string, rawTitle: string): string {
+  const cctv4kStripped = input.replace(CCTV_4K_BROADCAST_PREFIX_RE, "");
+  if (
+    cctv4kStripped !== input &&
+    hasStrongTvLeadingMediaCategory(rawTitle) &&
+    hasExplicitTvContextInInput(cctv4kStripped)
+  ) {
+    return cctv4kStripped;
+  }
+
   const stripped = input.replace(BROADCAST_CAPTURE_PREFIX_RE, "");
   if (stripped !== input) return stripped;
   return hasTvShowsLeadingMediaCategory(rawTitle)
     ? input.replace(TV_SHOWS_BROADCAST_CAPTURE_PREFIX_RE, "")
     : input;
+}
+
+function hasExplicitTvContextInInput(input: string) {
+  const normalized = normalizeReleaseText(input);
+  return TV_RE.test(normalized) ||
+    LONG_TV_RE.test(normalized) ||
+    EPISODE_ONLY_RE.test(normalized) ||
+    LONG_EPISODE_ONLY_RE.test(normalized) ||
+    SEASON_PACK_RE.test(normalized) ||
+    SEASON_WORD_PACK_RE.test(normalized) ||
+    COMPLETE_WORD_RE.test(normalized) ||
+    CJK_TRAILING_WHOLE_SERIES_RE.test(input) ||
+    CJK_COMPLETE_SERIES_LABEL_RE.test(input);
 }
 
 function stripRegionalTvBroadcastPrefix(input: string, rawTitle: string): string {

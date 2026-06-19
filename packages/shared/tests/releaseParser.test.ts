@@ -2260,6 +2260,35 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("歌手2026");
   });
 
+  it("strips CCTV-4K broadcast prefixes when TV category releases have explicit TV markers", () => {
+    const release = parseReleaseTitle(
+      "[电视剧 (TV Series)]CCTV-4K Happy Life 2023 S01 Complete 2160p 50fps UHDTV H265 10bit HLG DD5.1-QHstudIo[中央广播电视总台4K超高清频道 小满生活 全38集【高帧率 | 高码率 | 杜比环绕音5.1】【导演：汪俊 | 演员：秦昊 | 蒋欣 | 王鸥 | 任重 | 柯蓝】QHstudIo小组录制作品][444.69 GB][anonymous][Free]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Happy Life",
+      year: 2023,
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "2160p",
+      codec: "H.265",
+      releaseGroup: "QHstudIo"
+    });
+    expect(release.titleCandidates).not.toContain("CCTV");
+  });
+
+  it("does not strip CCTV-4K from category rows without explicit TV markers", () => {
+    const release = parseReleaseTitle(
+      "[综艺]CCTV-4K CMG 2026 Spring Festival Gala 20260216 2160p 50fps UHDTV HEVC 10bit HLG DD5.1-QHstudIo[CCTV4K超高清频道 2026年中央广播电视总台春节联欢晚会 / 2026年央视春晚 [4K HLG 10bit | 高帧率 | 高码率 | 杜比环绕5.1]][73.93 GB][stevenlau007][国语 | 中字 | HDR10]"
+    );
+
+    expect(release).toMatchObject({
+      title: "CCTV",
+      year: 2026,
+      mediaType: "MOVIE"
+    });
+  });
+
   it("does not keep long native em dash descriptions as title aliases", () => {
     const release = parseReleaseTitle(
       "Example Movie 2026 1080p WEB-DL H264-GRP[这是一段很长很长的剧情描述，不是标题本身——后面仍然是在继续描述剧情内容和人物关系][1.00 GB]"
