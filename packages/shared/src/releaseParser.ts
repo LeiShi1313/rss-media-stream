@@ -271,17 +271,68 @@ function normalizeReleaseText(input: string): string {
 
 function findNumericTitleYear(normalized: string) {
   const match = normalized.match(/^([12]\d{3})\.+((?:19|20)\d{2})(?=\.)/);
-  if (!match?.[1] || !match[2]) return undefined;
-  const yearIndex = match[0].indexOf(match[2], match[1].length);
-  if (yearIndex < 0) return undefined;
-  const afterYear = normalized.slice(yearIndex + match[2].length);
-  if (!QUALITY_RE.test(afterYear) && !SOURCE_RE.test(afterYear) && !CODEC_RE.test(afterYear)) {
+  if (match?.[1] && match[2]) {
+    const yearIndex = match[0].indexOf(match[2], match[1].length);
+    if (yearIndex < 0) return undefined;
+    const afterYear = normalized.slice(yearIndex + match[2].length);
+    if (!technicalTokenFollowsYear(afterYear)) {
+      return undefined;
+    }
+    return {
+      year: Number(match[2]),
+      yearIndex
+    };
+  }
+
+  return findLeadingYearLikeTitleReleaseYear(normalized);
+}
+
+function findLeadingYearLikeTitleReleaseYear(normalized: string) {
+  const firstYear = normalized.match(/^([12]\d{3})(?=\.)/);
+  if (!firstYear?.[1]) return undefined;
+
+  const technicalStop = firstDefinedIndex(
+    normalized.search(QUALITY_RE),
+    normalized.search(DIMENSION_RE),
+    normalized.search(SOURCE_RE),
+    normalized.search(CODEC_RE)
+  );
+  if (technicalStop < 0) return undefined;
+
+  const releaseYearMatch = [...normalized.matchAll(YEAR_GLOBAL_RE)].find((match) =>
+    match.index != null &&
+    match.index > firstYear[1]!.length &&
+    match.index < technicalStop
+  );
+  if (!releaseYearMatch?.[1] || releaseYearMatch.index == null) return undefined;
+
+  const titleCandidate = cleanTitle(normalized.slice(0, releaseYearMatch.index));
+  const afterLeadingYear = titleCandidate.replace(/^([12]\d{3})\s+/, "");
+  if (!afterLeadingYear || !hasLatin(afterLeadingYear) || !isTitleCandidate(titleCandidate)) {
     return undefined;
   }
+
+  const afterYear = normalized.slice(releaseYearMatch.index + releaseYearMatch[1].length);
+  if (!technicalTokenFollowsYear(afterYear)) {
+    return undefined;
+  }
+
   return {
-    year: Number(match[2]),
-    yearIndex
+    year: Number(releaseYearMatch[1]),
+    yearIndex: releaseYearMatch.index
   };
+}
+
+function technicalTokenFollowsYear(value: string) {
+  const next = value.replace(/^[\s._-]+/u, "");
+  return technicalPatternStarts(QUALITY_RE, next) ||
+    technicalPatternStarts(DIMENSION_RE, next) ||
+    technicalPatternStarts(SOURCE_RE, next) ||
+    technicalPatternStarts(CODEC_RE, next);
+}
+
+function technicalPatternStarts(pattern: RegExp, value: string) {
+  return value.match(pattern)?.index === 0;
 }
 
 function findReleaseYearMatch(

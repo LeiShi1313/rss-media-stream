@@ -570,6 +570,49 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("keeps leading year-like title tokens before the real release year", () => {
+    const release = parseReleaseTitle(
+      "[Movie/Blu-Ray]2001 A Space Odyssey 1968 1080p BluRay AVC DTS-HD MA 5.1-HDBEE[2001太空漫游 |类型: 科幻 / 惊悚 / 冒险|主演: 凯尔·杜拉 / 加里·洛克伍德][42.83 GB][N/A]"
+    );
+
+    expect(release).toMatchObject({
+      title: "2001 A Space Odyssey",
+      year: 1968,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264",
+      audio: "DTS-HD",
+      releaseGroup: "HDBEE"
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining(["2001 A Space Odyssey"]));
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["太空漫游"]));
+  });
+
+  it("parses year-like title prefixes with words as title, not release year", () => {
+    const release = parseReleaseTitle("2001 Maniacs 2005 1080p WEB-DL H264-GROUP");
+
+    expect(release).toMatchObject({
+      title: "2001 Maniacs",
+      year: 2005,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      releaseGroup: "GROUP"
+    });
+  });
+
+  it("does not collapse repeated event date years into leading-year titles", () => {
+    const release = parseReleaseTitle("2026 FIFA World Cup 2026-06-17 1080p ITV WEB-DL AAC 2.0 H.264-FFG");
+
+    expect(release).toMatchObject({
+      title: "2026 FIFA World Cup 2026 06 17 1080p ITV WEB DL AAC 2 0 H 264 FFG",
+      year: 2026,
+      mediaType: "MOVIE"
+    });
+  });
+
   it("keeps title-embedded years for nonnumeric movie titles", () => {
     const release = parseReleaseTitle("Fear Street 1666 2021 1080p WEB-DL H264-HHWEB");
 
