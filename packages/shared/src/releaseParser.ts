@@ -106,6 +106,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     regionalTvSeriesEvidence ||
     emptyBracketDiscSeriesEvidence ||
     hasStackedTvDramaCategoryEvidence(rawTitle) ||
+    hasTvPlaceholderMetadataTitleEvidence(rawTitle) ||
     (hasStrongTvLeadingMediaCategory(rawTitle) && hasTvCategoryWholeSeriesMarker(rawTitle)) ||
     hasTvShowsLeadingMediaCategory(rawTitle) ||
     (hasDocumentaryLeadingMediaCategory(rawTitle) && WHOLE_SERIES_EPISODE_RE.test(rawTitle)) ||
@@ -256,6 +257,9 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
 
 function releaseParseInput(rawTitle: string): string {
   const categoryStrippedTitle = stripLeadingCategoryWrappers(rawTitle);
+  const tvPlaceholderInput = tvPlaceholderMetadataParseInput(rawTitle);
+  if (tvPlaceholderInput) return tvPlaceholderInput;
+
   const releaseSegment = releaseLikeSegments(categoryStrippedTitle)[0];
   if (releaseSegment) return releaseSegment.segment;
 
@@ -344,6 +348,39 @@ function structuredBracketMetadataLabelSegment(segment: string) {
   return /^(?:日剧|日劇|韩剧|韓劇|美剧|美劇|英剧|英劇|港剧|港劇|台剧|台劇|陆剧|陸劇|大陆|大陸|内地|內地|tv|ova|ona|sp|imax|web|web[- .]?dl|webrip|blu[- .]?ray|bdrip|hdtv|mp4|mkv|rar|zip|n\s*\/?\s*a|anonymous|free|(?:\d+x\s*)?free)$/iu.test(cleaned) ||
     standaloneProviderRegionAlias(cleaned) ||
     standaloneProviderGenreAlias(cleaned);
+}
+
+function tvPlaceholderMetadataParseInput(rawTitle: string) {
+  const trimmed = rawTitle.trimStart();
+  const placeholderMatch = trimmed.match(/^\[([^\]]+)\]\s*(?:down|download)\s*(?=\[)/u);
+  if (!placeholderMatch?.[1] || !strongTvMediaCategorySegment(placeholderMatch[1])) {
+    return undefined;
+  }
+
+  const metadataMatch = trimmed.slice(placeholderMatch[0].length).match(/^\[([^\]]+)\]/u);
+  const metadataSegment = metadataMatch?.[1]?.trim();
+  if (!metadataSegment) return undefined;
+
+  const candidates: string[] = [];
+  const addCandidate = (candidate: string | undefined) => {
+    const cleaned = cleanHumanTitleCandidate(candidate ?? "");
+    if (!isTitleCandidate(cleaned)) return;
+    if (!candidates.some((existing) => sameCandidate(existing, cleaned))) {
+      candidates.push(cleaned);
+    }
+  };
+  for (const candidate of metadataTitleCandidatesFromSegment(metadataSegment)) {
+    addCandidate(candidate);
+  }
+  for (const candidate of validTitleCandidatesFromValue(metadataTitleFields(metadataSegment)[0] ?? "")) {
+    addCandidate(candidate);
+  }
+
+  return chooseCanonicalTitle(metadataSegment, candidates);
+}
+
+function hasTvPlaceholderMetadataTitleEvidence(rawTitle: string) {
+  return Boolean(tvPlaceholderMetadataParseInput(rawTitle));
 }
 
 function leadingBracketMetadata(rawTitle: string) {

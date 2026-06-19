@@ -159,6 +159,60 @@ describe("parseReleaseTitle", () => {
     expect(release.mediaType).toBe("UNKNOWN");
   });
 
+  it("uses TV metadata titles when a category is followed by a download placeholder", () => {
+    const release = parseReleaseTitle(
+      "[电视剧]down[南方皇后 / The Queen of the South | 1080p  | 类型: 剧情/动作 | 导演: Walter Doehner | 主演: 凯特·德尔·卡斯蒂洛/胡伯托·苏里塔/Rafael Amaya/伊万·桑切斯/Cristina Urgel][1.336 TB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Queen of the South",
+      mediaType: "TV_SERIES",
+      quality: "1080p"
+    });
+    expect(release.providerSearchTitles ?? []).toEqual(expect.arrayContaining(["南方皇后"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "down 南方皇后",
+      "down 南方皇后 / The Queen of the South"
+    ]));
+  });
+
+  it("keeps native TV metadata titles from placeholder rows when no Latin title exists", () => {
+    const release = parseReleaseTitle(
+      "[电视剧]down[识骨寻踪 / 欲骨查(港) / 凶骨 第一季 | 1080p  | 类型: 剧情/爱情/悬疑 | 导演: 伊恩·托尼顿/德怀特·H·里特 | 主演: 艾米丽·丹斯切尔/大卫·伯伦纳兹/米谢拉·康琳][855.08 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "识骨寻踪",
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "1080p"
+    });
+    expect(release.title).not.toBe("down");
+  });
+
+  it("uses native placeholder metadata titles when there is no alias separator", () => {
+    const release = parseReleaseTitle(
+      "[电视剧]down[南方皇后 | 1080p | 类型: 剧情/动作/犯罪 | 导演: Walter Doehner | 主演: 凯特·德尔·卡斯蒂洛/胡伯托·苏里塔][1.274 TB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "南方皇后",
+      mediaType: "TV_SERIES",
+      quality: "1080p"
+    });
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "down 南方皇后"
+    ]));
+  });
+
+  it("does not use placeholder metadata titles without a TV category", () => {
+    const release = parseReleaseTitle(
+      "[电影]down[南方皇后 / The Queen of the South | 1080p | 类型: 剧情/动作][1.274 TB][anonymous]"
+    );
+
+    expect(release.mediaType).not.toBe("TV_SERIES");
+  });
+
   it("strips repeated media wrappers before unbracketed titles", () => {
     const release = parseReleaseTitle(
       "[电影][4K电影]极盗车神、玩命再劫 2017 [全景声2160P](蓝光原版)[极盗车神 | Baby Driver | 2017 | 玩命再劫(台) | 宝贝神车手(港) | 娃娃脸司机][57.34 GB][biketiger]"
