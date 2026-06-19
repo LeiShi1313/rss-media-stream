@@ -1007,6 +1007,7 @@ function deriveTitleInfo(input: {
       segment !== input.rawName &&
       !releaseLikeMetadataTitleSegment(segment) &&
       !cjkAnnualMetadataTitleSegment(segment) &&
+      !hasNativeYearlyTitleCandidate(metadataCandidates) &&
       !(allowDatedBroadcastAlias && broadcasterDatedNativeMetadataTitleSegment(segment))
     ) continue;
     for (const candidate of metadataCandidates) {
@@ -1661,8 +1662,27 @@ function nativeYearlyTitleCandidate(field: string) {
   const match = cleaned.match(NATIVE_YEARLY_TITLE_RE);
   const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
   if (!candidate || !hasNativeScript(candidate) || !YEAR_RE.test(candidate)) return undefined;
+  if (wholeSeriesCountYearAlias(candidate)) return undefined;
   if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
   return candidate;
+}
+
+function hasNativeYearlyTitleCandidate(candidates: string[]) {
+  return candidates.some((candidate) =>
+    hasNativeScript(candidate) &&
+    YEAR_RE.test(candidate) &&
+    !wholeSeriesCountYearAlias(candidate)
+  );
+}
+
+function wholeSeriesCountYearAlias(candidate: string) {
+  const cleaned = cleanHumanTitleCandidate(candidate)
+    .replace(/[()（）]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const cjkNumber = "[一二三四五六七八九十两\\d]{1,4}";
+  return new RegExp(`^全\\s*${cjkNumber}\\s*(?:集|话|話|期)\\s*(?:19|20)\\d{2}$`, "u").test(cleaned) ||
+    new RegExp(`^第\\s*${cjkNumber}\\s*(?:季|部)\\s*全\\s*${cjkNumber}\\s*(?:集|话|話|期)\\s*(?:19|20)\\d{2}$`, "u").test(cleaned);
 }
 
 function nativeSeasonEpisodeBaseTitleCandidate(field: string) {

@@ -331,6 +331,41 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["Network"]));
   });
 
+  it("keeps compact native title-year aliases from metadata brackets", () => {
+    const release = parseReleaseTitle(
+      "[电影 (Movie)]Police Story 2013 1080p x265 10bit 2Audio MiniFHD-XPcl@PTer[警察故事2013][7.14 GB][xpcl][Free]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Police Story",
+      year: 2013,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      codec: "H.265",
+      releaseGroup: "XPcl@PTer"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["警察故事2013"]));
+  });
+
+  it("does not keep dated event descriptions as compact title-year aliases", () => {
+    const release = parseReleaseTitle(
+      "[Sports]Roland.Garros.2026.Mens.Singles.Final.Cobolli.v.Zverev.2160p.50fps.HDTV.H.265.AAC-SP[法国网球公开赛 2026 男子单打 决赛 科博利 vs 兹维列夫][45.77 GB]"
+    );
+
+    expect(release.providerSearchTitles).toBeUndefined();
+  });
+
+  it("does not treat whole-series count metadata as compact title-year aliases", () => {
+    const release = parseReleaseTitle(
+      "Deadliest Catch S21 2025 Complete 1080p MAX WEB-DL AVC DDP 2.0-DBTV[渔人的搏斗 第 21 季 / Deadliest Catch 全 16 集 (2025)][29.58 GB]"
+    );
+
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "全 16 集 2025",
+      "第 21 季"
+    ]));
+  });
+
   it("uses the PTP display year for exact one-year title-alias matches", () => {
     const release = parseReleaseTitle(
       "Soy Frankelda AKA I Am Frankelda [2025] by Arturo Ambriz and Roy Ambriz - H.265 / WEB / MKV / 2160p / Dual Audio / Dolby Vision [ I.Am.Frankelda.2026.2160p.NF.WEB-DL.DDP5.1.DV.H.265-CHORTLE ]"
@@ -2872,7 +2907,8 @@ describe("parseReleaseTitle", () => {
       "犯罪",
       "华语"
     ]));
-    expect(release.primarySearchTitle).toBe("Police Story");
+    expect(release.providerSearchTitles ?? []).toEqual(expect.arrayContaining(["警察故事2013"]));
+    expect(release.primarySearchTitle).toBe("警察故事2013");
   });
 
   it("does not replace genre aliases with broad region labels", () => {
