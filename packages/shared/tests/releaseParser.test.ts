@@ -575,6 +575,24 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("keeps a one-word TV title year when no later release year is present", () => {
+    const release = parseReleaseTitle(
+      "Reply 1988 S01 2160p TVING WEB-DL AAC2.0 HFR H.265-xiaopie@CHDWEB[韩剧：请回答1988 全20集/回应吧1988/응답하라 1988 | 4K 60帧 | 韩语 | 内封简繁中字 *未删减版*][70.46 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Reply 1988",
+      mediaType: "TV_SERIES",
+      season: 1,
+      quality: "2160p",
+      source: "WEB-DL",
+      codec: "H.265",
+      audio: "AAC2.0",
+      releaseGroup: "xiaopie@CHDWEB"
+    });
+    expect(release.year).toBeUndefined();
+  });
+
   it("uses the later release year for a one-word TV title-year alias without an explicit season token", () => {
     const release = parseReleaseTitle(
       "[电视剧 (TV Series)]Reply 1988 2015 1080p WEB-DL H265 AAC-PTerWEB[请回答1988 | 全20集 | 导演: 申源浩 | 主演: 成东日 李一花 罗美兰 金成钧 崔武成 [韩语中字]][60.20 GB][anonymous][Free]"

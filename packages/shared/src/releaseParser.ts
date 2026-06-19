@@ -468,10 +468,11 @@ function findReleaseYearMatch(
     normalized.search(CODEC_RE)
   );
 
-  const titleYearReleaseMatch = context.hasTvContext
-    ? findTvTitleYearAliasReleaseMatch(normalized, matches, technicalStop, context.rawTitle)
+  const titleYearAlias = context.hasTvContext
+    ? findTvTitleYearAliasMatch(normalized, matches, technicalStop, context.rawTitle, context.tvMarkerIndex)
     : undefined;
-  if (titleYearReleaseMatch) return titleYearReleaseMatch;
+  if (titleYearAlias?.releaseYearMatch) return titleYearAlias.releaseYearMatch;
+  if (titleYearAlias?.titleYearOnly) return undefined;
 
   const akaTitleYearReleaseMatch = context.hasTvContext
     ? undefined
@@ -512,11 +513,12 @@ function findAkaTitleYearReleaseMatch(
   });
 }
 
-function findTvTitleYearAliasReleaseMatch(
+function findTvTitleYearAliasMatch(
   normalized: string,
   matches: RegExpMatchArray[],
   technicalStop: number,
-  rawTitle: string
+  rawTitle: string,
+  tvMarkerIndex: number
 ) {
   const first = matches[0];
   if (!first?.[1] || first.index == null) return undefined;
@@ -525,16 +527,27 @@ function findTvTitleYearAliasReleaseMatch(
   if (!oneWordLatinTitlePrefix(titlePrefix)) return undefined;
 
   const titleYear = Number(first[1]);
+  if (!hasTitleYearAliasEvidence(rawTitle, titlePrefix, first[1])) return undefined;
+
   const releaseYearMatch = matches.slice(1).find((match) => {
     if (!match[1] || match.index == null) return false;
     if (technicalStop >= 0 && match.index >= technicalStop) return false;
     return Number(match[1]) - titleYear > 1;
   });
-  if (!releaseYearMatch) return undefined;
+  if (releaseYearMatch) return { releaseYearMatch };
 
-  return hasTitleYearAliasEvidence(rawTitle, titlePrefix, first[1])
-    ? releaseYearMatch
+  const betweenYearAndTvMarker = tvMarkerIndex > first.index
+    ? normalized.slice(first.index + first[1].length, tvMarkerIndex)
     : undefined;
+  return betweenYearAndTvMarker != null &&
+    /^[\s._-]*$/u.test(betweenYearAndTvMarker) &&
+    firstSeasonTvMarker(normalized.slice(tvMarkerIndex))
+    ? { titleYearOnly: true }
+    : undefined;
+}
+
+function firstSeasonTvMarker(value: string) {
+  return /^(?:S0?1(?:\b|[._-]|E)|Season[._-]?0?1\b)/i.test(value);
 }
 
 function oneWordLatinTitlePrefix(value: string) {
