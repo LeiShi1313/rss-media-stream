@@ -2659,6 +2659,111 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles ?? []).not.toContain("如有侵权请立刻联系删除");
   });
 
+  it("does not use standalone genre or region brackets as provider aliases", () => {
+    const release = parseReleaseTitle(
+      "[电影][警察故事2013][Police.Story.2013.BluRay.1080p.x265.10bit.2Audio.MNHD-FRDS][动作/剧情/犯罪][华语][转自MNHD-FRDS|如有侵权请立刻联系删除][4.60 GiB][Box2002]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Police Story",
+      year: 2013,
+      mediaType: "MOVIE"
+    });
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "动作",
+      "剧情",
+      "犯罪",
+      "华语"
+    ]));
+    expect(release.primarySearchTitle).toBe("Police Story");
+  });
+
+  it("does not replace genre aliases with broad region labels", () => {
+    const release = parseReleaseTitle(
+      "[电影][第一滴血2/兰博2][Rambo.First.Blood.Part.II.1985.ITA.UHD.Bluray.2160p.x265.HDR.DTS-HD.MA.5.1-Zone][动作/惊悚/冒险][北美][4K版|转自Zone|如有侵权请立刻联系删除][13.01 GiB][Box2002]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Rambo First Blood Part II",
+      year: 1985,
+      mediaType: "MOVIE"
+    });
+    expect(release.providerSearchTitles ?? []).toEqual(expect.arrayContaining([
+      "第一滴血2",
+      "兰博2"
+    ]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "动作",
+      "惊悚",
+      "冒险",
+      "北美"
+    ]));
+    expect(release.primarySearchTitle).toBe("第一滴血2");
+  });
+
+  it("keeps a single genre-looking native alias when it is the only alias", () => {
+    const release = parseReleaseTitle(
+      "Love 2012 1080p WEB-DL H264-GRP[爱情]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Love",
+      year: 2012,
+      mediaType: "MOVIE"
+    });
+    expect(release.providerSearchTitles ?? []).toEqual(expect.arrayContaining(["爱情"]));
+    expect(release.primarySearchTitle).toBe("爱情");
+  });
+
+  it("keeps AKA aliases from release filenames before season tokens", () => {
+    const release = parseReleaseTitle(
+      "[剧集][西班牙][皇家大酒店][Grand.Hotel.2011.AKA.Gran.Hotel.S01.International.Cut.1080p.DSNP.WEB-DL.AAC2.0.H.264-FLUX][26.05 GiB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Grand Hotel",
+      year: 2011,
+      mediaType: "TV_SERIES",
+      season: 1
+    });
+    expect(release.providerSearchTitles ?? []).toEqual(expect.arrayContaining([
+      "皇家大酒店",
+      "Gran Hotel"
+    ]));
+  });
+
+  it("keeps native title aliases while dropping country bracket metadata", () => {
+    const release = parseReleaseTitle(
+      "[电影][美国][男孩，当心！][Boys.Beware.1962.576p.BDRip.x264.FLAC-eve99][类型： 剧情 短片][588.82 MiB][]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Boys Beware",
+      year: 1962,
+      mediaType: "MOVIE"
+    });
+    expect(release.providerSearchTitles ?? []).toEqual(expect.arrayContaining(["男孩，当心！"]));
+    expect(release.providerSearchTitles ?? []).not.toContain("美国");
+    expect(release.primarySearchTitle).toBe("男孩，当心！");
+  });
+
+  it("drops CJK category-prefixed region aliases", () => {
+    const release = parseReleaseTitle(
+      "[纪录片][美国][Geometry of Return][Geometry.of.Return.2025.1080p][类型： 纪录片 短片][155.37 MiB][]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Geometry of Return Geometry of Return",
+      year: 2025,
+      mediaType: "MOVIE"
+    });
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "纪录片 美国",
+      "纪录片 美国 Geometry of Return Geometry of Return",
+      "美国"
+    ]));
+  });
+
   it("does not mistake native characters in anime TV release groups for title brackets", () => {
     const release = parseReleaseTitle(
       "[动漫][TV][U2娘@Share][青兰圆舞曲/亲亲天使心/青涩花园][Oniisama e / Dear Brother][Blu-ray BOX DISC×5][1080p][BDMV][M2TS][1991.07][日漫][转自U2(#25885)][212.63 GiB][kallerwu]"
