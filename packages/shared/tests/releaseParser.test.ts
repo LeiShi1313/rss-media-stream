@@ -1109,6 +1109,55 @@ describe("parseReleaseTitle", () => {
     });
   });
 
+  it("uses movie categories with technical release markers as movie evidence without a year", () => {
+    const remux = parseReleaseTitle(
+      "[Movies REMUX]Only the Animals BluRay 1080p REMUX AVC DTS-HD MA 5.1-HDH[[只有野兽/谜夜拼图(台)][内封简繁字幕]][27.50 GB][anonymous]"
+    );
+    const web = parseReleaseTitle(
+      "[电影(Movie)]Blades of the Guardians 2160p TX WEB-DL AAC2.0 HDR HFR H.265-MWeb[镖人：风起大漠 | 类别：动作  武侠  古装][12.81 GB][anonymous]"
+    );
+
+    expect(remux).toMatchObject({
+      title: "Only the Animals",
+      year: undefined,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "BluRay",
+      codec: "H.264",
+      audio: "DTS-HD"
+    });
+    expect(remux.providerSearchTitles).toEqual(expect.arrayContaining(["只有野兽", "谜夜拼图"]));
+    expect(web).toMatchObject({
+      title: "Blades of the Guardians",
+      year: undefined,
+      mediaType: "MOVIE",
+      quality: "2160p",
+      source: "WEB-DL",
+      codec: "H.265"
+    });
+    expect(web.providerSearchTitles).toEqual(expect.arrayContaining(["镖人：风起大漠"]));
+  });
+
+  it("does not use title-only movie category uploads as movie evidence", () => {
+    const release = parseReleaseTitle(
+      "[Movie/HD]Ni Haixia - Acupuncture Huangdi Neijing Shennong Bencao Jing Shanghai Lun Jingui Yaolue [with subtitles][倪海厦视频 | 针灸 | 黄帝内经 | 神农本草经 | 伤寒论 | 金匮要略 | 带字幕版][149.45 GB][N/A]"
+    );
+    const categoryOnlySource = parseReleaseTitle(
+      "[Movie/Blu-Ray]误转禁转资源[][39.56 GB][N/A]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Ni Haixia Acupuncture Huangdi Neijing Shennong Bencao Jing Shanghai Lun Jingui Yaolue with subtitles",
+      year: undefined,
+      mediaType: "UNKNOWN"
+    });
+    expect(categoryOnlySource).toMatchObject({
+      title: "39 56 GB N",
+      year: undefined,
+      mediaType: "UNKNOWN"
+    });
+  });
+
   it("uses documentary categories with all-episode metadata as series evidence", () => {
     const release = parseReleaseTitle(
       "[Documentaries]Kontant 2025 1080p DRTV WEB-DL AAC 2.0 x264-FFG[Kontant 全16集][25.00 GB][anonymous]"

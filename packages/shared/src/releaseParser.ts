@@ -178,6 +178,8 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const numericTitleYear = findNumericTitleYear(normalized);
   const releaseYear = numericTitleYear?.year ?? (yearMatch ? Number(yearMatch[1]) : undefined);
   const year = preferredReleaseYear(releaseYear, ptpDisplayYear) ?? inferMetadataYear(rawTitle);
+  const movieCategoryTechnicalEvidence = movieMediaCategory &&
+    hasTechnicalReleaseMarker(primaryTechnicalInput, secondaryTechnicalInput);
   const completeIndex = categorySeriesEvidence ? normalized.search(COMPLETE_WORD_RE) : -1;
   const emptyBracketDiscIndex = emptyBracketDiscSeriesEvidence
     ? normalized.search(NORMALIZED_DISC_MARKER_RE)
@@ -211,7 +213,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     ? "UNKNOWN"
     : hasTvEvidence
     ? "TV_SERIES"
-    : year
+    : year || movieCategoryTechnicalEvidence
       ? "MOVIE"
       : "UNKNOWN";
   const season = tv ? Number(tv[1]) : seasonPack ? Number(seasonPack[1]) : chineseSeason?.season ?? romanSeasonSuffix?.season ?? (episodeOnly || longEpisodeOnly || chineseEpisode ? 1 : undefined);
@@ -441,6 +443,19 @@ function technicalTokenFollowsYear(value: string) {
 
 function technicalPatternStarts(pattern: RegExp, value: string) {
   return value.match(pattern)?.index === 0;
+}
+
+function hasTechnicalReleaseMarker(...inputs: Array<string | undefined>) {
+  return inputs.some((input) =>
+    Boolean(input) &&
+    (
+      QUALITY_RE.test(input!) ||
+      DIMENSION_RE.test(input!) ||
+      SOURCE_RE.test(input!) ||
+      CODEC_RE.test(input!) ||
+      AUDIO_RE.test(input!)
+    )
+  );
 }
 
 function technicalSearchInputAfterYear(normalized: string, yearMatch: RegExpMatchArray | undefined) {
