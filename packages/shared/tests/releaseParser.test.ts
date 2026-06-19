@@ -1033,6 +1033,38 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("uses strong TV leading categories as series evidence without episode markers", () => {
+    const release = parseReleaseTitle(
+      "[剧集]Zheng Yang Men Xia 2013 WEB-DL 1080p x264 AAC-HDHWEB[正阳门下 *主演：朱亚文 倪大红 必须要看得好剧——爷们是怎样炼成的][70.32 GB][anonymous][国语 | 中字 | 完结]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Zheng Yang Men Xia",
+      year: 2013,
+      mediaType: "TV_SERIES",
+      quality: "1080p",
+      source: "WEB-DL",
+      codec: "H.264",
+      audio: "AAC",
+      releaseGroup: "HDHWEB"
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["正阳门下"]));
+  });
+
+  it("keeps movie categories as movie evidence even with no episode markers", () => {
+    const release = parseReleaseTitle(
+      "[电影]Zheng Yang Men Xia 2013 WEB-DL 1080p x264 AAC-HDHWEB[正阳门下][70.32 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "Zheng Yang Men Xia",
+      year: 2013,
+      mediaType: "MOVIE",
+      quality: "1080p",
+      source: "WEB-DL"
+    });
+  });
+
   it("uses documentary categories with all-episode metadata as series evidence", () => {
     const release = parseReleaseTitle(
       "[Documentaries]Kontant 2025 1080p DRTV WEB-DL AAC 2.0 x264-FFG[Kontant 全16集][25.00 GB][anonymous]"

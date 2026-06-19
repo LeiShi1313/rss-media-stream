@@ -66,6 +66,7 @@ const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,4})(?
 const WHOLE_SERIES_EPISODE_RE = /全\s*(?!0*1\s*(?:集|话|話)|一\s*(?:集|话|話))[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)/u;
 const CJK_TRAILING_WHOLE_SERIES_RE = /(?:(?:[2-9]\d{0,2})|(?:十|[二三四五六七八九两][一二三四五六七八九十]?))\s*(?:集|话|話)\s*全/u;
 const CJK_COMPLETE_SERIES_LABEL_RE = /全集/u;
+const CJK_COMPLETE_STATUS_LABEL_RE = /(?:^|[\s[\]({【「『|｜:：,，;；/])(?:完结|完結|完结撒花|完結撒花)(?=$|[\s\])}】」』|｜:：,，;；/])/u;
 const CJK_COMPLETE_EPISODE_RANGE_RE = /\d{1,4}\s*[-~至到－—]\s*\d{1,4}\s*(?:集|话|話)\s*(?:全|完|完结|完結)/u;
 const ANIMATION_TV_EPISODE_RANGE_RE = /\bTV\b[^\[\]]{0,40}\d{1,4}\s*[-~－—]\s*\d{1,4}/iu;
 const ANIMATION_TV_LAYOUT_MARKER_RE = /^(?:tv|连载|連載|完结|完結|完结撒花)$/iu;
@@ -893,7 +894,8 @@ function hasWholeSeriesTvMarker(rawTitle: string) {
 function hasTvCategoryWholeSeriesMarker(rawTitle: string) {
   return hasWholeSeriesTvMarker(rawTitle) ||
     CJK_TRAILING_WHOLE_SERIES_RE.test(rawTitle) ||
-    CJK_COMPLETE_SERIES_LABEL_RE.test(rawTitle);
+    CJK_COMPLETE_SERIES_LABEL_RE.test(rawTitle) ||
+    CJK_COMPLETE_STATUS_LABEL_RE.test(rawTitle);
 }
 
 function unsupportedMediaCategorySegment(segment: string) {
