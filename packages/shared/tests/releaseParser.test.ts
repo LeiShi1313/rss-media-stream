@@ -826,6 +826,50 @@ describe("parseReleaseTitle", () => {
     expect(release.titleCandidates).toEqual(expect.arrayContaining(["Mr. K", "Mr K"]));
   });
 
+  it("uses empty-bracket disc separators as TV series evidence", () => {
+    const release = parseReleaseTitle(
+      "ごくせん2005 DISC 3[]仲間由紀恵 亀梨和也 赤西仁 生瀬勝久 速水もこみち 小池徹平 小出恵介 下載前請先留意內文說明 3.24 GB"
+    );
+
+    expect(release).toMatchObject({
+      title: "ごくせん",
+      year: 2005,
+      mediaType: "TV_SERIES",
+      season: undefined,
+      episode: undefined
+    });
+  });
+
+  it("keeps the title before empty-bracket disc separators without a year", () => {
+    const release = parseReleaseTitle(
+      "エースをねらえ! DISC 2[]上戸彩　吉沢悠　松本莉緒　石垣佑磨　酒井彩名　 下載前請先留意內文說明 3.54 GB"
+    );
+
+    expect(release).toMatchObject({
+      title: "エースをねらえ!",
+      year: undefined,
+      mediaType: "TV_SERIES",
+      season: undefined,
+      episode: undefined
+    });
+    expect(release.titleCandidates).toEqual(expect.arrayContaining(["エースをねらえ!"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["DISC 2"]));
+  });
+
+  it("does not treat movie bonus discs as TV series evidence", () => {
+    const release = parseReleaseTitle(
+      "Labyrinth 1986 Bonus Disc 1080i GBR Blu-ray AVC LPCM 2.0-BlocHEAD [魔幻迷宫 | Labyrinth | 1986 | 魔王迷宫(台) ｜ 英国原盘] 45.53 GB"
+    );
+
+    expect(release).toMatchObject({
+      title: "Labyrinth",
+      year: 1986,
+      mediaType: "MOVIE",
+      quality: "1080i",
+      source: "BluRay"
+    });
+  });
+
   it("fills missing years from strict metadata segments only after release parsing", () => {
     const release = parseReleaseTitle(
       "[剧集]Taskmaster Australia S05E06 1080p TEN WEB-DL AAC 2.0 H.264-RAWR[Taskmaster Australia [第五季 第06集] | 2026][1.98 GB][anonymous][]"

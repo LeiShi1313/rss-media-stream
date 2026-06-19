@@ -68,6 +68,8 @@ const CJK_TRAILING_WHOLE_SERIES_RE = /(?:(?:[2-9]\d{0,2})|(?:十|[二三四五�
 const CJK_COMPLETE_SERIES_LABEL_RE = /全集/u;
 const CJK_COMPLETE_STATUS_LABEL_RE = /(?:^|[\s[\]({【「『|｜:：,，;；/])(?:完结|完結|完结撒花|完結撒花)(?=$|[\s\])}】」』|｜:：,，;；/])/u;
 const CJK_COMPLETE_EPISODE_RANGE_RE = /\d{1,4}\s*[-~至到－—]\s*\d{1,4}\s*(?:集|话|話)\s*(?:全|完|完结|完結)/u;
+const EMPTY_BRACKET_DISC_MARKER_RE = /(?:^|[^\p{L}\p{N}])DISC\s*\d{1,3}\s*\[\]/iu;
+const NORMALIZED_DISC_MARKER_RE = /(?:^|[.\s])DISC[.\s]*\d{1,3}\b/i;
 const ANIMATION_TV_EPISODE_RANGE_RE = /\bTV\b[^\[\]]{0,40}\d{1,4}\s*[-~－—]\s*\d{1,4}/iu;
 const ANIMATION_TV_LAYOUT_MARKER_RE = /^(?:tv|连载|連載|完结|完結|完结撒花)$/iu;
 const ANIMATION_TV_EPISODE_BRACKET_RE = /^(\d{1,4})(?:\s*\(\s*\d{1,4}\s*\))?$/u;
@@ -99,8 +101,10 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const unsupportedMediaCategory = hasUnsupportedLeadingMediaCategory(rawTitle);
   const movieMediaCategory = hasMovieLeadingMediaCategory(rawTitle);
   const movieCategorySeasonMetadataEvidence = hasMovieCategorySeasonMetadataEvidence(rawTitle);
+  const emptyBracketDiscSeriesEvidence = hasEmptyBracketDiscSeriesEvidence(rawTitle);
   const categorySeriesEvidence =
     regionalTvSeriesEvidence ||
+    emptyBracketDiscSeriesEvidence ||
     hasStackedTvDramaCategoryEvidence(rawTitle) ||
     (hasStrongTvLeadingMediaCategory(rawTitle) && hasTvCategoryWholeSeriesMarker(rawTitle)) ||
     hasTvShowsLeadingMediaCategory(rawTitle) ||
@@ -175,6 +179,9 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const releaseYear = numericTitleYear?.year ?? (yearMatch ? Number(yearMatch[1]) : undefined);
   const year = preferredReleaseYear(releaseYear, ptpDisplayYear) ?? inferMetadataYear(rawTitle);
   const completeIndex = categorySeriesEvidence ? normalized.search(COMPLETE_WORD_RE) : -1;
+  const emptyBracketDiscIndex = emptyBracketDiscSeriesEvidence
+    ? normalized.search(NORMALIZED_DISC_MARKER_RE)
+    : -1;
   const hasTvEvidence = hasTvContext;
 
   const titleStop = firstDefinedIndex(
@@ -185,6 +192,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     chineseSeason?.source === "normalized" ? chineseSeason.index : undefined,
     chineseEpisode?.source === "normalized" ? chineseEpisode.index : undefined,
     completeIndex,
+    emptyBracketDiscIndex,
     numericTitleYear?.yearIndex ?? yearMatch?.index,
     normalized.search(QUALITY_RE),
     normalized.search(DIMENSION_RE),
@@ -898,6 +906,10 @@ function hasTvCategoryWholeSeriesMarker(rawTitle: string) {
     CJK_COMPLETE_STATUS_LABEL_RE.test(rawTitle);
 }
 
+function hasEmptyBracketDiscSeriesEvidence(rawTitle: string) {
+  return EMPTY_BRACKET_DISC_MARKER_RE.test(rawTitle);
+}
+
 function unsupportedMediaCategorySegment(segment: string) {
   return UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE.test(segment.trim());
 }
@@ -978,6 +990,7 @@ function deriveTitleInfo(input: {
   const releaseNameCandidates: string[] = [];
   const humanCandidates: string[] = [];
   const allowDatedBroadcastAlias = hasTvShowsLeadingMediaCategory(input.rawTitle);
+  const ignoreRawTitleSegments = hasEmptyBracketDiscSeriesEvidence(input.rawTitle);
   const stackedAnimationTvInfo = stackedAnimationTvBracketTitleInfo(input.rawTitle);
   const addCandidate = (candidate: string | undefined, options: { preservePunctuation?: boolean } = {}) => {
     const cleaned = options.preservePunctuation
@@ -1009,24 +1022,26 @@ function deriveTitleInfo(input: {
     }
   }
 
-  for (const segment of titleSegments(input.rawTitle)) {
-    if (stackedAnimationTvInfo?.ignoredSegments.includes(segment)) continue;
-    if (!hasNativeScript(segment) && !AKA_RE.test(segment) && !hasParenthesizedRegionalVariant(segment)) continue;
-    const metadataCandidates = metadataTitleCandidatesFromSegment(segment, { season: input.season });
-    const explicitSegmentAliasCandidates = explicitAliasTitleCandidatesFromValue(segment);
-    for (const candidate of explicitSegmentAliasCandidates) {
-      addExplicitAliasCandidate(candidate, { preservePunctuation: true });
-    }
-    if (
-      scoreReleaseLikeSegment(segment) >= 3 &&
-      segment !== input.rawName &&
-      !releaseLikeMetadataTitleSegment(segment) &&
-      !cjkAnnualMetadataTitleSegment(segment) &&
-      !hasNativeYearlyTitleCandidate(metadataCandidates) &&
-      !(allowDatedBroadcastAlias && broadcasterDatedNativeMetadataTitleSegment(segment))
-    ) continue;
-    for (const candidate of metadataCandidates) {
-      addCandidate(candidate, { preservePunctuation: true });
+  if (!ignoreRawTitleSegments) {
+    for (const segment of titleSegments(input.rawTitle)) {
+      if (stackedAnimationTvInfo?.ignoredSegments.includes(segment)) continue;
+      if (!hasNativeScript(segment) && !AKA_RE.test(segment) && !hasParenthesizedRegionalVariant(segment)) continue;
+      const metadataCandidates = metadataTitleCandidatesFromSegment(segment, { season: input.season });
+      const explicitSegmentAliasCandidates = explicitAliasTitleCandidatesFromValue(segment);
+      for (const candidate of explicitSegmentAliasCandidates) {
+        addExplicitAliasCandidate(candidate, { preservePunctuation: true });
+      }
+      if (
+        scoreReleaseLikeSegment(segment) >= 3 &&
+        segment !== input.rawName &&
+        !releaseLikeMetadataTitleSegment(segment) &&
+        !cjkAnnualMetadataTitleSegment(segment) &&
+        !hasNativeYearlyTitleCandidate(metadataCandidates) &&
+        !(allowDatedBroadcastAlias && broadcasterDatedNativeMetadataTitleSegment(segment))
+      ) continue;
+      for (const candidate of metadataCandidates) {
+        addCandidate(candidate, { preservePunctuation: true });
+      }
     }
   }
 
@@ -1055,8 +1070,11 @@ function deriveTitleInfo(input: {
     input.rawName,
     releaseNameCandidates.length > 0 ? releaseNameCandidates : fallbackCandidates
   ) || input.fallbackTitle;
+  const emptyBracketDiscCanonical = hasEmptyBracketDiscSeriesEvidence(input.rawTitle) && cleanTitle(input.rawName)
+    ? chooseCanonicalTitle(input.rawName, fallbackCandidates) || input.fallbackTitle
+    : undefined;
   const ptpDisplayCanonical = ptpDisplayTitleOverride(input.rawTitle, baseCanonical);
-  const canonical = ptpDisplayCanonical ?? (weakCanonicalTitle(baseCanonical)
+  const canonical = emptyBracketDiscCanonical ?? ptpDisplayCanonical ?? (weakCanonicalTitle(baseCanonical)
     ? chooseCanonicalTitle(input.rawName, humanCandidates) ?? humanCandidates[0] ?? baseCanonical
     : humanCandidates.find((candidate) => equivalentTitleKey(candidate) === equivalentTitleKey(baseCanonical)) ?? baseCanonical);
   const searchTitles = providerSearchTitles(candidates, canonical, explicitAliasCandidates);
