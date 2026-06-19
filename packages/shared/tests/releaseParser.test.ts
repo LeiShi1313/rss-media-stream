@@ -1216,6 +1216,59 @@ describe("parseReleaseTitle", () => {
     expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["问心"]));
   });
 
+  it("adds base aliases for compact native season suffixes before adjacent episode fields", () => {
+    const release = parseReleaseTitle(
+      "The Heart S02E01-E04 2026 2160p WEB-DL H265 AAC-CMCTV[问心2 | 第01-04集 | 赵又廷 / 毛晓彤 / 金世佳 [国语]][4.97 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Heart",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 2,
+      episode: 1,
+      episodeEnd: 4
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "问心",
+      "问心2"
+    ]));
+    expect(release.primarySearchTitle).toBe("问心");
+  });
+
+  it("adds base aliases for compact native season suffixes before later matching season episode fields", () => {
+    const release = parseReleaseTitle(
+      "[TV Series/HD]The Heart S02E03 1080p TX WEB-DL AAC2.0 H.264-MWeb[问心2 | 2026 | 中国大陆 | 剧情 | 黎志 | 赵又廷 毛晓彤 | 第2季第3集][295.66 MB][N/A]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Heart",
+      mediaType: "TV_SERIES",
+      season: 2,
+      episode: 3
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "问心",
+      "问心2"
+    ]));
+    expect(release.primarySearchTitle).toBe("问心");
+  });
+
+  it("does not strip compact native aliases when later season episode metadata conflicts", () => {
+    const release = parseReleaseTitle(
+      "The Outcast S06E01 2026 1080p WEB-DL H265-HDSWEB[一人之下6 | 第5季第1集][128.18 MB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Outcast",
+      mediaType: "TV_SERIES",
+      season: 6,
+      episode: 1
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["一人之下6"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["一人之下"]));
+  });
+
   it("does not create combined base aliases from slash-separated native titles", () => {
     const release = parseReleaseTitle(
       "The Outcast S06E25 2026 1080p WEB-DL H265-HDSWEB[一人之下第六季/一人之下6 第6季 第25集][128.18 MB]"

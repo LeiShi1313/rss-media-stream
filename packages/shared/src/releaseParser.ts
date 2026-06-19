@@ -1044,7 +1044,10 @@ function metadataTitleCandidatesFromSegment(segment: string, options: { season?:
   if (regionalAlias) {
     candidates.push(regionalAlias);
   }
-  for (const field of metadataTitleFields(cleanedSegment)) {
+  const fields = metadataTitleFields(cleanedSegment);
+  for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+    const field = fields[fieldIndex];
+    if (!field) continue;
     const yearlyTitle = nativeYearlyTitleCandidate(field);
     if (yearlyTitle) {
       candidates.push(yearlyTitle);
@@ -1060,6 +1063,14 @@ function metadataTitleCandidatesFromSegment(segment: string, options: { season?:
     const parsedSeasonEpisodeBaseTitle = nativeParsedSeasonEpisodeBaseTitleCandidate(field, options.season);
     if (parsedSeasonEpisodeBaseTitle) {
       candidates.push(parsedSeasonEpisodeBaseTitle);
+    }
+    const parsedSeasonSeparatedEpisodeBaseTitle = nativeParsedSeasonSeparatedEpisodeBaseTitleCandidate(
+      field,
+      fields.slice(fieldIndex + 1),
+      options.season
+    );
+    if (parsedSeasonSeparatedEpisodeBaseTitle) {
+      candidates.push(parsedSeasonSeparatedEpisodeBaseTitle);
     }
     const titleField = cleanMetadataTitleField(field);
     if (!titleField || metadataInfoField(titleField)) {
@@ -1078,6 +1089,61 @@ function metadataTitleCandidatesFromSegment(segment: string, options: { season?:
     break;
   }
   return candidates;
+}
+
+function nativeParsedSeasonSeparatedEpisodeBaseTitleCandidate(
+  field: string,
+  followingFields: string[],
+  parsedSeason: number | undefined
+) {
+  const baseTitle = nativeParsedSeasonCompactBaseTitleCandidate(field, parsedSeason);
+  if (!baseTitle) return undefined;
+  const nextField = followingFields[0];
+  if (nextField && episodeOnlyMetadataField(nextField)) return baseTitle;
+  return followingFields.some((followingField) => seasonEpisodeMetadataField(followingField, parsedSeason))
+    ? baseTitle
+    : undefined;
+}
+
+function nativeParsedSeasonCompactBaseTitleCandidate(field: string, parsedSeason: number | undefined) {
+  if (!parsedSeason || parsedSeason < 2 || parsedSeason > 99) return undefined;
+  let cleaned = cleanHumanTitleCandidate(field);
+  cleaned = cleaned.replace(/^(?:19|20)\d{2}\s*年?\s*/u, "");
+  while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
+    cleaned = cleaned.replace(METADATA_TITLE_PREFIX_RE, "");
+  }
+  cleaned = cleaned
+    .replace(/【[^】]*】/gu, " ")
+    .replace(TV_CATEGORY_WRAPPER_FIELD_RE, " ")
+    .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
+    .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
+    .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = cleaned.match(/^(.+?)(\d{1,2})$/u);
+  const suffixSeason = match?.[2] ? Number(match[2]) : undefined;
+  if (!suffixSeason || suffixSeason !== parsedSeason) return undefined;
+
+  const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
+  if (!candidate || !hasNativeScript(candidate)) return undefined;
+  if (/[A-Za-z]/u.test(candidate)) return undefined;
+  if (/[\/|]/u.test(candidate)) return undefined;
+  if (/\s/u.test(candidate)) return undefined;
+  if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
+  return candidate;
+}
+
+function episodeOnlyMetadataField(field: string) {
+  const cleaned = cleanHumanTitleCandidate(field).replace(/\s+/g, " ").trim();
+  return /^第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話|期)$/u.test(cleaned) ||
+    /^全\s*[一二三四五六七八九十两\d]{1,4}\s*(?:集|话|話)$/u.test(cleaned);
+}
+
+function seasonEpisodeMetadataField(field: string, parsedSeason: number | undefined) {
+  if (!parsedSeason) return false;
+  const cleaned = cleanHumanTitleCandidate(field).replace(/\s+/g, " ").trim();
+  const match = cleaned.match(/^第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)\s*第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話|期)$/u);
+  return parseChineseNumber(match?.[1]) === parsedSeason;
 }
 
 function nativeYearlyTitleCandidate(field: string) {
