@@ -162,12 +162,6 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     hasExplicitSeasonMarker: Boolean(tv || seasonPack || chineseSeason),
     strippedRegionalTvBroadcastPrefix
   });
-  const titleInfo = deriveTitleInfo({
-    rawTitle,
-    rawName: romanSeasonSuffix?.title ?? rawName,
-    fallbackTitle: romanSeasonSuffix?.title ?? fallbackTitle
-  });
-  const title = titleInfo.title;
   const mediaType = unsupportedMediaCategory
     ? "UNKNOWN"
     : hasTvEvidence
@@ -176,6 +170,13 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
       ? "MOVIE"
       : "UNKNOWN";
   const season = tv ? Number(tv[1]) : seasonPack ? Number(seasonPack[1]) : chineseSeason?.season ?? romanSeasonSuffix?.season ?? (episodeOnly || longEpisodeOnly || chineseEpisode ? 1 : undefined);
+  const titleInfo = deriveTitleInfo({
+    rawTitle,
+    rawName: romanSeasonSuffix?.title ?? rawName,
+    fallbackTitle: romanSeasonSuffix?.title ?? fallbackTitle,
+    season: mediaType === "TV_SERIES" ? season : undefined
+  });
+  const title = titleInfo.title;
   const episode = tv ? Number(tv[2]) : episodeOnly ? Number(episodeOnly[1]) : longEpisodeOnly ? Number(longEpisodeOnly[1]) : chineseEpisode?.episode;
   const episodeEnd = tv?.[3] ? Number(tv[3]) : episodeOnly?.[2] ? Number(episodeOnly[2]) : longEpisodeOnly?.[2] ? Number(longEpisodeOnly[2]) : chineseEpisode?.episodeEnd;
   const parseConfidence = scoreConfidence({
@@ -749,6 +750,7 @@ function deriveTitleInfo(input: {
   rawTitle: string;
   rawName: string;
   fallbackTitle: string;
+  season?: number;
 }) {
   const candidates: string[] = [];
   const explicitAliasCandidates: string[] = [];
@@ -784,7 +786,7 @@ function deriveTitleInfo(input: {
 
   for (const segment of titleSegments(input.rawTitle)) {
     if (!hasNativeScript(segment) && !AKA_RE.test(segment) && !hasParenthesizedRegionalVariant(segment)) continue;
-    const metadataCandidates = metadataTitleCandidatesFromSegment(segment);
+    const metadataCandidates = metadataTitleCandidatesFromSegment(segment, { season: input.season });
     if (
       scoreReleaseLikeSegment(segment) >= 3 &&
       segment !== input.rawName &&
@@ -1033,7 +1035,7 @@ function levenshteinDistance(left: string, right: string) {
   return previous[right.length] ?? 0;
 }
 
-function metadataTitleCandidatesFromSegment(segment: string) {
+function metadataTitleCandidatesFromSegment(segment: string, options: { season?: number } = {}) {
   const cleanedSegment = cleanHumanTitleCandidate(segment);
   if (!cleanedSegment || categorySegment(cleanedSegment)) return [];
 
@@ -1054,6 +1056,10 @@ function metadataTitleCandidatesFromSegment(segment: string) {
     const compactSeasonBaseTitle = nativeCompactSeasonSuffixBaseTitleCandidate(field);
     if (compactSeasonBaseTitle) {
       candidates.push(compactSeasonBaseTitle);
+    }
+    const parsedSeasonEpisodeBaseTitle = nativeParsedSeasonEpisodeBaseTitleCandidate(field, options.season);
+    if (parsedSeasonEpisodeBaseTitle) {
+      candidates.push(parsedSeasonEpisodeBaseTitle);
     }
     const titleField = cleanMetadataTitleField(field);
     if (!titleField || metadataInfoField(titleField)) {
@@ -1114,6 +1120,7 @@ function nativeSeasonEpisodeBaseTitleCandidate(field: string) {
   const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
   if (!candidate || !hasNativeScript(candidate)) return undefined;
   if (/[A-Za-z]/u.test(candidate)) return undefined;
+  if (/[\/|]/u.test(candidate)) return undefined;
   if (/\s/u.test(candidate)) return undefined;
   if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
   return candidate;
@@ -1141,6 +1148,35 @@ function nativeCompactSeasonSuffixBaseTitleCandidate(field: string) {
   const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
   if (!candidate || !hasNativeScript(candidate)) return undefined;
   if (/[A-Za-z]/u.test(candidate)) return undefined;
+  if (/[\/|]/u.test(candidate)) return undefined;
+  if (/\s/u.test(candidate)) return undefined;
+  if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
+  return candidate;
+}
+
+function nativeParsedSeasonEpisodeBaseTitleCandidate(field: string, parsedSeason: number | undefined) {
+  if (!parsedSeason || parsedSeason < 2 || parsedSeason > 99) return undefined;
+  let cleaned = cleanHumanTitleCandidate(field);
+  cleaned = cleaned.replace(/^(?:19|20)\d{2}\s*年?\s*/u, "");
+  while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
+    cleaned = cleaned.replace(METADATA_TITLE_PREFIX_RE, "");
+  }
+  cleaned = cleaned
+    .replace(/【[^】]*】/gu, " ")
+    .replace(TV_CATEGORY_WRAPPER_FIELD_RE, " ")
+    .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
+    .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
+    .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = cleaned.match(/^(.+?)(\d{1,2})\s+(?:第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話|期)|全\s*[一二三四五六七八九十两\d]{1,4}\s*(?:集|话|話))/u);
+  const suffixSeason = match?.[2] ? Number(match[2]) : undefined;
+  if (!suffixSeason || suffixSeason !== parsedSeason) return undefined;
+
+  const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
+  if (!candidate || !hasNativeScript(candidate)) return undefined;
+  if (/[A-Za-z]/u.test(candidate)) return undefined;
+  if (/[\/|]/u.test(candidate)) return undefined;
   if (/\s/u.test(candidate)) return undefined;
   if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
   return candidate;

@@ -1168,6 +1168,70 @@ describe("parseReleaseTitle", () => {
     ]));
   });
 
+  it("adds base aliases for compact native season suffixes before episode metadata", () => {
+    const release = parseReleaseTitle(
+      "The Heart 2026 S02 E01-E04 1080p WEB-DL H264 AAC-PTerWEB[问心2 第1-4集 | 导演: 黎志 主演: 赵又廷 毛晓彤 金世佳 [国语/中字]][1.37 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Heart",
+      year: 2026,
+      mediaType: "TV_SERIES",
+      season: 2,
+      episode: 1,
+      episodeEnd: 4
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining([
+      "问心",
+      "问心2"
+    ]));
+    expect(release.primarySearchTitle).toBe("问心");
+  });
+
+  it("does not strip compact native episode aliases when parsed season conflicts", () => {
+    const release = parseReleaseTitle(
+      "The Heart2 S01 2026 1080p WEB-DL H264 AAC-HHWEB[问心2 第01-04集 | 类型: 剧情][2.18 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Heart2",
+      mediaType: "TV_SERIES",
+      season: 1
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["问心2"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["问心"]));
+  });
+
+  it("does not strip compact native aliases when episode metadata is in a separate field", () => {
+    const release = parseReleaseTitle(
+      "The Heart2 S01 2026 1080p WEB-DL H264 AAC-HHWEB[问心2 | 第01-04集 | 类型: 剧情][2.18 GB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Heart2",
+      mediaType: "TV_SERIES",
+      season: 1
+    });
+    expect(release.providerSearchTitles).toEqual(expect.arrayContaining(["问心2"]));
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining(["问心"]));
+  });
+
+  it("does not create combined base aliases from slash-separated native titles", () => {
+    const release = parseReleaseTitle(
+      "The Outcast S06E25 2026 1080p WEB-DL H265-HDSWEB[一人之下第六季/一人之下6 第6季 第25集][128.18 MB]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Outcast",
+      mediaType: "TV_SERIES",
+      season: 6,
+      episode: 25
+    });
+    expect(release.providerSearchTitles ?? []).not.toEqual(expect.arrayContaining([
+      "一人之下第六季/一人之下"
+    ]));
+  });
+
   it("does not use anime edit labels as title aliases", () => {
     const release = parseReleaseTitle(
       "[动漫(Animations)]Yowayowa Sensei 2026 S01E10 1080p friDay WEB-DL H264 AAC-UBWEB[2026年4月新番 | 弱弱老师 (无修版) | 第10集 [日语/简繁中字]][1.62 GB][anonymous]"
