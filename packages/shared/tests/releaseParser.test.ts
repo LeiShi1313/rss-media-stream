@@ -2167,6 +2167,41 @@ describe("parseReleaseTitle", () => {
     expect(release.primarySearchTitle).toBe("飞常日志II");
   });
 
+  it("strips JUHD regional TV prefixes and 4K channel labels", () => {
+    const release = parseReleaseTitle(
+      "[TVSeries 2160p]JUHD The Emissary 1982 EP02 UHDTV HEVC HDR AAC-HDHTV[翡翠台4K 猎鹰 第2集 粤语 简繁DVB中字][4.81 GB][anonymous]"
+    );
+
+    expect(release).toMatchObject({
+      title: "The Emissary",
+      year: 1982,
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 2,
+      quality: "2160p",
+      codec: "H.265",
+      audio: "AAC"
+    });
+    expect(release.providerSearchTitles).toEqual(["猎鹰"]);
+  });
+
+  it("does not strip J2 labels without stronger provider evidence", () => {
+    const release = parseReleaseTitle(
+      "[TVSeries 1080i]J2 World Health Wellness Organization 2021 COMPLETE 1080i HDTV H264 DD2.0-HDHTV[J2 | 世界养生组织 全13集 粤语 繁体DVB中字][11.61 GB][suandsu]"
+    );
+
+    expect(release).toMatchObject({
+      title: "J2 World Health Wellness Organization",
+      year: 2021,
+      mediaType: "TV_SERIES",
+      quality: "1080i",
+      source: "HDTV",
+      codec: "H.264",
+      audio: "DD2.0"
+    });
+    expect(release.providerSearchTitles).toBeUndefined();
+  });
+
   it("treats typoed complete markers as whole-series stops for regional TV captures", () => {
     const release = parseReleaseTitle(
       "[TV Series/HD]Jade.The Map Of Truth.Completet.HDTV.1080p.H264-CNHK[港劇: 香港探秘地圖 (全20集)[粤语][簡体字幕][黎耀祥/龔嘉欣/丁子朗 主演][CNHK製作組榮譽出品]][64.04 GB][N/A]"
