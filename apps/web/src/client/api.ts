@@ -252,6 +252,11 @@ export type TrendingMedia = {
   releaseGroups: string[];
 };
 
+export type TrendingMediaPage = {
+  items: TrendingMedia[];
+  nextCursor?: string;
+};
+
 export type MediaDetail = {
   media: Media;
   releases: Item[];

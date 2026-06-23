@@ -2258,6 +2258,19 @@ input::placeholder {
   scrollbar-width: thin;
 }
 
+.poster-rail-sentinel {
+  min-height: 1px;
+}
+
+.shelf-inline-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  color: var(--subtle);
+  font-size: 0.86rem;
+}
+
 .poster-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(142px, 188px));

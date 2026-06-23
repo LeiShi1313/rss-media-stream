@@ -10,7 +10,6 @@ import {
   type Feed,
   type Item,
   type Subscription,
-  type TrendingMedia,
   type User,
   type Workspace,
   type WorkspaceSettings,
@@ -177,7 +176,6 @@ function Dashboard({
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
-  const [trendingMedia, setTrendingMedia] = useState<TrendingMedia[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
@@ -202,8 +200,7 @@ function Dashboard({
       api<TimelinePoint[]>("/api/dashboard/timeline"),
       loadSubscriptions(),
       api<DownloadJob[]>("/api/download-jobs"),
-      api<WorkspaceMember[]>("/api/workspace/members"),
-      api<TrendingMedia[]>("/api/media-titles/trending?windowDays=7&limit=18")
+      api<WorkspaceMember[]>("/api/workspace/members")
     ]);
 
     applyResult(results[0], setFeeds);
@@ -213,7 +210,6 @@ function Dashboard({
     applyResult(results[4], setSubscriptions);
     applyResult(results[5], setJobs);
     applyResult(results[6], setMembers);
-    applyResult(results[7], setTrendingMedia);
 
     const firstError = results.find((result) => result.status === "rejected");
     setError(firstError?.status === "rejected" ? errorMessage(firstError.reason) : "");
@@ -331,7 +327,6 @@ function Dashboard({
             downloaders={downloaders}
             items={items}
             stats={stats}
-            trendingMedia={trendingMedia}
             runAction={runAction}
           />
         )}
