@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { ParsedReleaseMatchStatus, type Prisma } from "@prisma/client";
+import { ParsedReleaseMatchStatus, Prisma } from "@prisma/client";
 import { redactSecrets } from "@rss-media/shared/redact";
 import { normalizeTitleKey } from "@rss-media/shared/titleNormalization";
 import type { MediaProvider, MediaType, ParsedMediaType, ProviderSource, ProviderTitleResult } from "@rss-media/shared/types";
 import type { AppConfig } from "../../config.js";
-import { AppError, conflict, notFound, badGateway } from "../../core/errors.js";
+import { AppError, badRequest, conflict, notFound, badGateway } from "../../core/errors.js";
 import { prisma } from "../../db.js";
 import {
   getMetadataProviders,
@@ -34,6 +34,7 @@ import type {
 import type { z } from "zod";
 
 type MediaSearchQuery = z.infer<typeof mediaSearchQuerySchema>;
+type ConcreteMediaType = "MOVIE" | "TV_SERIES";
 type SmartProviderTitleSearchInput = {
   input: string;
   providerSource?: ProviderSource;
@@ -45,6 +46,24 @@ type SmartProviderTitleSearchInput = {
 type LocalMediaSearchQuery = z.infer<typeof localMediaSearchQuerySchema>;
 type TrendingMediaQuery = z.infer<typeof trendingMediaQuerySchema>;
 type Transaction = Prisma.TransactionClient;
+type TrendingCursor = {
+  timestamp: string;
+  windowDays: number;
+  mediaType?: ConcreteMediaType;
+  releaseCount: number;
+  latestReleaseAt: string;
+  mediaTitleId: string;
+};
+type TrendingMediaRow = {
+  mediaTitleId: string;
+  providerMediaMetadataId: string | null;
+  releaseCount: number;
+  latestReleaseAt: Date;
+  feedCount: number;
+  feeds: string[];
+  qualities: string[];
+  releaseGroups: string[];
+};
 type ActiveParsedReleaseMatch = Prisma.ParsedReleaseMatchGetPayload<{
   include: {
     mediaTitle: {
@@ -227,66 +246,96 @@ export async function searchLocalMedia(tenantId: string, query: LocalMediaSearch
 }
 
 export async function listTrendingMedia(tenantId: string, query: TrendingMediaQuery) {
-  const since = new Date(Date.now() - query.windowDays * 24 * 60 * 60 * 1000);
-  const matches = await prisma.$queryRaw<Array<{
-    mediaTitleId: string | null;
-    providerMediaMetadataId: string | null;
-    quality: string | null;
-    releaseGroup: string | null;
-    firstSeenAt: Date;
-    feedId: string | null;
-    feedName: string | null;
-  }>>`
-    SELECT
-      m."mediaTitleId",
-      m."providerMediaMetadataId",
-      release."quality",
-      release."releaseGroup",
-      item."firstSeenAt",
-      feed."id" AS "feedId",
-      feed."name" AS "feedName"
-    FROM "ParsedReleaseMatch" AS m
-    JOIN "ParsedRelease" AS release
-      ON release."id" = m."parsedReleaseId"
-      AND release."tenantId" = m."tenantId"
-    JOIN "RssItem" AS item
-      ON item."id" = release."rssItemId"
-      AND item."tenantId" = release."tenantId"
-    LEFT JOIN "RssFeed" AS feed
-      ON feed."id" = item."feedId"
-      AND feed."tenantId" = item."tenantId"
-    WHERE m."tenantId" = ${tenantId}
-      AND m."status" = 'MATCHED'::"ParsedReleaseMatchStatus"
-      AND m."invalidatedAt" IS NULL
-      AND item."firstSeenAt" >= ${since}
-    ORDER BY m."matchedAt" DESC NULLS LAST, m."updatedAt" DESC
+  const cursor = decodeTrendingCursor(query.cursor);
+  const mediaType = effectiveTrendingMediaType(query.mediaType, cursor);
+  const windowDays = effectiveTrendingWindowDays(query.windowDays, cursor);
+  const timestamp = cursor ? parseCursorDate(cursor.timestamp, "timestamp") : new Date();
+  const since = new Date(timestamp.getTime() - windowDays * 24 * 60 * 60 * 1000);
+  const take = query.limit + 1;
+  const latestReleaseAtCursor = cursor ? parseCursorDate(cursor.latestReleaseAt, "latestReleaseAt") : undefined;
+  const mediaTypeFilter = mediaType
+    ? Prisma.sql`AND media."mediaType" = ${mediaType}::"MediaType"`
+    : Prisma.empty;
+  const cursorFilter = cursor && latestReleaseAtCursor
+    ? Prisma.sql`
+      WHERE
+        grouped."releaseCount" < ${cursor.releaseCount}
+        OR (
+          grouped."releaseCount" = ${cursor.releaseCount}
+          AND grouped."latestReleaseAt" < ${latestReleaseAtCursor}
+        )
+        OR (
+          grouped."releaseCount" = ${cursor.releaseCount}
+          AND grouped."latestReleaseAt" = ${latestReleaseAtCursor}
+          AND grouped."mediaTitleId" > ${cursor.mediaTitleId}
+        )
+    `
+    : Prisma.empty;
+  const rows = await prisma.$queryRaw<TrendingMediaRow[]>`
+    WITH base AS (
+      SELECT
+        m."mediaTitleId",
+        m."providerMediaMetadataId",
+        m."matchedAt",
+        m."updatedAt" AS "matchUpdatedAt",
+        release."quality",
+        release."releaseGroup",
+        item."firstSeenAt",
+        feed."id" AS "feedId",
+        feed."name" AS "feedName"
+      FROM "ParsedReleaseMatch" AS m
+      JOIN "ParsedRelease" AS release
+        ON release."id" = m."parsedReleaseId"
+        AND release."tenantId" = m."tenantId"
+      JOIN "RssItem" AS item
+        ON item."id" = release."rssItemId"
+        AND item."tenantId" = release."tenantId"
+      JOIN "MediaTitle" AS media
+        ON media."id" = m."mediaTitleId"
+      LEFT JOIN "RssFeed" AS feed
+        ON feed."id" = item."feedId"
+        AND feed."tenantId" = item."tenantId"
+      WHERE m."tenantId" = ${tenantId}
+        AND m."status" = 'MATCHED'::"ParsedReleaseMatchStatus"
+        AND m."invalidatedAt" IS NULL
+        AND m."mediaTitleId" IS NOT NULL
+        AND item."firstSeenAt" >= ${since}
+        AND item."firstSeenAt" <= ${timestamp}
+        ${mediaTypeFilter}
+    ),
+    grouped AS (
+      SELECT
+        base."mediaTitleId",
+        (array_agg(base."providerMediaMetadataId" ORDER BY base."matchedAt" DESC NULLS LAST, base."matchUpdatedAt" DESC)
+          FILTER (WHERE base."providerMediaMetadataId" IS NOT NULL))[1] AS "providerMediaMetadataId",
+        count(*)::int AS "releaseCount",
+        max(base."firstSeenAt") AS "latestReleaseAt",
+        count(DISTINCT base."feedId") FILTER (WHERE base."feedId" IS NOT NULL)::int AS "feedCount",
+        COALESCE(array_remove(array_agg(DISTINCT base."feedName"), NULL), ARRAY[]::text[]) AS "feeds",
+        COALESCE(array_remove(array_agg(DISTINCT base."quality"), NULL), ARRAY[]::text[]) AS "qualities",
+        COALESCE(array_remove(array_agg(DISTINCT base."releaseGroup"), NULL), ARRAY[]::text[]) AS "releaseGroups"
+      FROM base
+      GROUP BY base."mediaTitleId"
+    )
+    SELECT *
+    FROM grouped
+    ${cursorFilter}
+    ORDER BY grouped."releaseCount" DESC, grouped."latestReleaseAt" DESC, grouped."mediaTitleId" ASC
+    LIMIT ${take}
   `;
 
-  const grouped = new Map<string, any>();
-  for (const match of matches) {
-    if (!match.mediaTitleId) continue;
-    const current = grouped.get(match.mediaTitleId) ?? {
-      mediaTitleId: match.mediaTitleId,
-      selectedProviderMediaMetadataId: match.providerMediaMetadataId,
-      releaseCount: 0,
-      latestReleaseAt: match.firstSeenAt,
-      feeds: new Map<string, string>(),
-      qualities: new Set<string>(),
-      releaseGroups: new Set<string>()
-    };
-    current.releaseCount += 1;
-    if (match.firstSeenAt > current.latestReleaseAt) {
-      current.latestReleaseAt = match.firstSeenAt;
-    }
-    if (match.feedId && match.feedName) current.feeds.set(match.feedId, match.feedName);
-    if (match.quality) current.qualities.add(match.quality);
-    if (match.releaseGroup) current.releaseGroups.add(match.releaseGroup);
-    grouped.set(match.mediaTitleId, current);
-  }
-
-  const topEntries = [...grouped.values()]
-    .sort((a, b) => b.releaseCount - a.releaseCount || b.latestReleaseAt.getTime() - a.latestReleaseAt.getTime())
-    .slice(0, query.limit);
+  const topEntries = rows.slice(0, query.limit);
+  const lastEntry = topEntries.at(-1);
+  const nextCursor = rows.length > query.limit && lastEntry
+    ? encodeTrendingCursor({
+        timestamp: timestamp.toISOString(),
+        windowDays,
+        mediaType,
+        releaseCount: lastEntry.releaseCount,
+        latestReleaseAt: lastEntry.latestReleaseAt.toISOString(),
+        mediaTitleId: lastEntry.mediaTitleId
+      })
+    : undefined;
   const mediaTitles = await prisma.mediaTitle.findMany({
     where: { id: { in: topEntries.map((entry) => entry.mediaTitleId) } },
     include: {
@@ -297,7 +346,7 @@ export async function listTrendingMedia(tenantId: string, query: TrendingMediaQu
   });
   const mediaById = new Map(mediaTitles.map((media) => [media.id, media]));
   const selectedMetadataIds = topEntries
-    .map((entry) => entry.selectedProviderMediaMetadataId)
+    .map((entry) => entry.providerMediaMetadataId)
     .filter((id): id is string => Boolean(id));
   const selectedMetadata = selectedMetadataIds.length > 0
     ? await prisma.providerMediaMetadata.findMany({
@@ -306,24 +355,84 @@ export async function listTrendingMedia(tenantId: string, query: TrendingMediaQu
       })
     : [];
   const selectedMetadataById = new Map(selectedMetadata.map((metadata) => [metadata.id, metadata]));
-  const presentationOrders = await preloadPresentationOrders(tenantId);
-  return topEntries
+  const presentationOrders = await preloadPresentationOrders(tenantId, mediaType ? [mediaType] : undefined);
+  const items = topEntries
     .filter((entry) => mediaById.has(entry.mediaTitleId))
     .map((entry) => ({
       media: serializeMediaTitle({
         ...mediaById.get(entry.mediaTitleId)!,
-        selectedProviderMetadata: entry.selectedProviderMediaMetadataId
-          ? selectedMetadataById.get(entry.selectedProviderMediaMetadataId)
+        selectedProviderMetadata: entry.providerMediaMetadataId
+          ? selectedMetadataById.get(entry.providerMediaMetadataId)
           : undefined,
         matchCount: entry.releaseCount
       }, presentationOrders),
       releaseCount: entry.releaseCount,
       latestReleaseAt: entry.latestReleaseAt.toISOString(),
-      feedCount: entry.feeds.size,
-      feeds: [...entry.feeds.values()].slice(0, 6),
-      qualities: [...entry.qualities].slice(0, 8),
-      releaseGroups: [...entry.releaseGroups].slice(0, 8)
+      feedCount: entry.feedCount,
+      feeds: entry.feeds.slice(0, 6),
+      qualities: entry.qualities.slice(0, 8),
+      releaseGroups: entry.releaseGroups.slice(0, 8)
     }));
+
+  return { items, nextCursor };
+}
+
+function decodeTrendingCursor(value?: string): TrendingCursor | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<TrendingCursor>;
+    if (
+      typeof parsed.timestamp !== "string" ||
+      typeof parsed.windowDays !== "number" ||
+      !Number.isInteger(parsed.windowDays) ||
+      parsed.windowDays < 1 ||
+      parsed.windowDays > 365 ||
+      (parsed.mediaType !== undefined && !isConcreteMediaType(parsed.mediaType)) ||
+      typeof parsed.releaseCount !== "number" ||
+      !Number.isInteger(parsed.releaseCount) ||
+      parsed.releaseCount < 0 ||
+      typeof parsed.latestReleaseAt !== "string" ||
+      typeof parsed.mediaTitleId !== "string" ||
+      parsed.mediaTitleId.length === 0
+    ) {
+      throw new Error("Invalid cursor payload");
+    }
+    parseCursorDate(parsed.timestamp, "timestamp");
+    parseCursorDate(parsed.latestReleaseAt, "latestReleaseAt");
+    return parsed as TrendingCursor;
+  } catch {
+    throw badRequest("Invalid trending cursor");
+  }
+}
+
+function encodeTrendingCursor(cursor: TrendingCursor) {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function effectiveTrendingMediaType(
+  queryMediaType: ConcreteMediaType | undefined,
+  cursor?: TrendingCursor
+): ConcreteMediaType | undefined {
+  if (queryMediaType && cursor?.mediaType && queryMediaType !== cursor.mediaType) {
+    throw badRequest("Trending cursor media type does not match query");
+  }
+  return cursor?.mediaType ?? queryMediaType;
+}
+
+function effectiveTrendingWindowDays(queryWindowDays: number, cursor?: TrendingCursor) {
+  return cursor?.windowDays ?? queryWindowDays;
+}
+
+function parseCursorDate(value: string, field: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw badRequest(`Invalid trending cursor ${field}`);
+  }
+  return date;
+}
+
+function isConcreteMediaType(value: unknown): value is ConcreteMediaType {
+  return value === "MOVIE" || value === "TV_SERIES";
 }
 
 export async function getMedia(tenantId: string, mediaTitleId: string) {

@@ -651,9 +651,8 @@ describe("listTrendingMedia", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.prisma.$queryRaw.mockResolvedValue([
-      trendingMatch("media-1", "metadata-1", "2026-06-15T10:00:00Z", "feed-1", "Feed 1"),
-      trendingMatch("media-1", "metadata-1", "2026-06-15T09:00:00Z", "feed-2", "Feed 2"),
-      trendingMatch("media-2", "metadata-2", "2026-06-15T08:00:00Z", "feed-1", "Feed 1")
+      trendingGroup("media-1", "metadata-1", 2, "2026-06-15T10:00:00Z", ["Feed 1", "Feed 2"]),
+      trendingGroup("media-2", "metadata-2", 1, "2026-06-15T08:00:00Z", ["Feed 1"])
     ]);
     mocks.prisma.mediaTitle.findMany.mockResolvedValue([
       {
@@ -703,7 +702,7 @@ describe("listTrendingMedia", () => {
     ]);
   });
 
-  it("groups releases before loading provider metadata for trending titles", async () => {
+  it("returns a paginated trending media page", async () => {
     const results = await listTrendingMedia("tenant-1", { windowDays: 7, limit: 18 });
 
     expect(mocks.prisma.parsedReleaseMatch.findMany).not.toHaveBeenCalled();
@@ -714,7 +713,9 @@ describe("listTrendingMedia", () => {
     expect(mocks.prisma.providerMediaMetadata.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: { in: ["metadata-1", "metadata-2"] } }
     }));
-    expect(results[0]).toMatchObject({
+    expect(results.nextCursor).toBeUndefined();
+    expect(results.items).toHaveLength(2);
+    expect(results.items[0]).toMatchObject({
       releaseCount: 2,
       feedCount: 2,
       media: {
@@ -722,6 +723,80 @@ describe("listTrendingMedia", () => {
         title: "Selected Movie"
       }
     });
+  });
+
+  it("returns a cursor when more trending media exists", async () => {
+    mocks.prisma.$queryRaw.mockResolvedValueOnce([
+      trendingGroup("media-1", "metadata-1", 4, "2026-06-15T10:00:00Z", ["Feed 1"]),
+      trendingGroup("media-2", "metadata-2", 3, "2026-06-15T09:00:00Z", ["Feed 2"]),
+      trendingGroup("media-3", "metadata-3", 2, "2026-06-15T08:00:00Z", ["Feed 3"])
+    ]);
+
+    const results = await listTrendingMedia("tenant-1", { windowDays: 7, limit: 2, mediaType: "MOVIE" });
+
+    expect(results.items.map((entry) => entry.media.id)).toEqual(["media-1", "media-2"]);
+    expect(results.nextCursor).toEqual(expect.any(String));
+    expect(mocks.prisma.mediaTitle.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ["media-1", "media-2"] } }
+    }));
+  });
+
+  it("accepts the returned cursor for the next page", async () => {
+    mocks.prisma.$queryRaw
+      .mockResolvedValueOnce([
+        trendingGroup("media-1", "metadata-1", 4, "2026-06-15T10:00:00Z", ["Feed 1"]),
+        trendingGroup("media-2", "metadata-2", 3, "2026-06-15T09:00:00Z", ["Feed 2"])
+      ])
+      .mockResolvedValueOnce([
+        trendingGroup("media-3", "metadata-3", 2, "2026-06-15T08:00:00Z", ["Feed 3"])
+      ]);
+
+    mocks.prisma.mediaTitle.findMany.mockResolvedValueOnce([
+      {
+        id: "media-1",
+        mediaType: "MOVIE",
+        title: "Canonical Movie",
+        titleKey: "canonical movie",
+        releaseYear: 2026,
+        providerIdentities: []
+      }
+    ]).mockResolvedValueOnce([
+      {
+        id: "media-3",
+        mediaType: "MOVIE",
+        title: "Third Movie",
+        titleKey: "third movie",
+        releaseYear: 2026,
+        providerIdentities: []
+      }
+    ]);
+    mocks.prisma.providerMediaMetadata.findMany.mockResolvedValueOnce([
+      {
+        id: "metadata-1",
+        providerSource: "tmdb_api",
+        title: "Selected Movie",
+        originalTitle: null,
+        releaseYear: 2026,
+        payload: {},
+        mediaProviderIdentity: {
+          provider: "tmdb",
+          providerId: "100",
+          mediaType: "MOVIE"
+        }
+      }
+    ]).mockResolvedValueOnce([]);
+
+    const firstPage = await listTrendingMedia("tenant-1", { windowDays: 7, limit: 1, mediaType: "MOVIE" });
+    const secondPage = await listTrendingMedia("tenant-1", {
+      windowDays: 7,
+      limit: 1,
+      mediaType: "MOVIE",
+      cursor: firstPage.nextCursor
+    });
+
+    expect(secondPage.items).toHaveLength(1);
+    expect(secondPage.items[0].media.id).toBe("media-3");
+    expect(mocks.prisma.$queryRaw).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -1982,6 +2057,25 @@ function trendingMatch(
     firstSeenAt: new Date(firstSeenAt),
     feedId,
     feedName
+  };
+}
+
+function trendingGroup(
+  mediaTitleId: string,
+  providerMediaMetadataId: string,
+  releaseCount: number,
+  latestReleaseAt: string,
+  feeds: string[]
+) {
+  return {
+    mediaTitleId,
+    providerMediaMetadataId,
+    releaseCount,
+    latestReleaseAt: new Date(latestReleaseAt),
+    feedCount: feeds.length,
+    feeds,
+    qualities: ["WEB-DL"],
+    releaseGroups: ["GROUP"]
   };
 }
 

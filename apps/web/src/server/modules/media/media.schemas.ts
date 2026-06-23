@@ -69,7 +69,9 @@ export const localMediaSearchQuerySchema = z.object({
 
 export const trendingMediaQuerySchema = z.object({
   windowDays: z.coerce.number().int().min(1).max(365).default(7),
-  limit: z.coerce.number().int().min(1).max(50).default(18)
+  mediaType: searchableMediaTypeFromRequest.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(24),
+  cursor: z.string().trim().min(1).max(2000).optional()
 });
 
 export const mediaParamsSchema = z.object({
