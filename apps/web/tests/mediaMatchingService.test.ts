@@ -158,6 +158,7 @@ const {
 } = await import("../src/server/modules/media/media.service.js");
 const {
   serializeMediaPresentation,
+  selectReleaseMatchForPresentation,
   selectPresentationProviderTitle
 } = await import("../src/server/modules/media/presentation.js");
 
@@ -1777,6 +1778,37 @@ describe("matchParsedReleaseForItem", () => {
 });
 
 describe("media presentation provider selection", () => {
+  it("chooses the active matched release row from presentation provider order", () => {
+    const imdbMatch = {
+      id: "imdb-match",
+      status: "MATCHED",
+      matchedAt: new Date("2026-06-03T10:00:00Z"),
+      providerMediaMetadata: {
+        providerSource: "ptgen_imdb",
+        mediaProviderIdentity: { provider: "imdb", providerId: "imdb-tt0133093" }
+      }
+    };
+    const doubanMatch = {
+      id: "douban-match",
+      status: "MATCHED",
+      matchedAt: new Date("2026-06-01T10:00:00Z"),
+      providerMediaMetadata: {
+        providerSource: "ptgen_douban",
+        mediaProviderIdentity: { provider: "douban", providerId: "douban-1291843" }
+      }
+    };
+    const unmatched = {
+      id: "unmatched",
+      status: "UNMATCHED",
+      updatedAt: new Date("2026-06-04T10:00:00Z")
+    };
+
+    expect(selectReleaseMatchForPresentation(
+      [unmatched, imdbMatch, doubanMatch],
+      ["ptgen_douban", "ptgen_imdb"]
+    )).toMatchObject({ id: "douban-match" });
+  });
+
   it("keeps the active match provider as release presentation provenance", () => {
     const selected = providerTitle({
       id: "tvdb-selected",

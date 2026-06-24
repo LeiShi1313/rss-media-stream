@@ -166,6 +166,15 @@ export function selectPresentationProviderMetadata(input: {
 
 export const selectPresentationProviderTitle = selectPresentationProviderMetadata;
 
+export function selectReleaseMatchForPresentation(matches?: any[], providerOrder?: string[]) {
+  const active = (matches ?? []).filter(Boolean);
+  const matched = active.filter((match) => match.status === "MATCHED");
+  if (matched.length > 0) {
+    return matched.sort((a, b) => compareReleaseMatchChoices(a, b, providerOrder))[0];
+  }
+  return active.sort((a, b) => releaseMatchTime(b) - releaseMatchTime(a))[0];
+}
+
 export function serializeReleaseMatch(input: {
   match?: any;
   release?: any;
@@ -265,6 +274,29 @@ function releaseAttentionReasons(
 
   if (match.status === "MATCHED" && !presentation.hasCover) reasons.add("no_cover");
   return [...reasons];
+}
+
+function compareReleaseMatchChoices(a: any, b: any, providerOrder?: string[]) {
+  const providerPriorityDelta = providerPriority(releaseMatchProviderSource(a), providerOrder) -
+    providerPriority(releaseMatchProviderSource(b), providerOrder);
+  if (providerPriorityDelta !== 0) return providerPriorityDelta;
+
+  const timeDelta = releaseMatchTime(b) - releaseMatchTime(a);
+  if (timeDelta !== 0) return timeDelta;
+
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+}
+
+function releaseMatchProviderSource(match: any) {
+  return match.providerMediaMetadata?.providerSource ?? match.providerTitle?.providerSource;
+}
+
+function releaseMatchTime(match: any) {
+  return Math.max(
+    timeValue(match?.matchedAt),
+    timeValue(match?.updatedAt),
+    timeValue(match?.createdAt)
+  );
 }
 
 function addProviderChoice(

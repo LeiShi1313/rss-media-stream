@@ -21,6 +21,7 @@ import {
   LOW_CONFIDENCE_THRESHOLD,
   legacyKindFromMediaType,
   providerOrderForMediaType,
+  selectReleaseMatchForPresentation,
   serializeMediaPresentation,
   serializeProviderTitleSearchResult,
   serializeReleaseMatch,
@@ -1704,7 +1705,8 @@ function serializeMediaTitle(media: any, presentationOrders: PresentationOrders 
 }
 
 function serializeItem(item: any, presentationOrders: PresentationOrders = {}) {
-  const activeMatch = item.parsedRelease?.matches?.[0];
+  const providerOrder = providerOrderForMediaType(presentationOrders, item.parsedRelease?.mediaType);
+  const activeMatch = selectReleaseMatchForPresentation(item.parsedRelease?.matches, providerOrder);
   return {
     id: item.id,
     feed: item.feed ? { id: item.feed.id, name: item.feed.name } : undefined,
@@ -1787,7 +1789,6 @@ function itemRelations() {
             providerTitle: true
           },
           orderBy: [{ matchedAt: "desc" as const }, { updatedAt: "desc" as const }],
-          take: 1
         }
       }
     },

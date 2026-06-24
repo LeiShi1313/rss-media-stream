@@ -4,6 +4,7 @@ import { prisma } from "../../db.js";
 import { getPresentationProviderOrder } from "../../integrations/providers/policy.js";
 import {
   providerOrderForMediaType,
+  selectReleaseMatchForPresentation,
   serializeMediaPresentation,
   legacyKindFromMediaType,
   type PresentationOrders
@@ -41,7 +42,6 @@ export function registerDashboardRoutes(app: FastifyInstance) {
             include: {
               matches: {
                 where: { status: "MATCHED", invalidatedAt: null },
-                take: 1,
                 include: {
                   mediaTitle: {
                     include: { providerIdentities: { include: { metadata: true } } }
@@ -62,7 +62,8 @@ export function registerDashboardRoutes(app: FastifyInstance) {
       >();
       const presentationOrders = await preloadPresentationOrders(request.tenantId!);
       for (const item of items) {
-        const match = item.parsedRelease?.matches[0];
+        const providerOrder = providerOrderForMediaType(presentationOrders, item.parsedRelease?.mediaType);
+        const match = selectReleaseMatchForPresentation(item.parsedRelease?.matches, providerOrder);
         const presentation = serializeMediaPresentation({
           mediaTitle: match?.mediaTitle,
           providerMetadata: match?.providerMediaMetadata,

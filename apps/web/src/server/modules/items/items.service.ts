@@ -5,6 +5,7 @@ import { decryptAead } from "../../secrets.js";
 import { getPresentationProviderOrder } from "../../integrations/providers/policy.js";
 import {
   providerOrderForMediaType,
+  selectReleaseMatchForPresentation,
   serializeReleaseMatch,
   type PresentationOrders,
   type ReleaseMatchDto
@@ -32,7 +33,6 @@ const itemRelations = {
           providerTitle: true
         },
         orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }],
-        take: 1
       }
     }
   },
@@ -154,7 +154,8 @@ export async function assertItemInTenant(tenantId: string, itemId: string) {
 
 export function serializeItem(item: ItemWithRelations, presentationOrders: PresentationOrders = {}): ItemResponse {
   const release = item.parsedRelease;
-  const activeMatch = release?.matches[0];
+  const providerOrder = providerOrderForMediaType(presentationOrders, release?.mediaType);
+  const activeMatch = selectReleaseMatchForPresentation(release?.matches, providerOrder);
   return {
     id: item.id,
     feed: {
