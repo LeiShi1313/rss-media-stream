@@ -76,11 +76,14 @@ export function identityFromPtgenRecordId(
 export function normalizePtgenSourceId(source: PtgenSource, value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
   if (source === "imdb") {
-    const raw = trimmed.toLowerCase().replace(/^imdb-/i, "");
+    const raw = (trimmed.match(/(?:^|\/)(tt\d+)(?:[/?#]|$)/i)?.[1] ?? trimmed)
+      .toLowerCase()
+      .replace(/^imdb-/i, "");
     const normalized = raw.startsWith("tt") ? raw : `tt${raw}`;
     return /^tt\d+$/.test(normalized) ? normalized : undefined;
   }
 
-  const normalized = trimmed.replace(/^douban-/i, "");
+  const normalized = (trimmed.match(/(?:^|\/)(?:subject|movie)\/(\d+)(?:[/?#]|$)/i)?.[1] ?? trimmed)
+    .replace(/^douban-/i, "");
   return /^\d+$/.test(normalized) ? normalized : undefined;
 }

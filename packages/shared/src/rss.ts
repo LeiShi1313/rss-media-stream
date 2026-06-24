@@ -43,6 +43,17 @@ export function extractRssTorrentUrl(item: RssUrlFields): string {
   );
 }
 
+export function extractRssDownloadUrl(item: RssUrlFields): string | undefined {
+  return [
+    enclosureTorrentUrl(item),
+    ...rssLinks(item).map((link) => readString(link.href)),
+    readString(item.torrentMagnetUri),
+    readString(item.enclosure?.url),
+    readString(item.link),
+    readUrlLikeGuid(readString(item.guid))
+  ].find(isLikelyTorrentDownloadUrl);
+}
+
 export function extractRssSourceUrl(item: RssUrlFields, torrentUrl: string): string | undefined {
   return [
     alternateHtmlUrl(item),
@@ -51,6 +62,14 @@ export function extractRssSourceUrl(item: RssUrlFields, torrentUrl: string): str
     readUrlFromText(readString(item.content)),
     readUrlFromText(readString(item.description))
   ].find((value) => value && value !== torrentUrl && /^https?:\/\//i.test(value));
+}
+
+export function extractRssDownloadSizeBytes(item: RssUrlFields, downloadUrl?: string): bigint | undefined {
+  const link = rssLinks(item).find((candidate) =>
+    (!downloadUrl || readString(candidate.href) === downloadUrl) &&
+    isLikelyTorrentDownloadUrl(readString(candidate.href))
+  );
+  return parsePositiveBigInt(link?.length ?? item.enclosure?.length);
 }
 
 export function extractInfoHash(value: string): string | undefined {
@@ -70,7 +89,7 @@ export function parseRssDate(value?: string): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-export function parsePositiveBigInt(value?: string | number): bigint | undefined {
+export function parsePositiveBigInt(value?: unknown): bigint | undefined {
   if (value === undefined || value === null) return undefined;
   const text = String(value);
   if (!/^\d+$/.test(text)) return undefined;
@@ -100,6 +119,14 @@ export function readUrlFromText(value?: string): string | undefined {
 export function readUrlLikeGuid(guid?: string): string | undefined {
   if (!guid) return undefined;
   return /^(https?:|magnet:)/i.test(guid) ? guid : undefined;
+}
+
+export function isLikelyTorrentDownloadUrl(value?: string): value is string {
+  const url = value?.trim();
+  if (!url) return false;
+  return /^magnet:/i.test(url) ||
+    /\.torrent(?:[?#]|$)/i.test(url) ||
+    /\/download(?:\.php)?(?:[/?#]|$)/i.test(url);
 }
 
 function enclosureTorrentUrl(item: RssUrlFields): string | undefined {

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractRssDownloadSizeBytes,
+  extractRssDownloadUrl,
   extractInfoHash,
   extractRssSourceUrl,
   extractRssTorrentUrl,
+  isLikelyTorrentDownloadUrl,
   normalizeInfoHash,
   parseHumanSizeBytes,
   parsePositiveBigInt,
@@ -31,6 +34,40 @@ describe("RSS item utilities", () => {
     expect(extractRssSourceUrl(item, "https://tracker.example/download.php?id=10&passkey=secret")).toBe(
       "https://tracker.example/details.php?id=10"
     );
+  });
+
+  it("extracts strict download URLs without treating detail pages as torrents", () => {
+    expect(extractRssDownloadUrl({
+      link: "https://tracker.example/details.php?id=10",
+      links: [
+        {
+          rel: "alternate",
+          type: "text/html",
+          href: "https://tracker.example/details.php?id=10"
+        }
+      ]
+    })).toBeUndefined();
+
+    expect(extractRssDownloadUrl({
+      link: "https://tracker.example/download.php?id=11&source=rss"
+    })).toBe("https://tracker.example/download.php?id=11&source=rss");
+
+    expect(isLikelyTorrentDownloadUrl("https://tracker.example/file.torrent?passkey=secret")).toBe(true);
+    expect(isLikelyTorrentDownloadUrl("https://tracker.example/details.php?id=12")).toBe(false);
+  });
+
+  it("extracts download size from matching RSS enclosure links", () => {
+    const downloadUrl = "https://tracker.example/download.php?id=10&passkey=secret";
+    expect(extractRssDownloadSizeBytes({
+      links: [
+        {
+          rel: "enclosure",
+          type: "application/x-bittorrent",
+          href: downloadUrl,
+          length: "12345"
+        }
+      ]
+    }, downloadUrl)).toBe(12345n);
   });
 
   it("falls back to magnet, link, and URL-like guid for torrent URLs", () => {
