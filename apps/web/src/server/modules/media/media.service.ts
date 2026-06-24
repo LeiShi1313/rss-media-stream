@@ -76,7 +76,7 @@ type ActiveParsedReleaseMatch = Prisma.ParsedReleaseMatchGetPayload<{
   };
 }>;
 
-type ProviderMetadataCandidate = ProviderTitleResult & {
+export type ProviderMetadataCandidate = ProviderTitleResult & {
   providerSource: ProviderSource;
   provider: Exclude<MediaProvider, "ptgen">;
   providerId: string;
@@ -1489,6 +1489,19 @@ async function runProviderDetailLookup(
   } catch (error) {
     throw providerError(error);
   }
+}
+
+export async function lookupProviderMediaMetadata(
+  config: AppConfig,
+  tenantId: string,
+  providerSource: ProviderSource,
+  input: { providerEntityType: string; providerId: string; mediaType?: MediaType }
+) {
+  const normalizedProviderSource = canonicalProviderSource(providerSource) ?? providerSource;
+  return runProviderDetailLookup(config, tenantId, normalizedProviderSource, {
+    ...input,
+    providerId: providerDetailIdForSource(normalizedProviderSource, input.providerId)
+  });
 }
 
 function providerError(error: unknown) {
