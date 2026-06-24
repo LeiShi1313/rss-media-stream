@@ -14,6 +14,10 @@
       "types": "./dist/redact.d.ts",
       "import": "./dist/redact.js"
     },
+    "./rss": {
+      "types": "./dist/rss.d.ts",
+      "import": "./dist/rss.js"
+    },
     "./releaseParser": {
       "types": "./dist/releaseParser.d.ts",
       "import": "./dist/releaseParser.js"
