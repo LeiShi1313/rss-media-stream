@@ -80,16 +80,13 @@ export async function listItems(
 ): Promise<ItemPageResponse> {
   const where: Prisma.RssItemWhereInput = {
     tenantId,
-    feedId: query.feedId,
-    rawTitle: query.q
-      ? { contains: query.q, mode: "insensitive" }
-      : undefined
+    feedId: query.feedId
   };
 
   const presentationOrders = await preloadPresentationOrders(tenantId);
   const items: ItemResponse[] = [];
   let cursorId = query.cursor;
-  const scanLimit = query.category || query.status
+  const scanLimit = query.q || query.category || query.status
     ? Math.min(200, Math.max(query.limit * 4, query.limit + 1))
     : query.limit;
 
@@ -222,9 +219,36 @@ function releaseEnrichmentState(release: any, activeMatch: any) {
 }
 
 function itemMatchesSerializedFilters(item: ItemResponse, query: ItemQueryInput) {
+  if (query.q && !itemMatchesSearch(item, query.q)) return false;
   if (query.category && releaseCategory(item) !== query.category) return false;
   if (query.status && !itemBelongsToStatus(item, query.status)) return false;
   return true;
+}
+
+function itemMatchesSearch(item: ItemResponse, query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  const release = item.parsedRelease as {
+    title?: string | null;
+    quality?: string | null;
+    source?: string | null;
+    codec?: string | null;
+    audio?: string | null;
+    releaseGroup?: string | null;
+  } | undefined;
+  return [
+    item.rawTitle,
+    release?.title,
+    item.match?.presentation?.title,
+    item.feed?.name,
+    release?.quality,
+    release?.source,
+    release?.codec,
+    release?.audio,
+    release?.releaseGroup
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(normalizedQuery));
 }
 
 function releaseCategory(item: ItemResponse): "MOVIE" | "TV" | "OTHER" {

@@ -2262,6 +2262,11 @@ input::placeholder {
   min-height: 1px;
 }
 
+.poster-grid-sentinel {
+  grid-column: 1 / -1;
+  min-height: 1px;
+}
+
 .shelf-inline-status {
   display: inline-flex;
   align-items: center;

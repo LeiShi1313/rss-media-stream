@@ -50,6 +50,17 @@ describe("items service pagination", () => {
     expect(page.items.map((item) => item.id)).toEqual(["matched"]);
     expect(page.nextCursor).toBeUndefined();
   });
+
+  it("matches search against serialized parsed release fields", async () => {
+    mocks.prisma.rssItem.findMany.mockResolvedValue([
+      rssItem({ id: "raw-only", parsedRelease: parsedRelease({ title: "Other title" }) }),
+      rssItem({ id: "parsed-title", parsedRelease: parsedRelease({ title: "Needle title" }) })
+    ]);
+
+    const page = await listItems("tenant-1", { limit: 2, q: "needle" });
+
+    expect(page.items.map((item) => item.id)).toEqual(["parsed-title"]);
+  });
 });
 
 function rssItem(input: {
@@ -72,10 +83,13 @@ function rssItem(input: {
   };
 }
 
-function parsedRelease(input: { matches?: Array<ReturnType<typeof match>> } = {}) {
+function parsedRelease(input: {
+  matches?: Array<ReturnType<typeof match>>;
+  title?: string;
+} = {}) {
   return {
     id: "release-1",
-    title: "Example",
+    title: input.title ?? "Example",
     year: 2026,
     mediaType: "MOVIE",
     season: null,
