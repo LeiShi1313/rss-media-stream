@@ -1,11 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Film, ListFilter, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Film, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { api, type Downloader, type MediaSearchResult, type ProviderIdentityFilter, type ProviderRatingFilter, type Subscription } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
-import { Empty, Pill, StatusPill } from "../components/common/feedback.js";
-import { Modal, Panel } from "../components/common/surfaces.js";
+import { Empty } from "../components/common/feedback.js";
+import { Modal } from "../components/common/surfaces.js";
 import { numberOrUndefined, optionalText, providerValue, ruleSummary, stringListFromInput } from "../lib/forms.js";
 
 export function SubscriptionsPage({
@@ -22,41 +22,82 @@ export function SubscriptionsPage({
   const { t } = useTranslation();
   const [createOpen, setCreateOpen] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
+  const [query, setQuery] = useState("");
+  const filteredSubscriptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return subscriptions;
+    return subscriptions.filter((subscription) =>
+      [
+        subscription.title,
+        subscriptionTarget(subscription, t),
+        ruleSummary(subscription, t),
+        subscription.downloader?.name,
+        subscriptionMode(subscription, t)
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery))
+    );
+  }, [query, subscriptions, t]);
 
   return (
-    <div className="page-stack">
-      <Panel
-        title={t("subscriptions.rules")}
-        icon={<ListFilter size={19} />}
-        actions={
-          <UiButton className="primary" disabled={busy} onClick={() => setCreateOpen(true)}>
-            <Plus size={17} />
-            {t("subscriptions.create")}
-          </UiButton>
-        }
-      >
-        <div className="list">
-          {subscriptions.length === 0 && <Empty label={t("subscriptions.none")} />}
-          {subscriptions.map((subscription) => (
-            <article className="row-card subscription-card" key={subscription.id}>
-              <div>
-                <strong>{subscription.title}</strong>
-                <span>{subscription.media?.title ?? subscription.rule?.selectedProvider?.providerId ?? t("subscriptions.ruleOnly")}</span>
-                <small>{ruleSummary(subscription, t)}</small>
-              </div>
-              <div className="row-actions">
-                <StatusPill ok={subscription.enabled}>{subscription.enabled ? t("common.enabled") : t("common.disabled")}</StatusPill>
-                <StatusPill ok={subscription.autoDownload}>{subscription.autoDownload ? t("common.auto") : t("common.manual")}</StatusPill>
-                {subscription.downloader ? <Pill>{subscription.downloader.name}</Pill> : <Pill>{t("common.defaultDownloader")}</Pill>}
-                <UiButton className="secondary" disabled={busy} onClick={() => setEditingSubscription(subscription)}>
-                  <Pencil size={16} />
-                  {t("common.edit")}
-                </UiButton>
-              </div>
-            </article>
-          ))}
+    <div className="management-workbench">
+      <section className="management-command" aria-label={t("subscriptions.rules")}>
+        <div className="management-command-left">
+          <FieldLabel className="search-control management-search">
+            <span className="sr-only">{t("subscriptions.searchSubscriptions")}</span>
+            <Search size={16} />
+            <FormInput
+              aria-label={t("subscriptions.searchSubscriptions")}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("subscriptions.searchSubscriptions")}
+              type="search"
+              value={query}
+            />
+          </FieldLabel>
+          <span className="management-count">{t("subscriptions.subscriptionCount", { count: subscriptions.length })}</span>
         </div>
-      </Panel>
+        <UiButton className="primary" disabled={busy} onClick={() => setCreateOpen(true)}>
+          <Plus size={17} />
+          {t("subscriptions.create")}
+        </UiButton>
+      </section>
+
+      <section className="management-table" role="table" aria-label={t("subscriptions.rules")}>
+        <div className="management-table-head subscription-table-head" role="row">
+          <span role="columnheader">{t("subscriptions.subscription")}</span>
+          <span role="columnheader">{t("subscriptions.target")}</span>
+          <span role="columnheader">{t("subscriptions.rule")}</span>
+          <span role="columnheader">{t("common.downloader")}</span>
+          <span role="columnheader">{t("subscriptions.mode")}</span>
+          <span role="columnheader">{t("subscriptions.actions")}</span>
+        </div>
+        {subscriptions.length === 0 && <Empty label={t("subscriptions.none")} />}
+        {subscriptions.length > 0 && filteredSubscriptions.length === 0 && <Empty label={t("subscriptions.noMatchingSubscriptions")} />}
+        {filteredSubscriptions.map((subscription) => (
+          <article className="management-table-row subscription-table-row" key={subscription.id} role="row">
+            <div className="management-primary-cell" role="cell">
+              <strong>{subscription.title}</strong>
+              <span>{subscription.enabled ? t("common.enabled") : t("common.disabled")}</span>
+            </div>
+            <span role="cell">{subscriptionTarget(subscription, t)}</span>
+            <span role="cell">{ruleSummary(subscription, t)}</span>
+            <span role="cell">{subscription.downloader?.name ?? t("common.defaultDownloader")}</span>
+            <span role="cell">{subscriptionMode(subscription, t)}</span>
+            <div className="row-actions" role="cell">
+              <UiButton
+                aria-label={t("subscriptions.editSubscriptionNamed", { name: subscription.title })}
+                className="icon-button"
+                disabled={busy}
+                onClick={() => setEditingSubscription(subscription)}
+                title={t("common.edit")}
+              >
+                <Pencil size={16} />
+              </UiButton>
+            </div>
+          </article>
+        ))}
+      </section>
+
       {createOpen && (
         <Modal title={t("subscriptions.create")} onClose={() => setCreateOpen(false)}>
           <SubscriptionSearch
@@ -97,6 +138,14 @@ export function SubscriptionsPage({
       )}
     </div>
   );
+}
+
+function subscriptionTarget(subscription: Subscription, t: (key: string) => string) {
+  return subscription.media?.title ?? subscription.rule?.selectedProvider?.providerId ?? t("subscriptions.ruleOnly");
+}
+
+function subscriptionMode(subscription: Subscription, t: (key: string) => string) {
+  return subscription.autoDownload ? t("common.auto") : t("common.manual");
 }
 
 type LinkedProviderRow = {

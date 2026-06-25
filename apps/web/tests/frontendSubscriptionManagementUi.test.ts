@@ -1,0 +1,42 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+describe("Subscription management UI", () => {
+  it("uses a flat searchable subscription table instead of row cards", () => {
+    const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
+    const listSource = source.split("function SubscriptionEditForm")[0];
+
+    expect(listSource).toContain('className="management-command"');
+    expect(listSource).toContain('className="management-table"');
+    expect(listSource).toContain('className="management-table-row subscription-table-row"');
+    expect(listSource).toContain("setQuery(event.target.value)");
+    expect(listSource).toContain("subscriptionTarget(subscription, t)");
+    expect(listSource).toContain("subscriptionMode(subscription, t)");
+    expect(listSource).not.toContain("<Panel");
+    expect(listSource).not.toContain("row-card subscription-card");
+    expect(listSource).not.toContain("StatusPill");
+    expect(listSource).not.toContain("<Pill");
+  });
+
+  it("preserves create and edit actions in the flat management surface", () => {
+    const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
+    const listSource = source.split("function SubscriptionEditForm")[0];
+
+    expect(listSource).toContain("setCreateOpen(true)");
+    expect(listSource).toContain('aria-label={t("subscriptions.editSubscriptionNamed", { name: subscription.title })}');
+    expect(listSource).toContain("setEditingSubscription(subscription)");
+  });
+
+  it("defines subscription table columns using the shared management styles", () => {
+    const source = readFileSync(resolve(__dirname, "../src/client/styles/app.css"), "utf8");
+
+    expect(source).toContain(".management-table-head,");
+    expect(source).toContain(".management-table-row");
+    expect(source).toContain(".subscription-table-head,");
+    expect(source).toContain(".subscription-table-row");
+  });
+});
