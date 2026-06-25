@@ -16,6 +16,7 @@ export type PtRssImportOptions = {
   mongoUri: string;
   mongoDb: string;
   site?: string;
+  startAfterId?: string;
   limit?: number;
   batchSize: number;
   providerLimit: number;
@@ -56,6 +57,7 @@ const KNOWN_FLAGS = new Set([
   "mongo-uri",
   "mongo-db",
   "site",
+  "start-after-id",
   "limit",
   "batch-size",
   "provider-limit",
@@ -77,6 +79,7 @@ export function parsePtRssImportArgs(
     mongoUri,
     mongoDb: optionalOption(parsed, "mongo-db") ?? "pt",
     site: optionalOption(parsed, "site"),
+    startAfterId: optionalOption(parsed, "start-after-id"),
     limit: positiveIntegerOption(parsed, "limit"),
     batchSize: positiveIntegerOption(parsed, "batch-size") ?? DEFAULT_BATCH_SIZE,
     providerLimit: positiveIntegerOption(parsed, "provider-limit") ?? DEFAULT_PROVIDER_LIMIT,
@@ -84,7 +87,7 @@ export function parsePtRssImportArgs(
     resolveProviders: parsed.booleans.has("resolve-providers")
   };
 
-  if (options.resolveProviders && !options.write) throw new Error("--resolve-providers requires --write");
+  validatePtRssImportOptions(options);
   return options;
 }
 
@@ -92,6 +95,8 @@ export async function runPtRssImport(
   options: PtRssImportOptions,
   config?: AppConfig
 ): Promise<PtRssImportSummary> {
+  validatePtRssImportOptions(options);
+
   if (options.resolveProviders && !config) {
     throw new Error("Provider resolution requires application config");
   }
@@ -106,10 +111,12 @@ export async function runPtRssImport(
       visited: db.collection<PtRssVisitedDocument>("visited"),
       items: db.collection<PtRssItemDocument>("items")
     };
-    const query = options.site ? { "_id.site": options.site } : {};
+    const query = ptRssVisitedQuery(options);
     const cursor = collections.visited
-      .find(query)
-      .sort({ "_id.site": 1, "_id.id": 1 })
+      .find(query, {
+        allowDiskUse: true,
+        sort: { "_id.site": 1, "_id.id": 1 }
+      })
       .batchSize(options.batchSize);
     if (options.limit) cursor.limit(options.limit);
 
@@ -229,6 +236,21 @@ function emptySummary(options: PtRssImportOptions): PtRssImportSummary {
     providerSkipped: 0,
     providerDeferred: 0
   };
+}
+
+function ptRssVisitedQuery(options: PtRssImportOptions) {
+  return {
+    ...(options.site ? { "_id.site": options.site } : {}),
+    ...(options.startAfterId ? { "_id.id": { $gt: options.startAfterId } } : {})
+  };
+}
+
+function validatePtRssImportOptions(options: Pick<
+  PtRssImportOptions,
+  "resolveProviders" | "write" | "site" | "startAfterId"
+>) {
+  if (options.resolveProviders && !options.write) throw new Error("--resolve-providers requires --write");
+  if (options.startAfterId && !options.site) throw new Error("--start-after-id requires --site");
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
