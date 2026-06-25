@@ -61,6 +61,16 @@ describe("items service pagination", () => {
 
     expect(page.items.map((item) => item.id)).toEqual(["parsed-title"]);
   });
+
+  it("matches search against matched media original titles", async () => {
+    mocks.prisma.rssItem.findMany.mockResolvedValue([
+      rssItem({ id: "english-title", parsedRelease: parsedRelease({ matches: [match({ status: "MATCHED" })] }) })
+    ]);
+
+    const page = await listItems("tenant-1", { limit: 2, q: "花蕾" });
+
+    expect(page.items.map((item) => item.id)).toEqual(["english-title"]);
+  });
 });
 
 function rssItem(input: {
@@ -130,6 +140,7 @@ function match(input: { status: "MATCHED" | "UNMATCHED" }) {
           providerId: "1",
           mediaType: "MOVIE",
           title: "Example",
+          originalTitle: "花蕾",
           payload: { posterPath: "/poster.jpg" }
         }
       : null

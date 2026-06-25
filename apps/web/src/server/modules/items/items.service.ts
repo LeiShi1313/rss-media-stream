@@ -240,6 +240,7 @@ function itemMatchesSearch(item: ItemResponse, query: string) {
     item.rawTitle,
     release?.title,
     item.match?.presentation?.title,
+    item.match?.presentation?.originalTitle,
     item.feed?.name,
     release?.quality,
     release?.source,
