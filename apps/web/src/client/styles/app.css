@@ -2914,6 +2914,116 @@ input::placeholder {
   color: #fecdd3 !important;
 }
 
+.management-workbench {
+  display: grid;
+  gap: 18px;
+}
+
+.management-command {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+}
+
+.management-command-left {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.management-search {
+  width: min(380px, 100%);
+}
+
+.management-count {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.management-table {
+  display: grid;
+  min-width: 0;
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+  scrollbar-color: rgba(148, 163, 184, 0.38) transparent;
+  scrollbar-width: thin;
+}
+
+.management-table-head,
+.management-table-row {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+}
+
+.management-table-head {
+  min-height: 38px;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.management-table-row {
+  min-height: 56px;
+  border-top: 1px solid rgba(148, 163, 184, 0.13);
+  padding: 8px 0;
+  transition: background 140ms ease;
+}
+
+.management-table-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.management-primary-cell {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.management-primary-cell strong,
+.management-table-row > strong {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.management-primary-cell span,
+.management-table-row > span,
+.management-table-row code {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+}
+
+.management-table-row code {
+  display: block;
+}
+
+.downloader-table-head,
+.downloader-table-row {
+  grid-template-columns: minmax(220px, 1.35fr) 140px minmax(220px, 1.2fr) 96px minmax(160px, 0.9fr) 112px 180px;
+}
+
+.compact-action {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
 .select-content,
 .menu-content {
   border-color: var(--border);
@@ -2994,6 +3104,16 @@ input::placeholder {
   .rss-feed-table-head,
   .rss-feed-row {
     min-width: 930px;
+  }
+
+  .management-command {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .downloader-table-head,
+  .downloader-table-row {
+    min-width: 1100px;
   }
 
   .settings-form {
