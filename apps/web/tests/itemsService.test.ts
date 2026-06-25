@@ -1,0 +1,123 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  prisma: {
+    rssItem: {
+      findFirst: vi.fn(),
+      findMany: vi.fn()
+    }
+  },
+  getPresentationProviderOrder: vi.fn()
+}));
+
+vi.mock("../src/server/db.js", () => ({ prisma: mocks.prisma }));
+vi.mock("../src/server/integrations/providers/policy.js", () => ({
+  getPresentationProviderOrder: mocks.getPresentationProviderOrder
+}));
+
+const { listItems } = await import("../src/server/modules/items/items.service.js");
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.getPresentationProviderOrder.mockResolvedValue(["tmdb_api"]);
+});
+
+describe("items service pagination", () => {
+  it("returns items in a page envelope with a cursor when more rows exist", async () => {
+    mocks.prisma.rssItem.findMany.mockResolvedValue([
+      rssItem({ id: "item-3", firstSeenAt: "2026-06-25T12:00:00.000Z" }),
+      rssItem({ id: "item-2", firstSeenAt: "2026-06-25T11:00:00.000Z" }),
+      rssItem({ id: "item-1", firstSeenAt: "2026-06-25T10:00:00.000Z" })
+    ]);
+
+    const page = await listItems("tenant-1", { limit: 2 });
+
+    expect(page.items.map((item) => item.id)).toEqual(["item-3", "item-2"]);
+    expect(page.nextCursor).toBe("item-2");
+    expect(mocks.prisma.rssItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      take: 3
+    }));
+  });
+
+  it("filters serialized items by resolved match status before returning a page", async () => {
+    mocks.prisma.rssItem.findMany.mockResolvedValue([
+      rssItem({ id: "unmatched", parsedRelease: parsedRelease({ matches: [match({ status: "UNMATCHED" })] }) }),
+      rssItem({ id: "matched", parsedRelease: parsedRelease({ matches: [match({ status: "MATCHED" })] }) })
+    ]);
+
+    const page = await listItems("tenant-1", { limit: 2, status: "matched" });
+
+    expect(page.items.map((item) => item.id)).toEqual(["matched"]);
+    expect(page.nextCursor).toBeUndefined();
+  });
+});
+
+function rssItem(input: {
+  id: string;
+  firstSeenAt?: string;
+  parsedRelease?: ReturnType<typeof parsedRelease> | null;
+  downloadJobs?: Array<{ id: string; status: string; createdAt: Date }>;
+}) {
+  return {
+    id: input.id,
+    tenantId: "tenant-1",
+    feed: { id: "feed-1", name: "Feed" },
+    rawTitle: `Release ${input.id}`,
+    encryptedSourceUrl: null,
+    sizeBytes: null,
+    firstSeenAt: new Date(input.firstSeenAt ?? "2026-06-25T12:00:00.000Z"),
+    dedupeKeyType: "LINK_HASH",
+    parsedRelease: input.parsedRelease ?? null,
+    downloadJobs: input.downloadJobs ?? []
+  };
+}
+
+function parsedRelease(input: { matches?: Array<ReturnType<typeof match>> } = {}) {
+  return {
+    id: "release-1",
+    title: "Example",
+    year: 2026,
+    mediaType: "MOVIE",
+    season: null,
+    episode: null,
+    episodeEnd: null,
+    resolution: 1080,
+    quality: "WEB-DL",
+    source: "WEB",
+    codec: "H264",
+    audio: "AAC",
+    releaseGroup: "GROUP",
+    parseConfidence: 1,
+    parsedAt: new Date("2026-06-25T12:00:00.000Z"),
+    matches: input.matches ?? []
+  };
+}
+
+function match(input: { status: "MATCHED" | "UNMATCHED" }) {
+  return {
+    id: `${input.status.toLowerCase()}-match`,
+    status: input.status,
+    source: "AUTO",
+    confidence: input.status === "MATCHED" ? 0.98 : null,
+    reason: input.status === "UNMATCHED" ? "no_result" : null,
+    matchedAt: new Date("2026-06-25T12:00:00.000Z"),
+    updatedAt: new Date("2026-06-25T12:00:00.000Z"),
+    createdAt: new Date("2026-06-25T12:00:00.000Z"),
+    mediaTitle: input.status === "MATCHED"
+      ? { id: "media-1", mediaType: "MOVIE", title: "Example", releaseYear: 2026 }
+      : null,
+    mediaProviderIdentity: null,
+    providerTitle: null,
+    providerMediaMetadata: input.status === "MATCHED"
+      ? {
+          id: "metadata-1",
+          provider: "tmdb",
+          providerSource: "tmdb_api",
+          providerId: "1",
+          mediaType: "MOVIE",
+          title: "Example",
+          payload: { posterPath: "/poster.jpg" }
+        }
+      : null
+  };
+}

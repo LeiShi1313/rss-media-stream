@@ -9,6 +9,7 @@ import {
   type DownloadJob,
   type Feed,
   type Item,
+  type ItemPage,
   type Subscription,
   type User,
   type Workspace,
@@ -195,16 +196,16 @@ function Dashboard({
   async function load() {
     const results = await Promise.allSettled([
       api<Feed[]>("/api/feeds"),
-      api<Item[]>("/api/items?limit=120"),
+      api<ItemPage>("/api/items?limit=120"),
       api<Downloader[]>("/api/downloaders"),
       api<TimelinePoint[]>("/api/dashboard/timeline"),
       loadSubscriptions(),
       api<DownloadJob[]>("/api/download-jobs"),
       api<WorkspaceMember[]>("/api/workspace/members")
-    ]);
+    ] as const);
 
     applyResult(results[0], setFeeds);
-    applyResult(results[1], setItems);
+    if (results[1].status === "fulfilled") setItems(results[1].value.items);
     applyResult(results[2], setDownloaders);
     applyResult(results[3], setTimeline);
     applyResult(results[4], setSubscriptions);

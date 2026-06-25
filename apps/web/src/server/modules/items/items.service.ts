@@ -69,63 +69,79 @@ export type ItemResponse = {
 
 type ItemWithRelations = any;
 
+export type ItemPageResponse = {
+  items: ItemResponse[];
+  nextCursor?: string;
+};
+
 export async function listItems(
   tenantId: string,
   query: ItemQueryInput
-): Promise<ItemResponse[]> {
+): Promise<ItemPageResponse> {
   const where: Prisma.RssItemWhereInput = {
     tenantId,
     feedId: query.feedId,
-    OR: query.unmatched
-      ? [
-          { parsedRelease: { is: null } },
-          {
-            parsedRelease: {
-              is: {
-                matches: {
-                  none: {
-                    status: "MATCHED",
-                    invalidatedAt: null
-                  }
-                }
-              }
-            }
-          }
-        ]
-      : undefined,
     rawTitle: query.q
       ? { contains: query.q, mode: "insensitive" }
       : undefined
   };
 
-  const cursor = query.cursor
-    ? await prisma.rssItem.findFirst({
-        where: { id: query.cursor, tenantId },
-        select: { id: true, firstSeenAt: true }
-      })
-    : undefined;
-
-  const items = await prisma.rssItem.findMany({
-    where: cursor
-      ? {
-          AND: [
-            where,
-            {
-              OR: [
-                { firstSeenAt: { lt: cursor.firstSeenAt } },
-                { firstSeenAt: cursor.firstSeenAt, id: { lt: cursor.id } }
-              ]
-            }
-          ]
-        }
-      : where,
-    orderBy: [{ firstSeenAt: "desc" }, { id: "desc" }],
-    take: query.limit,
-    include: itemRelations
-  });
-
   const presentationOrders = await preloadPresentationOrders(tenantId);
-  return items.map((item) => serializeItem(item, presentationOrders));
+  const items: ItemResponse[] = [];
+  let cursorId = query.cursor;
+  const scanLimit = query.category || query.status
+    ? Math.min(200, Math.max(query.limit * 4, query.limit + 1))
+    : query.limit;
+
+  while (items.length < query.limit) {
+    const cursor = cursorId
+      ? await prisma.rssItem.findFirst({
+          where: { id: cursorId, tenantId },
+          select: { id: true, firstSeenAt: true }
+        })
+      : undefined;
+
+    const rows = await prisma.rssItem.findMany({
+      where: cursor
+        ? {
+            AND: [
+              where,
+              {
+                OR: [
+                  { firstSeenAt: { lt: cursor.firstSeenAt } },
+                  { firstSeenAt: cursor.firstSeenAt, id: { lt: cursor.id } }
+                ]
+              }
+            ]
+          }
+        : where,
+      orderBy: [{ firstSeenAt: "desc" }, { id: "desc" }],
+      take: scanLimit + 1,
+      include: itemRelations
+    });
+
+    const hasMoreRows = rows.length > scanLimit;
+    const scannedRows = rows.slice(0, scanLimit);
+    if (scannedRows.length === 0) break;
+
+    for (const [index, row] of scannedRows.entries()) {
+      cursorId = row.id;
+      const item = serializeItem(row, presentationOrders);
+      if (itemMatchesSerializedFilters(item, query)) {
+        items.push(item);
+      }
+      if (items.length >= query.limit) {
+        return {
+          items,
+          nextCursor: hasMoreRows || index < scannedRows.length - 1 ? row.id : undefined
+        };
+      }
+    }
+
+    if (!hasMoreRows) break;
+  }
+
+  return { items };
 }
 
 export async function getItem(
@@ -205,6 +221,53 @@ function releaseEnrichmentState(release: any, activeMatch: any) {
   return "PENDING";
 }
 
+function itemMatchesSerializedFilters(item: ItemResponse, query: ItemQueryInput) {
+  if (query.category && releaseCategory(item) !== query.category) return false;
+  if (query.status && !itemBelongsToStatus(item, query.status)) return false;
+  return true;
+}
+
+function releaseCategory(item: ItemResponse): "MOVIE" | "TV" | "OTHER" {
+  const release = item.parsedRelease as { kind?: "MOVIE" | "TV" | "UNKNOWN" } | undefined;
+  const kind = release?.kind && release.kind !== "UNKNOWN"
+    ? release.kind
+    : legacyKindFromMediaType(item.match?.presentation?.mediaType);
+  return kind === "MOVIE" || kind === "TV" ? kind : "OTHER";
+}
+
+function itemBelongsToStatus(
+  item: ItemResponse,
+  status: NonNullable<ItemQueryInput["status"]>
+) {
+  const identity = releaseIdentityState(item);
+  if (status === "matched") return identity === "resolved";
+  if (status === "unmatched") return identity !== "resolved";
+  if (status === "downloading") return isDownloadInProgress(item);
+  return latestDownloadJob(item)?.status === "FAILED" || identity !== "resolved";
+}
+
+function releaseIdentityState(item: ItemResponse) {
+  if (item.match?.status === "MATCHED") {
+    return item.match.attention.required ? "review" : "resolved";
+  }
+  return item.match ? "review" : "unresolved";
+}
+
+function isDownloadInProgress(item: ItemResponse) {
+  const job = latestDownloadJob(item);
+  return Boolean(job && !isTerminalDownloadStatus(job.status));
+}
+
+function latestDownloadJob(item: ItemResponse) {
+  return [...(item.downloadJobs ?? [])].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )[0];
+}
+
+function isTerminalDownloadStatus(status?: string | null) {
+  return Boolean(status && ["FAILED", "SENT", "COMPLETE", "COMPLETED", "SKIPPED"].includes(status));
+}
+
 function serializeParsedRelease(release: any) {
   return {
     id: release.id,
@@ -227,6 +290,7 @@ function serializeParsedRelease(release: any) {
   };
 }
 
-function legacyKindFromMediaType(mediaType: "MOVIE" | "TV_SERIES" | "UNKNOWN") {
+function legacyKindFromMediaType(mediaType?: "MOVIE" | "TV_SERIES" | "UNKNOWN") {
+  if (!mediaType) return undefined;
   return mediaType === "TV_SERIES" ? "TV" : mediaType;
 }

@@ -242,6 +242,11 @@ export type Item = {
   downloadJobs?: Array<{ id: string; status: string; error?: string; createdAt: string }>;
 };
 
+export type ItemPage = {
+  items: Item[];
+  nextCursor?: string;
+};
+
 export type TrendingMedia = {
   media: Media;
   releaseCount: number;
