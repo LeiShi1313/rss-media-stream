@@ -149,6 +149,7 @@ vi.mock("../src/server/integrations/providers/runtime.js", () => ({
 }));
 
 const {
+  createMatchedParsedReleaseMatch,
   listTrendingMedia,
   manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem,
@@ -1968,6 +1969,57 @@ describe("media presentation provider selection", () => {
         { providerTitle: older }
       ]
     })?.provider).toBe("customa");
+  });
+});
+
+describe("createMatchedParsedReleaseMatch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reuses an equivalent active match when preserving multiple active provider matches", async () => {
+    const existingImportedMatch = {
+      id: "existing-imdb-match",
+      status: "MATCHED",
+      mediaTitleId: "media-title-imdb",
+      mediaProviderIdentityId: "identity-imdb",
+      providerMediaMetadataId: "metadata-imdb",
+      mediaType: "MOVIE",
+      source: "AUTO",
+      confidence: 1,
+      reason: "imported_provider_identity"
+    };
+
+    mocks.prisma.parsedReleaseMatch.findFirst
+      .mockResolvedValueOnce({
+        id: "newer-douban-match",
+        status: "MATCHED",
+        mediaTitleId: "media-title-douban",
+        mediaProviderIdentityId: "identity-douban",
+        providerMediaMetadataId: "metadata-douban",
+        mediaType: "MOVIE",
+        source: "AUTO",
+        confidence: 1,
+        reason: "imported_provider_identity"
+      })
+      .mockResolvedValueOnce(existingImportedMatch);
+
+    const result = await createMatchedParsedReleaseMatch(mocks.prisma as any, {
+      tenantId: "tenant-1",
+      parsedReleaseId: "parsed-release-1",
+      mediaTitleId: "media-title-imdb",
+      mediaProviderIdentityId: "identity-imdb",
+      providerMediaMetadataId: "metadata-imdb",
+      mediaType: "MOVIE",
+      source: "AUTO",
+      confidence: 1,
+      reason: "imported_provider_identity",
+      replaceActive: false
+    });
+
+    expect(result).toBe(existingImportedMatch);
+    expect(mocks.prisma.parsedReleaseMatch.create).not.toHaveBeenCalled();
+    expect(mocks.prisma.parsedReleaseMatch.updateMany).not.toHaveBeenCalled();
   });
 });
 

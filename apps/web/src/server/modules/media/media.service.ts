@@ -1238,6 +1238,11 @@ export async function createMatchedParsedReleaseMatch(
     return active;
   }
 
+  if (input.replaceActive === false) {
+    const equivalent = await findEquivalentActiveParsedReleaseMatch(tx, input);
+    if (equivalent) return equivalent;
+  }
+
   if (input.replaceActive !== false) {
     await invalidateActiveReleaseDecisions(tx, {
       tenantId: input.tenantId,
@@ -1300,6 +1305,46 @@ export async function invalidateMatchesForParsedRelease(input: {
   return prisma.$transaction(async (tx) => {
     await lockParsedReleaseMatchWrites(tx, input);
     return invalidateActiveReleaseDecisions(tx, input);
+  });
+}
+
+async function findEquivalentActiveParsedReleaseMatch(
+  tx: Transaction,
+  input: {
+    tenantId: string;
+    parsedReleaseId: string;
+    mediaTitleId: string;
+    mediaProviderIdentityId: string;
+    providerMediaMetadataId: string;
+    mediaType: MediaType;
+    source: "AUTO" | "MANUAL";
+    confidence: number;
+    reason: string;
+  }
+): Promise<ActiveParsedReleaseMatch | null> {
+  return db(tx).parsedReleaseMatch.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      parsedReleaseId: input.parsedReleaseId,
+      mediaTitleId: input.mediaTitleId,
+      mediaProviderIdentityId: input.mediaProviderIdentityId,
+      providerMediaMetadataId: input.providerMediaMetadataId,
+      mediaType: input.mediaType,
+      status: "MATCHED",
+      source: input.source,
+      confidence: input.confidence,
+      reason: input.reason,
+      invalidatedAt: null
+    },
+    include: {
+      mediaTitle: {
+        include: { providerIdentities: { include: { metadata: true } } }
+      },
+      mediaProviderIdentity: true,
+      providerMediaMetadata: { include: { mediaProviderIdentity: true } },
+      providerTitle: true
+    },
+    orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
   });
 }
 
