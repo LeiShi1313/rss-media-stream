@@ -1,12 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Activity, Clock3, Pencil, Plus, RefreshCw, ServerCog, Trash2 } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { api, type Feed } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, UiButton } from "../components/ui/index.js";
-import { Empty, StatusPill } from "../components/common/feedback.js";
-import { DistributionBars } from "../components/common/charts.js";
-import { Modal, Panel } from "../components/common/surfaces.js";
+import { Empty } from "../components/common/feedback.js";
+import { Modal } from "../components/common/surfaces.js";
 import { relativeTime } from "../lib/format.js";
 
 const defaultPollIntervalSeconds = 600;
@@ -23,81 +22,98 @@ export function RssPage({
   const { t } = useTranslation();
   const [feedModal, setFeedModal] = useState<Feed | "new" | null>(null);
   const [deleteFeed, setDeleteFeed] = useState<Feed | null>(null);
+  const [query, setQuery] = useState("");
+  const filteredFeeds = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return feeds;
+    return feeds.filter((feed) =>
+      [feed.name, feed.urlPreview]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery))
+    );
+  }, [feeds, query]);
 
   return (
-    <div className="page-stack">
-      <section className="overview-insight-grid">
-        <Panel title={t("rss.feedVolume")} icon={<Activity size={19} />}>
-          <DistributionBars
-            entries={feeds.map((feed) => ({
-              label: feed.name,
-              value: feed.itemCount,
-              detail: feed.enabled ? t("rss.enabled") : t("rss.disabled"),
-              tone: feed.lastError ? "danger" : feed.enabled ? "good" : "neutral"
-            }))}
-            emptyLabel={t("rss.addFeedsVolume")}
-          />
-        </Panel>
-        <Panel title={t("rss.pollingCadence")} icon={<Clock3 size={19} />}>
-          <DistributionBars
-            entries={feeds.map((feed) => ({
-              label: feed.name,
-              value: Math.round(feed.pollIntervalSeconds / 60),
-              detail: feed.lastPolledAt ? t("rss.lastPolled", { time: relativeTime(feed.lastPolledAt) }) : t("rss.notPolled"),
-              tone: feed.lastError ? "danger" : "accent"
-            }))}
-            suffix="m"
-            emptyLabel={t("rss.pollingEmpty")}
-          />
-        </Panel>
-      </section>
-      <Panel
-        title={t("rss.feedSources")}
-        icon={<ServerCog size={19} />}
-        actions={
-          <UiButton className="primary" disabled={busy} onClick={() => setFeedModal("new")}>
-            <Plus size={17} />
-            {t("rss.addFeed")}
-          </UiButton>
-        }
-      >
-        <div className="list">
-          {feeds.length === 0 && <Empty label={t("rss.noFeeds")} />}
-          {feeds.map((feed) => (
-            <article className="row-card feed-card" key={feed.id}>
-              <div>
-                <strong>{feed.name}</strong>
-                <code>{feed.urlPreview ?? t("rss.removedUrl")}</code>
-                <span>{t("rss.itemPoll", { count: feed.itemCount, seconds: feed.pollIntervalSeconds })}</span>
-                {feed.lastError && <p className="error">{feed.lastError}</p>}
-              </div>
-              <div className="row-actions">
-                <StatusPill ok={feed.enabled}>{feed.enabled ? t("common.enabled") : t("common.disabled")}</StatusPill>
-                <UiButton className="secondary" disabled={busy} onClick={() => setFeedModal(feed)}>
-                  <Pencil size={16} />
-                  Edit
-                </UiButton>
-                <UiButton
-                  className="icon-button"
-                  disabled={busy}
-                  onClick={() => runAction(() => api(`/api/feeds/${feed.id}/refresh`, { method: "POST" }))}
-                  title={t("rss.refreshFeed")}
-                >
-                  <RefreshCw size={17} />
-                </UiButton>
-                <UiButton
-                  className="icon-button danger"
-                  disabled={busy}
-                  onClick={() => setDeleteFeed(feed)}
-                  title={t("rss.deleteFeed")}
-                >
-                  <Trash2 size={17} />
-                </UiButton>
-              </div>
-            </article>
-          ))}
+    <div className="rss-feed-workbench">
+      <section className="rss-feed-command" aria-label={t("rss.feedSources")}>
+        <div className="rss-feed-command-left">
+          <FieldLabel className="search-control rss-feed-search">
+            <span className="sr-only">{t("rss.searchFeeds")}</span>
+            <Search size={16} />
+            <FormInput
+              aria-label={t("rss.searchFeeds")}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("rss.searchFeeds")}
+              type="search"
+              value={query}
+            />
+          </FieldLabel>
+          <span className="rss-feed-count">{t("rss.feedCount", { count: feeds.length })}</span>
         </div>
-      </Panel>
+        <UiButton className="primary" disabled={busy} onClick={() => setFeedModal("new")}>
+          <Plus size={17} />
+          {t("rss.addFeed")}
+        </UiButton>
+      </section>
+
+      <section className="rss-feed-table" role="table" aria-label={t("rss.feedSources")}>
+        <div className="rss-feed-table-head" role="row">
+          <span role="columnheader">{t("common.feed")}</span>
+          <span role="columnheader">{t("rss.lastPoll")}</span>
+          <span role="columnheader">{t("rss.cadence")}</span>
+          <span role="columnheader">{t("rss.items")}</span>
+          <span role="columnheader">{t("rss.urlPreview")}</span>
+          <span role="columnheader">{t("rss.actions")}</span>
+        </div>
+        {feeds.length === 0 && <Empty label={t("rss.noFeeds")} />}
+        {feeds.length > 0 && filteredFeeds.length === 0 && <Empty label={t("rss.noMatchingFeeds")} />}
+        {filteredFeeds.map((feed) => (
+          <article className={feed.lastError ? "rss-feed-row error" : "rss-feed-row"} key={feed.id} role="row">
+            <div className="rss-feed-copy" role="cell">
+              <strong>{feed.name}</strong>
+              {feed.lastError ? (
+                <span className="rss-feed-error">{feed.lastError}</span>
+              ) : (
+                <span>{feed.hasRequestHeaders ? t("rss.headersConfigured") : t("rss.noRequestHeaders")}</span>
+              )}
+            </div>
+            <span role="cell">{feed.lastPolledAt ? relativeTime(feed.lastPolledAt) : t("rss.notPolledShort")}</span>
+            <span role="cell">{formatPollInterval(feed.pollIntervalSeconds)}</span>
+            <strong role="cell">{feed.itemCount.toLocaleString()}</strong>
+            <code role="cell">{feed.urlPreview ?? t("rss.removedUrl")}</code>
+            <div className="row-actions" role="cell">
+              <UiButton
+                aria-label={t("rss.refreshFeedNamed", { name: feed.name })}
+                className="icon-button"
+                disabled={busy}
+                onClick={() => runAction(() => api(`/api/feeds/${feed.id}/refresh`, { method: "POST" }))}
+                title={t("rss.refreshFeed")}
+              >
+                <RefreshCw size={17} />
+              </UiButton>
+              <UiButton
+                aria-label={t("rss.editFeedNamed", { name: feed.name })}
+                className="icon-button"
+                disabled={busy}
+                onClick={() => setFeedModal(feed)}
+                title={t("common.edit")}
+              >
+                <Pencil size={16} />
+              </UiButton>
+              <UiButton
+                aria-label={t("rss.deleteFeedNamed", { name: feed.name })}
+                className="icon-button danger"
+                disabled={busy}
+                onClick={() => setDeleteFeed(feed)}
+                title={t("rss.deleteFeed")}
+              >
+                <Trash2 size={17} />
+              </UiButton>
+            </div>
+          </article>
+        ))}
+      </section>
+
       {feedModal && (
         <Modal
           title={feedModal === "new" ? t("rss.addRssFeed") : t("rss.editRssFeed")}
@@ -140,6 +156,12 @@ export function RssPage({
       )}
     </div>
   );
+}
+
+function formatPollInterval(seconds: number) {
+  if (seconds < 120) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${Math.round(seconds / 3600)}h`;
 }
 
 function DeleteFeedConfirmation({
