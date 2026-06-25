@@ -124,7 +124,7 @@ export async function listItems(
     for (const [index, row] of scannedRows.entries()) {
       cursorId = row.id;
       const item = serializeItem(row, presentationOrders);
-      if (itemMatchesSerializedFilters(item, query)) {
+      if (itemMatchesSerializedFilters(row, item, query)) {
         items.push(item);
       }
       if (items.length >= query.limit) {
@@ -218,16 +218,22 @@ function releaseEnrichmentState(release: any, activeMatch: any) {
   return "PENDING";
 }
 
-function itemMatchesSerializedFilters(item: ItemResponse, query: ItemQueryInput) {
-  if (query.q && !itemMatchesSearch(item, query.q)) return false;
+function itemMatchesSerializedFilters(row: ItemWithRelations, item: ItemResponse, query: ItemQueryInput) {
+  if (query.q && !itemMatchesSearch(row, item, query.q)) return false;
   if (query.category && releaseCategory(item) !== query.category) return false;
   if (query.status && !itemBelongsToStatus(item, query.status)) return false;
   return true;
 }
 
-function itemMatchesSearch(item: ItemResponse, query: string) {
+function itemMatchesSearch(row: ItemWithRelations, item: ItemResponse, query: string) {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return true;
+  return itemSearchCandidates(row, item).some((value) =>
+    String(value).toLowerCase().includes(normalizedQuery)
+  );
+}
+
+function itemSearchCandidates(row: ItemWithRelations, item: ItemResponse) {
   const release = item.parsedRelease as {
     title?: string | null;
     quality?: string | null;
@@ -236,7 +242,8 @@ function itemMatchesSearch(item: ItemResponse, query: string) {
     audio?: string | null;
     releaseGroup?: string | null;
   } | undefined;
-  return [
+
+  const candidates: unknown[] = [
     item.rawTitle,
     release?.title,
     item.match?.presentation?.title,
@@ -247,9 +254,39 @@ function itemMatchesSearch(item: ItemResponse, query: string) {
     release?.codec,
     release?.audio,
     release?.releaseGroup
-  ]
-    .filter(Boolean)
-    .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+  ];
+
+  for (const match of row.parsedRelease?.matches ?? []) {
+    addMediaTitleSearchCandidates(candidates, match.mediaTitle);
+    addProviderMetadataSearchCandidates(candidates, match.providerMediaMetadata);
+    addProviderTitleSearchCandidates(candidates, match.providerTitle);
+
+    for (const identity of match.mediaTitle?.providerIdentities ?? []) {
+      for (const metadata of identity.metadata ?? []) {
+        addProviderMetadataSearchCandidates(candidates, metadata);
+      }
+    }
+  }
+
+  return candidates.filter(Boolean);
+}
+
+function addMediaTitleSearchCandidates(candidates: unknown[], mediaTitle: any) {
+  if (!mediaTitle) return;
+  candidates.push(mediaTitle.title, mediaTitle.canonicalTitle, mediaTitle.originalTitle);
+}
+
+function addProviderMetadataSearchCandidates(candidates: unknown[], metadata: any) {
+  if (!metadata) return;
+  candidates.push(metadata.title, metadata.originalTitle);
+  if (Array.isArray(metadata.titleAliases)) {
+    candidates.push(...metadata.titleAliases);
+  }
+}
+
+function addProviderTitleSearchCandidates(candidates: unknown[], providerTitle: any) {
+  if (!providerTitle) return;
+  candidates.push(providerTitle.title, providerTitle.originalTitle);
 }
 
 function releaseCategory(item: ItemResponse): "MOVIE" | "TV" | "OTHER" {

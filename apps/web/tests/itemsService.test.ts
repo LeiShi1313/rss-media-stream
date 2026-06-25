@@ -71,6 +71,34 @@ describe("items service pagination", () => {
 
     expect(page.items.map((item) => item.id)).toEqual(["english-title"]);
   });
+
+  it("matches search against aliases from non-presentation provider metadata", async () => {
+    mocks.prisma.rssItem.findMany.mockResolvedValue([
+      rssItem({
+        id: "provider-alias",
+        parsedRelease: parsedRelease({
+          matches: [
+            match({
+              status: "MATCHED",
+              linkedMetadata: [
+                {
+                  id: "metadata-alt",
+                  providerSource: "douban_api",
+                  title: "Buds",
+                  originalTitle: "蓓蕾",
+                  titleAliases: ["花样年华"]
+                }
+              ]
+            })
+          ]
+        })
+      })
+    ]);
+
+    const page = await listItems("tenant-1", { limit: 2, q: "花样年华" });
+
+    expect(page.items.map((item) => item.id)).toEqual(["provider-alias"]);
+  });
 });
 
 function rssItem(input: {
@@ -117,7 +145,16 @@ function parsedRelease(input: {
   };
 }
 
-function match(input: { status: "MATCHED" | "UNMATCHED" }) {
+function match(input: {
+  status: "MATCHED" | "UNMATCHED";
+  linkedMetadata?: Array<{
+    id: string;
+    providerSource: string;
+    title: string;
+    originalTitle?: string;
+    titleAliases?: string[];
+  }>;
+}) {
   return {
     id: `${input.status.toLowerCase()}-match`,
     status: input.status,
@@ -128,7 +165,18 @@ function match(input: { status: "MATCHED" | "UNMATCHED" }) {
     updatedAt: new Date("2026-06-25T12:00:00.000Z"),
     createdAt: new Date("2026-06-25T12:00:00.000Z"),
     mediaTitle: input.status === "MATCHED"
-      ? { id: "media-1", mediaType: "MOVIE", title: "Example", releaseYear: 2026 }
+      ? {
+          id: "media-1",
+          mediaType: "MOVIE",
+          title: "Example",
+          originalTitle: null,
+          releaseYear: 2026,
+          providerIdentities: [
+            {
+              metadata: input.linkedMetadata ?? []
+            }
+          ]
+        }
       : null,
     mediaProviderIdentity: null,
     providerTitle: null,
