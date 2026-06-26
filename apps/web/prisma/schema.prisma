@@ -544,7 +544,7 @@ model SubscriptionRule {
   id                   String       @id @default(cuid())
   tenantId             String
   subscriptionId       String
-  mode                 String       @default("MEDIA_TITLE")
+  mode                 String       @default("MEDIA_TITLE") @map("ruleMode")
   mediaType            MediaType?
   provider             String?
   providerEntityType   String?
