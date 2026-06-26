@@ -1452,6 +1452,207 @@ small {
   font-size: 0.86rem;
 }
 
+.subscription-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.subscription-mode-chooser {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-strong);
+  padding: 4px;
+}
+
+.subscription-mode-chooser .segmented-tab {
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.subscription-mode-chooser .segmented-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.subscription-search-step {
+  display: grid;
+  gap: 10px;
+}
+
+.subscription-search-row {
+  display: grid;
+  grid-template-columns: 150px minmax(260px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.subscription-search-input {
+  min-width: 0;
+}
+
+.subscription-result-shell {
+  display: grid;
+  min-height: 320px;
+  align-content: start;
+  gap: 10px;
+}
+
+.subscription-result-list {
+  display: grid;
+  max-height: min(58vh, 560px);
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.subscription-result-list li {
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.subscription-result-list li:last-child {
+  border-bottom: 0;
+}
+
+.subscription-result-row {
+  display: grid;
+  width: 100%;
+  min-height: 76px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 9px 4px;
+  text-align: left;
+}
+
+.subscription-result-row:hover {
+  background: var(--surface-strong);
+}
+
+.subscription-result-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.subscription-result-copy strong,
+.subscription-selected-media strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subscription-result-copy span,
+.subscription-selected-media span,
+.subscription-selected-media small,
+.subscription-feed-picker > span,
+.subscription-advanced summary {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.subscription-media-poster {
+  display: grid;
+  width: 46px;
+  aspect-ratio: 2 / 3;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--surface-strong);
+  color: var(--muted);
+  object-fit: cover;
+}
+
+.subscription-selected-media {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.subscription-selected-media > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.subscription-rule-primary,
+.subscription-advanced-body {
+  display: grid;
+  gap: 12px;
+}
+
+.subscription-rule-primary {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.subscription-rule-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) minmax(220px, 1fr) minmax(260px, 1.1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.subscription-rule-row,
+.subscription-episode-row {
+  display: grid;
+  gap: 10px;
+}
+
+.subscription-rule-row {
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.1fr);
+}
+
+.subscription-episode-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.subscription-feed-picker {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.subscription-feed-list.compact {
+  max-height: 132px;
+  overflow: auto;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.subscription-advanced {
+  display: grid;
+  gap: 10px;
+}
+
+.subscription-advanced summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.subscription-advanced[open] summary {
+  margin-bottom: 10px;
+}
+
+.subscription-wide-field {
+  min-width: 0;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1871,6 +2072,10 @@ small {
   .search-form,
   .form-grid,
   .form-grid.three,
+  .subscription-search-row,
+  .subscription-rule-grid,
+  .subscription-rule-row,
+  .subscription-episode-row,
   .subscription-feed-list,
   .subscription-filter-row.linked,
   .subscription-filter-row.rating,
@@ -1878,6 +2083,15 @@ small {
   .metric-grid,
   .status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .subscription-selected-media {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .subscription-selected-media .secondary {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 
   .subscription-filter-row .icon-button {

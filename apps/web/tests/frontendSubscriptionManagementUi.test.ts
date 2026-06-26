@@ -8,7 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 describe("Subscription management UI", () => {
   it("uses a flat searchable subscription table instead of row cards", () => {
     const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
-    const listSource = source.split("function SubscriptionEditForm")[0];
+    const listSource = source.split("function SubscriptionEditorModal")[0];
 
     expect(listSource).toContain('className="management-command"');
     expect(listSource).toContain('className="management-table"');
@@ -24,9 +24,10 @@ describe("Subscription management UI", () => {
 
   it("preserves create and edit actions in the flat management surface", () => {
     const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
-    const listSource = source.split("function SubscriptionEditForm")[0];
+    const listSource = source.split("function SubscriptionEditorModal")[0];
 
     expect(listSource).toContain("setCreateOpen(true)");
+    expect(listSource).toContain("<SubscriptionEditorModal");
     expect(listSource).toContain('aria-label={t("subscriptions.editSubscriptionNamed", { name: subscription.title })}');
     expect(listSource).toContain("setEditingSubscription(subscription)");
   });
@@ -43,7 +44,7 @@ describe("Subscription management UI", () => {
   it("exposes Sonarr-style rule controls without nested cards", () => {
     const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
 
-    expect(source).toContain("setMode");
+    expect(source).toContain("RuleModeChooser");
     expect(source).toContain("feedIds");
     expect(source).toContain("preferredReleaseGroups");
     expect(source).toContain("upgradePolicy");
@@ -51,5 +52,15 @@ describe("Subscription management UI", () => {
     expect(source).toContain("seasonPackAllowed");
     expect(source).toContain("subscription-feed-list");
     expect(source).not.toContain("subscription-rule-card");
+  });
+
+  it("searches provider media before showing media-title rule controls", () => {
+    const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
+
+    expect(source).toContain("/api/provider-titles/search?");
+    expect(source).toContain("/api/provider-titles/resolve");
+    expect(source).toContain("mediaTitleId: selectedMedia.mediaTitleId");
+    expect(source).toContain("subscription-result-list");
+    expect(source).toContain("subscription-selected-media");
   });
 });

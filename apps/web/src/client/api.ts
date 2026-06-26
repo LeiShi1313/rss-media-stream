@@ -299,6 +299,21 @@ export type MediaSearchResult = {
   externalUrl?: string;
 };
 
+export type ResolvedMediaTitle = {
+  mediaTitleId: string;
+  mediaType: Exclude<MediaType, "UNKNOWN">;
+  title: string;
+  originalTitle?: string | null;
+  year?: number | null;
+  posterUrl?: string | null;
+  hasCover: boolean;
+  provider: string;
+  providerSource?: string;
+  providerEntityType?: ProviderEntityType;
+  providerId: string;
+  presentation?: MediaPresentationDto;
+};
+
 export type Subscription = {
   id: string;
   title: string;
