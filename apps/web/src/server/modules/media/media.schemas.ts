@@ -134,3 +134,5 @@ export const manualProviderMatchSchema = z
     (input) => input.providerSource.startsWith("ptgen_") || !input.providerEntityType || input.providerEntityType === providerEntityTypeFor(input.providerSource === "tmdb_api" ? "tmdb" : "tvdb", input.mediaType),
     { message: "providerEntityType must match provider and media type" }
   );
+
+export const providerTitleResolveSchema = manualProviderMatchSchema;

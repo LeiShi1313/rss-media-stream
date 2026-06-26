@@ -11,6 +11,7 @@ import {
   listTrendingMedia,
   manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem,
+  resolveProviderMediaTitle,
   searchLocalMedia,
   searchExternalMedia,
   smartSearchExternalMedia
@@ -21,6 +22,7 @@ import {
   manualProviderMatchSchema,
   mediaParamsSchema,
   mediaSearchQuerySchema,
+  providerTitleResolveSchema,
   smartProviderTitleSearchSchema,
   trendingMediaQuerySchema
 } from "./media.schemas.js";
@@ -60,6 +62,17 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
       const query = parseBody(smartProviderTitleSearchSchema, request);
       const results = await smartSearchExternalMedia(config, request.tenantId!, query);
       return { results };
+    }
+  );
+
+  app.post(
+    "/api/provider-titles/resolve",
+    { preHandler: requireTenantRole("MEMBER") },
+    async (request) => {
+      const input = parseBody(providerTitleResolveSchema, request);
+      const resolved = await resolveProviderMediaTitle(config, request.tenantId!, input);
+      await audit(request, "media_title.resolve_provider", "media_title", resolved.mediaTitleId);
+      return resolved;
     }
   );
 

@@ -153,6 +153,7 @@ const {
   listTrendingMedia,
   manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem,
+  resolveProviderMediaTitle,
   searchExternalMedia,
   smartSearchExternalMedia,
   upsertProviderMediaMetadata
@@ -2020,6 +2021,67 @@ describe("createMatchedParsedReleaseMatch", () => {
     expect(result).toBe(existingImportedMatch);
     expect(mocks.prisma.parsedReleaseMatch.create).not.toHaveBeenCalled();
     expect(mocks.prisma.parsedReleaseMatch.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveProviderMediaTitle", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.provider.fetchTitle.mockResolvedValue(providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_tv",
+      providerId: "300",
+      mediaType: "TV_SERIES",
+      title: "TV Stand-up Comedy",
+      normalizedTitle: "tv stand up comedy",
+      releaseYear: 2024,
+      payload: { posterPath: "/poster.jpg" }
+    }));
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-stand-up",
+      mediaType: "TV_SERIES",
+      title: "TV Stand-up Comedy",
+      titleKey: "tv stand up comedy",
+      releaseYear: 2024
+    });
+  });
+
+  it("resolves a selected provider result into a canonical media title", async () => {
+    const resolved = await resolveProviderMediaTitle(config, "tenant-1", {
+      providerSource: "tmdb_api",
+      providerEntityType: "tmdb_tv",
+      providerId: "300",
+      mediaType: "TV_SERIES"
+    });
+
+    expect(mocks.provider.fetchTitle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerEntityType: "tmdb_tv",
+        providerId: "300",
+        mediaType: "TV_SERIES"
+      }),
+      expect.objectContaining({ runtime: expect.objectContaining({ tenantId: "tenant-1" }) })
+    );
+    expect(mocks.prisma.mediaProviderIdentity.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        mediaTitleId: "media-title-stand-up",
+        provider: "tmdb",
+        providerId: "300",
+        mediaType: "TV_SERIES",
+        linkSource: "MANUAL",
+        linkConfidence: 1
+      })
+    }));
+    expect(resolved).toMatchObject({
+      mediaTitleId: "media-title-stand-up",
+      mediaType: "TV_SERIES",
+      title: "TV Stand-up Comedy",
+      provider: "tmdb",
+      providerSource: "tmdb_api",
+      providerEntityType: "tmdb_tv",
+      providerId: "300"
+    });
   });
 });
 

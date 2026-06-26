@@ -30,12 +30,14 @@ import {
 import type {
   localMediaSearchQuerySchema,
   mediaSearchQuerySchema,
+  providerTitleResolveSchema,
   trendingMediaQuerySchema
 } from "./media.schemas.js";
 import type { z } from "zod";
 
 type MediaSearchQuery = z.infer<typeof mediaSearchQuerySchema>;
 type ConcreteMediaType = "MOVIE" | "TV_SERIES";
+type ProviderTitleResolveInput = z.infer<typeof providerTitleResolveSchema>;
 type SmartProviderTitleSearchInput = {
   input: string;
   providerSource?: ProviderSource;
@@ -195,6 +197,49 @@ export async function smartSearchExternalMedia(
 
   const results = await searchProviderTargets(config, tenantId, targets);
   return dedupeProviderResults(results).map(serializeProviderTitleSearchResult);
+}
+
+export async function resolveProviderMediaTitle(
+  config: AppConfig,
+  tenantId: string,
+  input: ProviderTitleResolveInput
+) {
+  const providerSource = canonicalProviderSource(input.providerSource);
+  if (!providerSource) {
+    throw conflict("UNSUPPORTED_PROVIDER_SOURCE", "Provider title resolution requires a supported provider source");
+  }
+  const providerEntityType = input.providerEntityType ?? providerEntityTypeForSource(providerSource, input.mediaType);
+  const selected = await runProviderDetailLookup(config, tenantId, providerSource, {
+    providerEntityType,
+    providerId: providerDetailIdForSource(providerSource, input.providerId),
+    mediaType: input.mediaType
+  });
+
+  const resolved = await prisma.$transaction(async (tx) =>
+    upsertProviderMediaMetadata(tx, selected, {
+      linkConfidence: 1,
+      linkSource: "MANUAL"
+    })
+  );
+  const presentation = serializeMediaPresentation({
+    mediaTitle: resolved.mediaTitle,
+    providerMetadata: resolved.metadata
+  });
+
+  return {
+    mediaTitleId: resolved.mediaTitle.id,
+    mediaType: resolved.mediaTitle.mediaType,
+    title: presentation.title,
+    originalTitle: presentation.originalTitle,
+    year: presentation.releaseYear,
+    posterUrl: presentation.posterUrl,
+    hasCover: presentation.hasCover,
+    provider: resolved.identity.provider,
+    providerSource: selected.providerSource,
+    providerEntityType: selected.providerEntityType,
+    providerId: resolved.identity.providerId,
+    presentation
+  };
 }
 
 export async function searchLocalMedia(tenantId: string, query: LocalMediaSearchQuery) {
