@@ -78,10 +78,7 @@ export async function listItems(
   tenantId: string,
   query: ItemQueryInput
 ): Promise<ItemPageResponse> {
-  const where: Prisma.RssItemWhereInput = {
-    tenantId,
-    feedId: query.feedId
-  };
+  const where = itemListWhere(tenantId, query);
 
   const presentationOrders = await preloadPresentationOrders(tenantId);
   const items: ItemResponse[] = [];
@@ -139,6 +136,101 @@ export async function listItems(
   }
 
   return { items };
+}
+
+function itemListWhere(tenantId: string, query: ItemQueryInput): Prisma.RssItemWhereInput {
+  const filters: Prisma.RssItemWhereInput[] = [{
+    tenantId,
+    feedId: query.feedId
+  }];
+  const searchWhere = query.q ? itemDatabaseSearchWhere(query.q) : undefined;
+  if (searchWhere) filters.push(searchWhere);
+  return filters.length === 1 ? filters[0] : { AND: filters };
+}
+
+function itemDatabaseSearchWhere(query: string): Prisma.RssItemWhereInput | undefined {
+  const value = query.trim();
+  if (!value) return undefined;
+
+  return {
+    OR: [
+      { rawTitle: stringContains(value) },
+      { feed: { name: stringContains(value) } },
+      {
+        parsedRelease: {
+          is: {
+            OR: [
+              { title: stringContains(value) },
+              { quality: stringContains(value) },
+              { source: stringContains(value) },
+              { codec: stringContains(value) },
+              { audio: stringContains(value) },
+              { releaseGroup: stringContains(value) },
+              { matches: { some: activeMatchSearchWhere(value) } }
+            ]
+          }
+        }
+      }
+    ]
+  };
+}
+
+function activeMatchSearchWhere(query: string): Prisma.ParsedReleaseMatchWhereInput {
+  return {
+    invalidatedAt: null,
+    OR: [
+      { status: ParsedReleaseMatchStatus.MATCHED },
+      { status: ParsedReleaseMatchStatus.UNMATCHED }
+    ],
+    AND: [{
+      OR: [
+        { mediaTitle: { is: mediaTitleSearchWhere(query) } },
+        { providerMediaMetadata: { is: providerMetadataSearchWhere(query) } },
+        { providerTitle: { is: providerTitleSearchWhere(query) } }
+      ]
+    }]
+  };
+}
+
+function mediaTitleSearchWhere(query: string): Prisma.MediaTitleWhereInput {
+  return {
+    OR: [
+      { title: stringContains(query) },
+      { originalTitle: stringContains(query) },
+      {
+        providerIdentities: {
+          some: {
+            metadata: {
+              some: providerMetadataSearchWhere(query)
+            }
+          }
+        }
+      }
+    ]
+  };
+}
+
+function providerMetadataSearchWhere(query: string): Prisma.ProviderMediaMetadataWhereInput {
+  return {
+    OR: [
+      { title: stringContains(query) },
+      { originalTitle: stringContains(query) },
+      { titleAliases: { has: query } }
+    ]
+  };
+}
+
+function providerTitleSearchWhere(query: string): Prisma.ProviderTitleWhereInput {
+  return {
+    OR: [
+      { title: stringContains(query) },
+      { originalTitle: stringContains(query) }
+    ]
+  };
+}
+
+function stringContains(value: string): Prisma.StringFilter {
+  return { contains: value, mode: "insensitive" };
 }
 
 export async function getItem(

@@ -62,6 +62,17 @@ describe("items service pagination", () => {
     expect(page.items.map((item) => item.id)).toEqual(["parsed-title"]);
   });
 
+  it("pushes item search terms into the database query", async () => {
+    mocks.prisma.rssItem.findMany.mockResolvedValue([]);
+
+    await listItems("tenant-1", { limit: 2, q: "花样年华" });
+
+    const where = mocks.prisma.rssItem.findMany.mock.calls[0]?.[0]?.where;
+    expect(JSON.stringify(where)).toContain("花样年华");
+    expect(JSON.stringify(where)).toContain("parsedRelease");
+    expect(JSON.stringify(where)).toContain("titleAliases");
+  });
+
   it("matches search against matched media original titles", async () => {
     mocks.prisma.rssItem.findMany.mockResolvedValue([
       rssItem({ id: "english-title", parsedRelease: parsedRelease({ matches: [match({ status: "MATCHED" })] }) })
