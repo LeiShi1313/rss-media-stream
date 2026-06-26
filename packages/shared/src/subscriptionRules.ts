@@ -175,24 +175,31 @@ export function evaluateSubscriptionRule(
     }
   }
 
-  if (requiresStrictEpisode(normalized, candidate)) {
-    if (!hasNumber(candidate.release.season) || !hasNumber(candidate.release.episode)) {
+  if (isSeriesRuleOrRelease(normalized, candidate)) {
+    if (!hasNumber(candidate.release.season)) {
       return reject("series release lacks strict season and episode fields", normalized);
     }
     if (hasNumber(normalized.season) && candidate.release.season !== normalized.season) {
       return reject("season does not match subscription", normalized);
     }
-    if (
-      hasNumber(normalized.episodeStart) &&
-      candidate.release.episode < normalized.episodeStart
-    ) {
-      return reject("episode is before subscription range", normalized);
-    }
-    if (
-      hasNumber(normalized.episodeEnd) &&
-      candidate.release.episode > normalized.episodeEnd
-    ) {
-      return reject("episode is after subscription range", normalized);
+
+    if (!hasNumber(candidate.release.episode)) {
+      if (!normalized.seasonPackAllowed || hasEpisodeRangeFilter(normalized)) {
+        return reject("series release lacks strict season and episode fields", normalized);
+      }
+    } else {
+      if (
+        hasNumber(normalized.episodeStart) &&
+        candidate.release.episode < normalized.episodeStart
+      ) {
+        return reject("episode is before subscription range", normalized);
+      }
+      if (
+        hasNumber(normalized.episodeEnd) &&
+        candidate.release.episode > normalized.episodeEnd
+      ) {
+        return reject("episode is after subscription range", normalized);
+      }
     }
   }
 
@@ -496,7 +503,7 @@ function matchesFeed(feedIds: string[], candidateFeedId: string | null | undefin
   return Boolean(candidateFeedId && feedIds.includes(candidateFeedId));
 }
 
-function requiresStrictEpisode(
+function isSeriesRuleOrRelease(
   rule: NormalizedSubscriptionRule,
   candidate: CandidateInput
 ): boolean {
@@ -507,6 +514,10 @@ function requiresStrictEpisode(
     hasNumber(rule.episodeStart) ||
     hasNumber(rule.episodeEnd)
   );
+}
+
+function hasEpisodeRangeFilter(rule: NormalizedSubscriptionRule): boolean {
+  return hasNumber(rule.episodeStart) || hasNumber(rule.episodeEnd);
 }
 
 function hasNumber(value: number | undefined): value is number {

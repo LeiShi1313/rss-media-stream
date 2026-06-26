@@ -346,6 +346,7 @@ describe("evaluateSubscriptionRule", () => {
     const decision = evaluateSubscriptionRule(
       {
         mediaType: "TV_SERIES",
+        seasonPackAllowed: false,
         minResolution: "720p"
       },
       candidate({
@@ -381,6 +382,46 @@ describe("evaluateSubscriptionRule", () => {
       accepted: false,
       reason: "series release lacks strict season and episode fields"
     });
+  });
+
+  it("accepts TV season packs when season packs are allowed", () => {
+    const decision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        season: 1,
+        minResolution: "720p",
+        seasonPackAllowed: true
+      },
+      candidate({
+        rawTitle: "Example.Show.S01.1080p.BluRay.x265-GRP",
+        release: {
+          title: "Example Show",
+          mediaType: "TV_SERIES",
+          season: 1,
+          quality: "1080p",
+          parseConfidence: 0.8
+        },
+        activeMatch: {
+          id: "match_tv",
+          status: "MATCHED",
+          source: "AUTO",
+          confidence: 0.94,
+          mediaTitle: {
+            id: "media_tv",
+            mediaType: "TV_SERIES",
+            canonicalTitle: "Example Show"
+          },
+          selectedProviderTitle: {
+            ...tmdbTitle,
+            providerEntityType: "tmdb_tv",
+            mediaType: "TV_SERIES"
+          },
+          linkedProviderTitles: []
+        }
+      })
+    );
+
+    expect(decision).toMatchObject({ accepted: true, reason: "accepted" });
   });
 
   it("rejects excluded releases", () => {

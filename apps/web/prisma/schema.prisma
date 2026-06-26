@@ -102,6 +102,7 @@ model Tenant {
   downloaders          Downloader[]
   subscriptions        Subscription[]
   subscriptionRules    SubscriptionRule[]
+  subscriptionAcquisitions SubscriptionAcquisition[]
   matchDecisions       SubscriptionMatchDecision[]
   downloadJobs         DownloadJob[]
   audits               AuditLog[]
@@ -543,6 +544,7 @@ model SubscriptionRule {
   id                   String       @id @default(cuid())
   tenantId             String
   subscriptionId       String
+  mode                 String       @default("MEDIA_TITLE")
   mediaType            MediaType?
   provider             String?
   providerEntityType   String?
@@ -557,13 +559,18 @@ model SubscriptionRule {
   sources              String[]
   codecs               String[]
   audio                String[]
+  feedIds              String[]     @default([])
   releaseGroupsInclude String[]
   releaseGroupsExclude String[]
+  preferredReleaseGroups String[]   @default([])
   minSizeBytes         BigInt?
   maxSizeBytes         BigInt?
   season               Int?
   episodeStart         Int?
   episodeEnd           Int?
+  upgradePolicy        String       @default("none")
+  allowCrossSeed       Boolean      @default(false)
+  seasonPackAllowed    Boolean      @default(true)
   criteriaJson         Json?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
@@ -577,6 +584,37 @@ model SubscriptionRule {
   @@index([tenantId, provider, providerId])
   @@index([tenantId, imdbId])
   @@index([tenantId, doubanId])
+}
+
+model SubscriptionAcquisition {
+  id                       String    @id @default(cuid())
+  tenantId                 String
+  contentKey               String
+  mediaTitleId             String?
+  unitType                 String
+  season                   Int?
+  episode                  Int?
+  episodeEnd               Int?
+  acceptedBySubscriptionId String?
+  currentItemId            String?
+  currentJobId             String?
+  currentFeedId            String?
+  currentResolution        Int?
+  currentSource            String?
+  currentSourceRank        Int?
+  currentReleaseGroup      String?
+  currentScoreJson         Json?
+  crossSeedFeedsJson       Json?
+  satisfiedAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  tenant                   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, contentKey])
+  @@index([tenantId, mediaTitleId])
+  @@index([tenantId, acceptedBySubscriptionId])
+  @@index([tenantId, currentItemId])
+  @@index([tenantId, currentJobId])
 }
 
 model SubscriptionMatchDecision {
