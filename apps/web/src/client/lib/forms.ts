@@ -50,7 +50,9 @@ export function ruleSummary(subscription: Subscription, t?: Translate) {
   const rule = subscription.rule;
   if (!rule) return t?.("subscriptions.noRule") ?? "No rule configured";
   return [
+    rule.mode === "REGEX" ? t?.("subscriptions.regexMode") ?? "Regex" : t?.("subscriptions.mediaTitleMode") ?? "Media title",
     rule.mediaType === "TV_SERIES" ? t?.("common.series") ?? "Series" : rule.mediaType,
+    rule.season ? t?.("subscriptions.seasonRule", { value: rule.season }) ?? `S${rule.season}` : undefined,
     rule.minResolution ? `${rule.minResolution}p+` : undefined,
     rule.selectedProvider
       ? `${providerLabel(rule.selectedProvider.provider)} ${rule.selectedProvider.providerId}`
@@ -61,6 +63,11 @@ export function ruleSummary(subscription: Subscription, t?: Translate) {
     ...(rule.providerRatings ?? []).map((filter) =>
       `${providerLabel(filter.provider)} ${filter.ratingType ?? ""} ${comparisonLabel(filter.comparison)} ${filter.value}${filter.scale ? `/${filter.scale}` : ""}${filter.minVoteCount ? ` (${filter.minVoteCount}+ votes)` : ""}`.replace(/\s+/g, " ").trim()
     ),
+    rule.feedIds?.length ? t?.("subscriptions.feedRule", { count: rule.feedIds.length }) ?? `${rule.feedIds.length} feeds` : undefined,
+    rule.preferredReleaseGroups?.length ? t?.("subscriptions.preferredGroupRule", { value: rule.preferredReleaseGroups.join(", ") }) ?? `prefer ${rule.preferredReleaseGroups.join(", ")}` : undefined,
+    rule.upgradePolicy && rule.upgradePolicy !== "none"
+      ? t?.(`subscriptions.upgradeRule.${rule.upgradePolicy}`) ?? rule.upgradePolicy
+      : undefined,
     rule.includeRegex ? t?.("subscriptions.includeRule", { value: rule.includeRegex }) ?? `include /${rule.includeRegex}/` : undefined,
     rule.excludeRegex ? t?.("subscriptions.excludeRule", { value: rule.excludeRegex }) ?? `exclude /${rule.excludeRegex}/` : undefined
   ]

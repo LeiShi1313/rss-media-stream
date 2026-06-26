@@ -324,11 +324,13 @@ export type Subscription = {
   autoDownload: boolean;
   enabled: boolean;
   rule?: {
+    mode?: "MEDIA_TITLE" | "REGEX";
     mediaType?: MediaType;
     mediaTitleId?: string;
     selectedProvider?: ProviderIdentityFilter;
     linkedProviders?: ProviderIdentityFilter[];
     providerRatings?: ProviderRatingFilter[];
+    feedIds?: string[];
     titleRegex?: string;
     includeRegex?: string;
     excludeRegex?: string;
@@ -339,11 +341,15 @@ export type Subscription = {
     audio?: string[];
     releaseGroupsInclude?: string[];
     releaseGroupsExclude?: string[];
+    preferredReleaseGroups?: string[];
     minSizeBytes?: string;
     maxSizeBytes?: string;
     season?: number;
     episodeStart?: number;
     episodeEnd?: number;
+    upgradePolicy?: "none" | "better_quality" | "preferred_release_group";
+    allowCrossSeed?: boolean;
+    seasonPackAllowed?: boolean;
   };
   createdAt: string;
   updatedAt: string;

@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Film, Pencil, Plus, Search, Trash2 } from "lucide-react";
-import { api, type Downloader, type MediaSearchResult, type ProviderIdentityFilter, type ProviderRatingFilter, type Subscription } from "../api.js";
+import { api, type Downloader, type Feed, type MediaSearchResult, type ProviderIdentityFilter, type ProviderRatingFilter, type Subscription } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
 import { Empty } from "../components/common/feedback.js";
@@ -11,11 +11,13 @@ import { numberOrUndefined, optionalText, providerValue, ruleSummary, stringList
 export function SubscriptionsPage({
   busy,
   downloaders,
+  feeds,
   subscriptions,
   runAction
 }: {
   busy: boolean;
   downloaders: Downloader[];
+  feeds: Feed[];
   subscriptions: Subscription[];
   runAction: RunAction;
 }) {
@@ -102,6 +104,7 @@ export function SubscriptionsPage({
         <Modal title={t("subscriptions.create")} onClose={() => setCreateOpen(false)}>
           <SubscriptionSearch
             downloaders={downloaders}
+            feeds={feeds}
             onSubscribe={async (body) => {
               const result = await runAction(async () => {
                 await api("/api/subscriptions", { method: "POST", body });
@@ -117,6 +120,7 @@ export function SubscriptionsPage({
           <SubscriptionEditForm
             busy={busy}
             downloaders={downloaders}
+            feeds={feeds}
             subscription={editingSubscription}
             onCancel={() => setEditingSubscription(null)}
             onSubmit={async (patchBody, ruleBody) => {
@@ -141,11 +145,17 @@ export function SubscriptionsPage({
 }
 
 function subscriptionTarget(subscription: Subscription, t: (key: string) => string) {
-  return subscription.media?.title ?? subscription.rule?.selectedProvider?.providerId ?? t("subscriptions.ruleOnly");
+  return subscription.media?.title ??
+    subscription.rule?.selectedProvider?.providerId ??
+    subscription.rule?.titleRegex ??
+    t("subscriptions.ruleOnly");
 }
 
 function subscriptionMode(subscription: Subscription, t: (key: string) => string) {
-  return subscription.autoDownload ? t("common.auto") : t("common.manual");
+  const ruleMode = subscription.rule?.mode === "REGEX"
+    ? t("subscriptions.regexMode")
+    : t("subscriptions.mediaTitleMode");
+  return `${ruleMode} · ${subscription.autoDownload ? t("common.auto") : t("common.manual")}`;
 }
 
 type LinkedProviderRow = {
@@ -165,6 +175,9 @@ type ProviderRatingRow = {
   minVoteCount: string;
 };
 
+type RuleMode = "MEDIA_TITLE" | "REGEX";
+type UpgradePolicy = "none" | "better_quality" | "preferred_release_group";
+
 let filterRowId = 0;
 
 function nextFilterRowId(prefix: string) {
@@ -175,12 +188,14 @@ function nextFilterRowId(prefix: string) {
 function SubscriptionEditForm({
   busy,
   downloaders,
+  feeds,
   subscription,
   onCancel,
   onSubmit
 }: {
   busy: boolean;
   downloaders: Downloader[];
+  feeds: Feed[];
   subscription: Subscription;
   onCancel: () => void;
   onSubmit: (patchBody: string, ruleBody: string) => Promise<ActionResult>;
@@ -191,6 +206,7 @@ function SubscriptionEditForm({
   const [downloaderId, setDownloaderId] = useState(subscription.downloader?.id ?? "");
   const [autoDownload, setAutoDownload] = useState(subscription.autoDownload);
   const [enabled, setEnabled] = useState(subscription.enabled);
+  const [mode, setMode] = useState<RuleMode>(rule?.mode ?? "MEDIA_TITLE");
   const [mediaType, setMediaType] = useState<"" | "MOVIE" | "TV_SERIES" | "UNKNOWN">(
     rule?.mediaType ?? mediaTypeFromKind(subscription.media?.kind) ?? ""
   );
@@ -220,13 +236,24 @@ function SubscriptionEditForm({
   const [audio, setAudio] = useState((rule?.audio ?? []).join(", "));
   const [releaseGroupsInclude, setReleaseGroupsInclude] = useState((rule?.releaseGroupsInclude ?? []).join(", "));
   const [releaseGroupsExclude, setReleaseGroupsExclude] = useState((rule?.releaseGroupsExclude ?? []).join(", "));
+  const [preferredReleaseGroups, setPreferredReleaseGroups] = useState((rule?.preferredReleaseGroups ?? []).join(", "));
+  const [feedIds, setFeedIds] = useState<string[]>(rule?.feedIds ?? []);
   const [minSizeBytes, setMinSizeBytes] = useState(rule?.minSizeBytes ?? "");
   const [maxSizeBytes, setMaxSizeBytes] = useState(rule?.maxSizeBytes ?? "");
   const [season, setSeason] = useState(rule?.season?.toString() ?? "");
   const [episodeStart, setEpisodeStart] = useState(rule?.episodeStart?.toString() ?? "");
   const [episodeEnd, setEpisodeEnd] = useState(rule?.episodeEnd?.toString() ?? "");
+  const [upgradePolicy, setUpgradePolicy] = useState<UpgradePolicy>(rule?.upgradePolicy ?? "none");
+  const [allowCrossSeed, setAllowCrossSeed] = useState(rule?.allowCrossSeed ?? false);
+  const [seasonPackAllowed, setSeasonPackAllowed] = useState(rule?.seasonPackAllowed ?? true);
   const [submitError, setSubmitError] = useState("");
   const providerOptionList = providerOptions(t);
+  const identityMode = mode === "MEDIA_TITLE";
+  const toggleFeed = (feedId: string, checked: boolean) => {
+    setFeedIds((current) =>
+      checked ? [...new Set([...current, feedId])] : current.filter((id) => id !== feedId)
+    );
+  };
   const addLinkedProvider = () => {
     setLinkedProviders((current) => [
       ...current,
@@ -274,23 +301,32 @@ function SubscriptionEditForm({
         const result = await onSubmit(
           JSON.stringify({
             title: title.trim(),
+            mediaTitleId: identityMode ? undefined : null,
             downloaderId: downloaderId || null,
             autoDownload,
             enabled
           }),
           JSON.stringify({
+            mode,
             mediaType: mediaType || undefined,
-            selectedProvider: providerIdentityFromFields(
-              selectedProvider,
-              selectedProviderEntityType || providerEntityTypeFor(selectedProvider, mediaType),
-              selectedProviderId
-            ),
-            linkedProviders: linkedProviders
-              .map((filter) => providerIdentityFromFields(filter.provider, filter.providerEntityType, filter.providerId))
-              .filter(isDefined),
-            providerRatings: providerRatings
-              .map((filter) => providerRatingFromFields(filter))
-              .filter(isDefined),
+            selectedProvider: identityMode
+              ? providerIdentityFromFields(
+                selectedProvider,
+                selectedProviderEntityType || providerEntityTypeFor(selectedProvider, mediaType),
+                selectedProviderId
+              )
+              : undefined,
+            linkedProviders: identityMode
+              ? linkedProviders
+                .map((filter) => providerIdentityFromFields(filter.provider, filter.providerEntityType, filter.providerId))
+                .filter(isDefined)
+              : [],
+            providerRatings: identityMode
+              ? providerRatings
+                .map((filter) => providerRatingFromFields(filter))
+                .filter(isDefined)
+              : [],
+            feedIds,
             titleRegex: optionalText(titleRegex),
             includeRegex: optionalText(includeRegex),
             excludeRegex: optionalText(excludeRegex),
@@ -301,11 +337,15 @@ function SubscriptionEditForm({
             audio: stringListFromInput(audio),
             releaseGroupsInclude: stringListFromInput(releaseGroupsInclude),
             releaseGroupsExclude: stringListFromInput(releaseGroupsExclude),
+            preferredReleaseGroups: stringListFromInput(preferredReleaseGroups),
             minSizeBytes: optionalText(minSizeBytes),
             maxSizeBytes: optionalText(maxSizeBytes),
             season: numberOrUndefined(season),
             episodeStart: numberOrUndefined(episodeStart),
-            episodeEnd: numberOrUndefined(episodeEnd)
+            episodeEnd: numberOrUndefined(episodeEnd),
+            upgradePolicy,
+            allowCrossSeed,
+            seasonPackAllowed
           })
         );
         if (!result.ok) setSubmitError(result.message);
@@ -315,7 +355,15 @@ function SubscriptionEditForm({
         {t("subscriptions.subscriptionTitle")}
         <FormInput value={title} onChange={(event) => setTitle(event.target.value)} required />
       </FieldLabel>
-      <div className="form-grid">
+      <div className="form-grid three">
+        <div className="field">
+          <span>{t("subscriptions.ruleMode")}</span>
+          <SelectField
+            value={mode}
+            onValueChange={(value) => setMode(value as RuleMode)}
+            options={ruleModeOptions(t)}
+          />
+        </div>
         <div className="field">
           <span>{t("common.downloader")}</span>
           <SelectField
@@ -349,143 +397,149 @@ function SubscriptionEditForm({
           />
         </div>
       </div>
-      <div className="form-grid three">
-        <div className="field">
-          <span>{t("subscriptions.selectedProvider")}</span>
-          <SelectField
-            value={selectedProvider}
-            onValueChange={setSelectedProvider}
-            options={providerOptionList}
-          />
+      {identityMode && (
+        <div className="form-grid three">
+          <div className="field">
+            <span>{t("subscriptions.selectedProvider")}</span>
+            <SelectField
+              value={selectedProvider}
+              onValueChange={setSelectedProvider}
+              options={providerOptionList}
+            />
+          </div>
+          <FieldLabel>
+            {t("subscriptions.providerEntityType")}
+            <FormInput value={selectedProviderEntityType} onChange={(event) => setSelectedProviderEntityType(event.target.value)} />
+          </FieldLabel>
+          <FieldLabel>
+            {t("common.providerId")}
+            <FormInput value={selectedProviderId} onChange={(event) => setSelectedProviderId(event.target.value)} />
+          </FieldLabel>
         </div>
-        <FieldLabel>
-          {t("subscriptions.providerEntityType")}
-          <FormInput value={selectedProviderEntityType} onChange={(event) => setSelectedProviderEntityType(event.target.value)} />
-        </FieldLabel>
-        <FieldLabel>
-          {t("common.providerId")}
-          <FormInput value={selectedProviderId} onChange={(event) => setSelectedProviderId(event.target.value)} />
-        </FieldLabel>
-      </div>
-      <div className="subscription-filter-section">
-        <div className="subscription-filter-heading">
-          <span>{t("subscriptions.linkedProvider")}</span>
-          <UiButton className="secondary" onClick={addLinkedProvider} type="button">
-            <Plus size={15} />
-            {t("common.add")}
-          </UiButton>
-        </div>
-        {linkedProviders.map((filter) => (
-          <div className="subscription-filter-row linked" key={filter.id}>
-            <div className="field">
-              <span>{t("subscriptions.linkedProvider")}</span>
-              <SelectField
-                value={filter.provider}
-                onValueChange={(provider) => updateLinkedProvider(filter.id, { provider })}
-                options={providerOptionsWithCurrent(filter.provider, providerOptionList)}
-              />
-            </div>
-            <FieldLabel>
-              {t("subscriptions.providerEntityType")}
-              <FormInput
-                value={filter.providerEntityType}
-                onChange={(event) => updateLinkedProvider(filter.id, { providerEntityType: event.target.value })}
-              />
-            </FieldLabel>
-            <FieldLabel>
-              {t("common.providerId")}
-              <FormInput value={filter.providerId} onChange={(event) => updateLinkedProvider(filter.id, { providerId: event.target.value })} />
-            </FieldLabel>
-            <UiButton
-              className="icon-button"
-              onClick={() => removeLinkedProvider(filter.id)}
-              title={t("subscriptions.removeLinkedProvider")}
-              type="button"
-            >
-              <Trash2 size={15} />
+      )}
+      {identityMode && (
+        <div className="subscription-filter-section">
+          <div className="subscription-filter-heading">
+            <span>{t("subscriptions.linkedProvider")}</span>
+            <UiButton className="secondary" onClick={addLinkedProvider} type="button">
+              <Plus size={15} />
+              {t("common.add")}
             </UiButton>
           </div>
-        ))}
-      </div>
-      <div className="subscription-filter-section">
-        <div className="subscription-filter-heading">
-          <span>{t("subscriptions.ratingProvider")}</span>
-          <UiButton className="secondary" onClick={addProviderRating} type="button">
-            <Plus size={15} />
-            {t("common.add")}
-          </UiButton>
-        </div>
-        {providerRatings.map((filter) => (
-          <div className="subscription-filter-row rating" key={filter.id}>
-            <div className="form-grid three">
+          {linkedProviders.map((filter) => (
+            <div className="subscription-filter-row linked" key={filter.id}>
               <div className="field">
-                <span>{t("subscriptions.ratingProvider")}</span>
+                <span>{t("subscriptions.linkedProvider")}</span>
                 <SelectField
                   value={filter.provider}
-                  onValueChange={(provider) => updateProviderRating(filter.id, { provider })}
+                  onValueChange={(provider) => updateLinkedProvider(filter.id, { provider })}
                   options={providerOptionsWithCurrent(filter.provider, providerOptionList)}
                 />
               </div>
-              <div className="field">
-                <span>{t("subscriptions.ratingType")}</span>
-                <SelectField
-                  value={filter.ratingType}
-                  onValueChange={(ratingType) => updateProviderRating(filter.id, { ratingType })}
-                  options={ratingTypeOptions(t)}
+              <FieldLabel>
+                {t("subscriptions.providerEntityType")}
+                <FormInput
+                  value={filter.providerEntityType}
+                  onChange={(event) => updateLinkedProvider(filter.id, { providerEntityType: event.target.value })}
                 />
-              </div>
-              <div className="field">
-                <span>{t("subscriptions.comparison")}</span>
-                <SelectField
-                  value={filter.comparison}
-                  onValueChange={(comparison) => updateProviderRating(filter.id, { comparison: comparison as ProviderRatingRow["comparison"] })}
-                  options={ratingComparisonOptions}
-                />
-              </div>
+              </FieldLabel>
+              <FieldLabel>
+                {t("common.providerId")}
+                <FormInput value={filter.providerId} onChange={(event) => updateLinkedProvider(filter.id, { providerId: event.target.value })} />
+              </FieldLabel>
+              <UiButton
+                className="icon-button"
+                onClick={() => removeLinkedProvider(filter.id)}
+                title={t("subscriptions.removeLinkedProvider")}
+                type="button"
+              >
+                <Trash2 size={15} />
+              </UiButton>
             </div>
-            <div className="form-grid three rating-values">
-              <FieldLabel>
-                {t("subscriptions.ratingValue")}
-                <FormInput
-                  min={0}
-                  step="0.1"
-                  type="number"
-                  value={filter.value}
-                  onChange={(event) => updateProviderRating(filter.id, { value: event.target.value })}
-                />
-              </FieldLabel>
-              <FieldLabel>
-                {t("subscriptions.ratingScale")}
-                <FormInput
-                  min={0.1}
-                  step="0.1"
-                  type="number"
-                  value={filter.scale}
-                  onChange={(event) => updateProviderRating(filter.id, { scale: event.target.value })}
-                />
-              </FieldLabel>
-              <FieldLabel>
-                {t("subscriptions.minVotes")}
-                <FormInput
-                  min={0}
-                  step="1"
-                  type="number"
-                  value={filter.minVoteCount}
-                  onChange={(event) => updateProviderRating(filter.id, { minVoteCount: event.target.value })}
-                />
-              </FieldLabel>
-            </div>
-            <UiButton
-              className="icon-button"
-              onClick={() => removeProviderRating(filter.id)}
-              title={t("subscriptions.removeRatingFilter")}
-              type="button"
-            >
-              <Trash2 size={15} />
+          ))}
+        </div>
+      )}
+      {identityMode && (
+        <div className="subscription-filter-section">
+          <div className="subscription-filter-heading">
+            <span>{t("subscriptions.ratingProvider")}</span>
+            <UiButton className="secondary" onClick={addProviderRating} type="button">
+              <Plus size={15} />
+              {t("common.add")}
             </UiButton>
           </div>
-        ))}
-      </div>
+          {providerRatings.map((filter) => (
+            <div className="subscription-filter-row rating" key={filter.id}>
+              <div className="form-grid three">
+                <div className="field">
+                  <span>{t("subscriptions.ratingProvider")}</span>
+                  <SelectField
+                    value={filter.provider}
+                    onValueChange={(provider) => updateProviderRating(filter.id, { provider })}
+                    options={providerOptionsWithCurrent(filter.provider, providerOptionList)}
+                  />
+                </div>
+                <div className="field">
+                  <span>{t("subscriptions.ratingType")}</span>
+                  <SelectField
+                    value={filter.ratingType}
+                    onValueChange={(ratingType) => updateProviderRating(filter.id, { ratingType })}
+                    options={ratingTypeOptions(t)}
+                  />
+                </div>
+                <div className="field">
+                  <span>{t("subscriptions.comparison")}</span>
+                  <SelectField
+                    value={filter.comparison}
+                    onValueChange={(comparison) => updateProviderRating(filter.id, { comparison: comparison as ProviderRatingRow["comparison"] })}
+                    options={ratingComparisonOptions}
+                  />
+                </div>
+              </div>
+              <div className="form-grid three rating-values">
+                <FieldLabel>
+                  {t("subscriptions.ratingValue")}
+                  <FormInput
+                    min={0}
+                    step="0.1"
+                    type="number"
+                    value={filter.value}
+                    onChange={(event) => updateProviderRating(filter.id, { value: event.target.value })}
+                  />
+                </FieldLabel>
+                <FieldLabel>
+                  {t("subscriptions.ratingScale")}
+                  <FormInput
+                    min={0.1}
+                    step="0.1"
+                    type="number"
+                    value={filter.scale}
+                    onChange={(event) => updateProviderRating(filter.id, { scale: event.target.value })}
+                  />
+                </FieldLabel>
+                <FieldLabel>
+                  {t("subscriptions.minVotes")}
+                  <FormInput
+                    min={0}
+                    step="1"
+                    type="number"
+                    value={filter.minVoteCount}
+                    onChange={(event) => updateProviderRating(filter.id, { minVoteCount: event.target.value })}
+                  />
+                </FieldLabel>
+              </div>
+              <UiButton
+                className="icon-button"
+                onClick={() => removeProviderRating(filter.id)}
+                title={t("subscriptions.removeRatingFilter")}
+                type="button"
+              >
+                <Trash2 size={15} />
+              </UiButton>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="form-grid">
         <FieldLabel>
           {t("subscriptions.titleRegex")}
@@ -533,6 +587,48 @@ function SubscriptionEditForm({
           {t("subscriptions.excludeReleaseGroups")}
           <FormInput value={releaseGroupsExclude} onChange={(event) => setReleaseGroupsExclude(event.target.value)} />
         </FieldLabel>
+      </div>
+      <FieldLabel>
+        {t("subscriptions.preferredReleaseGroups")}
+        <FormInput value={preferredReleaseGroups} onChange={(event) => setPreferredReleaseGroups(event.target.value)} />
+      </FieldLabel>
+      <div className="form-grid three">
+        <div className="field">
+          <span>{t("subscriptions.upgradePolicy")}</span>
+          <SelectField
+            value={upgradePolicy}
+            onValueChange={(value) => setUpgradePolicy(value as UpgradePolicy)}
+            options={upgradePolicyOptions(t)}
+          />
+        </div>
+        <CheckboxField
+          className="checkbox-row"
+          checked={allowCrossSeed}
+          onCheckedChange={setAllowCrossSeed}
+          label={t("subscriptions.allowCrossSeed")}
+        />
+        <CheckboxField
+          className="checkbox-row"
+          checked={seasonPackAllowed}
+          onCheckedChange={setSeasonPackAllowed}
+          label={t("subscriptions.seasonPackAllowed")}
+        />
+      </div>
+      <div className="subscription-filter-section">
+        <div className="subscription-filter-heading">
+          <span>{t("subscriptions.fixedFeeds")}</span>
+        </div>
+        <div className="subscription-feed-list">
+          {feeds.length === 0 && <span className="subscription-feed-empty">{t("subscriptions.noFeeds")}</span>}
+          {feeds.map((feed) => (
+            <CheckboxField
+              key={feed.id}
+              checked={feedIds.includes(feed.id)}
+              onCheckedChange={(checked) => toggleFeed(feed.id, checked)}
+              label={feed.name}
+            />
+          ))}
+        </div>
       </div>
       <div className="form-grid">
         <FieldLabel>
@@ -623,6 +719,21 @@ function ratingTypeOptions(t: (key: string) => string) {
   ];
 }
 
+function ruleModeOptions(t: (key: string) => string) {
+  return [
+    { value: "MEDIA_TITLE", label: t("subscriptions.mediaTitleMode") },
+    { value: "REGEX", label: t("subscriptions.regexMode") }
+  ];
+}
+
+function upgradePolicyOptions(t: (key: string) => string) {
+  return [
+    { value: "none", label: t("subscriptions.noUpgrades") },
+    { value: "better_quality", label: t("subscriptions.betterQuality") },
+    { value: "preferred_release_group", label: t("subscriptions.preferredGroupUpgrade") }
+  ];
+}
+
 const ratingComparisonOptions = [
   { value: "gte", label: ">=" },
   { value: "lte", label: "<=" },
@@ -677,28 +788,104 @@ function providerRatingFromFields(input: ProviderRatingRow) {
   };
 }
 
+function subscriptionRulePayload(input: {
+  mode: RuleMode;
+  mediaType: "MOVIE" | "TV_SERIES";
+  selectedProvider?: ProviderIdentityFilter;
+  titleRegex?: string;
+  includeRegex: string;
+  minResolution: number;
+  season: string;
+  releaseGroupsInclude: string;
+  preferredReleaseGroups: string;
+  feedIds: string[];
+  upgradePolicy: UpgradePolicy;
+  allowCrossSeed: boolean;
+  seasonPackAllowed: boolean;
+}) {
+  return {
+    mode: input.mode,
+    mediaType: input.mediaType,
+    selectedProvider: input.mode === "MEDIA_TITLE" ? input.selectedProvider : undefined,
+    titleRegex: input.mode === "REGEX" ? optionalText(input.titleRegex ?? "") : undefined,
+    includeRegex: optionalText(input.includeRegex),
+    minResolution: input.minResolution,
+    season: numberOrUndefined(input.season),
+    releaseGroupsInclude: stringListFromInput(input.releaseGroupsInclude),
+    preferredReleaseGroups: stringListFromInput(input.preferredReleaseGroups),
+    feedIds: input.feedIds,
+    upgradePolicy: input.upgradePolicy,
+    allowCrossSeed: input.allowCrossSeed,
+    seasonPackAllowed: input.seasonPackAllowed
+  };
+}
+
 function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
 }
 
 function SubscriptionSearch({
   downloaders,
+  feeds,
   onSubscribe
 }: {
   downloaders: Downloader[];
+  feeds: Feed[];
   onSubscribe: (body: string) => void | ActionResult | Promise<void | ActionResult>;
 }) {
   const { t } = useTranslation();
+  const [mode, setMode] = useState<RuleMode>("MEDIA_TITLE");
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"MOVIE" | "TV">("MOVIE");
   const [results, setResults] = useState<MediaSearchResult[]>([]);
   const [downloaderId, setDownloaderId] = useState("");
   const [includeRegex, setIncludeRegex] = useState("");
-  const [minResolution, setMinResolution] = useState(1080);
+  const [minResolution, setMinResolution] = useState(2160);
+  const [season, setSeason] = useState("");
+  const [releaseGroupsInclude, setReleaseGroupsInclude] = useState("");
+  const [preferredReleaseGroups, setPreferredReleaseGroups] = useState("");
+  const [feedIds, setFeedIds] = useState<string[]>([]);
+  const [upgradePolicy, setUpgradePolicy] = useState<UpgradePolicy>("none");
+  const [allowCrossSeed, setAllowCrossSeed] = useState(false);
+  const [seasonPackAllowed, setSeasonPackAllowed] = useState(true);
   const [subscribeError, setSubscribeError] = useState("");
+  const mediaType = kind === "TV" ? "TV_SERIES" : "MOVIE";
+  const toggleFeed = (feedId: string, checked: boolean) => {
+    setFeedIds((current) =>
+      checked ? [...new Set([...current, feedId])] : current.filter((id) => id !== feedId)
+    );
+  };
 
   async function search(event: FormEvent) {
     event.preventDefault();
+    if (mode === "REGEX") {
+      setSubscribeError("");
+      const subscribeResult = await onSubscribe(
+        JSON.stringify({
+          downloaderId: downloaderId || undefined,
+          title: query.trim(),
+          autoDownload: true,
+          enabled: true,
+          rule: subscriptionRulePayload({
+            mode,
+            mediaType,
+            titleRegex: query,
+            includeRegex,
+            minResolution,
+            season,
+            releaseGroupsInclude,
+            preferredReleaseGroups,
+            feedIds,
+            upgradePolicy,
+            allowCrossSeed,
+            seasonPackAllowed
+          })
+        })
+      );
+      if (subscribeResult && !subscribeResult.ok) setSubscribeError(subscribeResult.message);
+      return;
+    }
+
     const params = new URLSearchParams({ q: query, kind });
     setResults(await api<MediaSearchResult[]>(`/api/provider-titles/search?${params}`));
   }
@@ -707,6 +894,14 @@ function SubscriptionSearch({
     <div className="subscription-tool">
       <form className="search-form" onSubmit={search}>
         <SelectField
+          value={mode}
+          onValueChange={(value) => {
+            setMode(value as RuleMode);
+            setResults([]);
+          }}
+          options={ruleModeOptions(t)}
+        />
+        <SelectField
           value={kind}
           onValueChange={(value) => setKind(value as "MOVIE" | "TV")}
           options={[
@@ -714,8 +909,14 @@ function SubscriptionSearch({
             { value: "TV", label: t("common.series") }
           ]}
         />
-        <FormInput placeholder={t("subscriptions.searchMetadata")} value={query} onChange={(event) => setQuery(event.target.value)} required />
+        <FormInput
+          placeholder={mode === "REGEX" ? t("subscriptions.titleRegex") : t("subscriptions.searchMetadata")}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          required
+        />
         <FormInput placeholder={t("common.includeRegex")} value={includeRegex} onChange={(event) => setIncludeRegex(event.target.value)} />
+        <FormInput min={1} placeholder={t("subscriptions.season")} type="number" value={season} onChange={(event) => setSeason(event.target.value)} />
         <SelectField
           value={String(minResolution)}
           onValueChange={(value) => setMinResolution(Number(value))}
@@ -733,10 +934,63 @@ function SubscriptionSearch({
             ...downloaders.map((downloader) => ({ value: downloader.id, label: downloader.name }))
           ]}
         />
-        <UiButton className="primary" type="submit"><Search size={17} />{t("common.search")}</UiButton>
+        <UiButton className="primary" type="submit">
+          {mode === "REGEX" ? <Plus size={17} /> : <Search size={17} />}
+          {mode === "REGEX" ? t("subscriptions.create") : t("common.search")}
+        </UiButton>
       </form>
+      <div className="subscription-filter-section">
+        <div className="form-grid three">
+          <FieldLabel>
+            {t("subscriptions.includeReleaseGroups")}
+            <FormInput value={releaseGroupsInclude} onChange={(event) => setReleaseGroupsInclude(event.target.value)} />
+          </FieldLabel>
+          <FieldLabel>
+            {t("subscriptions.preferredReleaseGroups")}
+            <FormInput value={preferredReleaseGroups} onChange={(event) => setPreferredReleaseGroups(event.target.value)} />
+          </FieldLabel>
+          <div className="field">
+            <span>{t("subscriptions.upgradePolicy")}</span>
+            <SelectField
+              value={upgradePolicy}
+              onValueChange={(value) => setUpgradePolicy(value as UpgradePolicy)}
+              options={upgradePolicyOptions(t)}
+            />
+          </div>
+        </div>
+        <div className="form-grid">
+          <CheckboxField
+            className="checkbox-row"
+            checked={allowCrossSeed}
+            onCheckedChange={setAllowCrossSeed}
+            label={t("subscriptions.allowCrossSeed")}
+          />
+          <CheckboxField
+            className="checkbox-row"
+            checked={seasonPackAllowed}
+            onCheckedChange={setSeasonPackAllowed}
+            label={t("subscriptions.seasonPackAllowed")}
+          />
+        </div>
+      </div>
+      <div className="subscription-filter-section">
+        <div className="subscription-filter-heading">
+          <span>{t("subscriptions.fixedFeeds")}</span>
+        </div>
+        <div className="subscription-feed-list">
+          {feeds.length === 0 && <span className="subscription-feed-empty">{t("subscriptions.noFeeds")}</span>}
+          {feeds.map((feed) => (
+            <CheckboxField
+              key={feed.id}
+              checked={feedIds.includes(feed.id)}
+              onCheckedChange={(checked) => toggleFeed(feed.id, checked)}
+              label={feed.name}
+            />
+          ))}
+        </div>
+      </div>
       <div className="result-grid">
-        {results.map((result) => (
+        {mode === "MEDIA_TITLE" && results.map((result) => (
           <article className="result" key={`${result.provider}-${result.providerEntityType ?? result.kind}-${result.providerId}`}>
             {result.posterUrl ? (
               <img src={result.posterUrl} alt={result.title} />
@@ -755,16 +1009,24 @@ function SubscriptionSearch({
                     title: result.title,
                     autoDownload: true,
                     enabled: true,
-                    rule: {
+                    rule: subscriptionRulePayload({
+                      mode: "MEDIA_TITLE",
                       mediaType: result.mediaType,
                       selectedProvider: {
                         provider: result.provider,
                         providerEntityType: result.providerEntityType,
                         providerId: result.providerId
                       },
-                      includeRegex: includeRegex || undefined,
-                      minResolution
-                    }
+                      includeRegex,
+                      minResolution,
+                      season,
+                      releaseGroupsInclude,
+                      preferredReleaseGroups,
+                      feedIds,
+                      upgradePolicy,
+                      allowCrossSeed,
+                      seasonPackAllowed
+                    })
                   })
                 );
                 if (subscribeResult && !subscribeResult.ok) setSubscribeError(subscribeResult.message);

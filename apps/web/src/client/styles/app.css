@@ -1429,6 +1429,29 @@ small {
   color: var(--danger);
 }
 
+.subscription-feed-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.subscription-feed-list .checkbox-control {
+  min-width: 0;
+}
+
+.subscription-feed-list .checkbox-control span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subscription-feed-empty {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1848,6 +1871,7 @@ small {
   .search-form,
   .form-grid,
   .form-grid.three,
+  .subscription-feed-list,
   .subscription-filter-row.linked,
   .subscription-filter-row.rating,
   .row-card,

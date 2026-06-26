@@ -339,6 +339,7 @@ function Dashboard({
           <SubscriptionsPage
             busy={busy}
             downloaders={downloaders}
+            feeds={feeds}
             subscriptions={subscriptions}
             runAction={runAction}
           />

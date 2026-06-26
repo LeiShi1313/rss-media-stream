@@ -39,4 +39,17 @@ describe("Subscription management UI", () => {
     expect(source).toContain(".subscription-table-head,");
     expect(source).toContain(".subscription-table-row");
   });
+
+  it("exposes Sonarr-style rule controls without nested cards", () => {
+    const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
+
+    expect(source).toContain("setMode");
+    expect(source).toContain("feedIds");
+    expect(source).toContain("preferredReleaseGroups");
+    expect(source).toContain("upgradePolicy");
+    expect(source).toContain("allowCrossSeed");
+    expect(source).toContain("seasonPackAllowed");
+    expect(source).toContain("subscription-feed-list");
+    expect(source).not.toContain("subscription-rule-card");
+  });
 });
