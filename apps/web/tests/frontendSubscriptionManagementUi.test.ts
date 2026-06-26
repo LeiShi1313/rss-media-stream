@@ -52,6 +52,7 @@ describe("Subscription management UI", () => {
     expect(source).toContain("seasonPackAllowed");
     expect(source).toContain("subscription-multi-menu");
     expect(source).toContain("ReleaseGroupInput");
+    expect(source).not.toContain("disabled={options.length === 0}");
     expect(source).not.toContain("subscription-rule-card");
   });
 

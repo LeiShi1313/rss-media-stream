@@ -809,7 +809,6 @@ function ReleaseGroupInput({
         <DropdownMenuPrimitive.Trigger
           aria-label={t("subscriptions.releaseGroupSuggestions")}
           className="secondary subscription-dropdown-icon"
-          disabled={options.length === 0}
           title={t("subscriptions.releaseGroupSuggestions")}
           type="button"
         >
