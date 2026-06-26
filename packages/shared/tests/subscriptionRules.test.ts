@@ -184,6 +184,47 @@ describe("evaluateSubscriptionRule", () => {
     });
   });
 
+  it("matches provider-selected subscriptions by provider, id, and media type", () => {
+    const decision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        selectedProvider: {
+          provider: "tmdb",
+          providerId: "261471",
+          providerEntityType: "tmdb_tv",
+          mediaType: "TV_SERIES"
+        }
+      },
+      candidate({
+        release: {
+          title: "Stand Up Comedy",
+          mediaType: "TV_SERIES",
+          season: 3,
+          episode: 1,
+          resolution: 2160,
+          parseConfidence: 1
+        },
+        activeMatch: {
+          ...candidate().activeMatch!,
+          mediaTitle: {
+            id: "media_tv",
+            mediaType: "TV_SERIES",
+            canonicalTitle: "Example Show"
+          },
+          selectedProviderTitle: {
+            providerTitleId: "metadata_tmdb_261471",
+            provider: "tmdb",
+            providerId: "261471",
+            mediaType: "TV_SERIES"
+          },
+          linkedProviderTitles: []
+        }
+      })
+    );
+
+    expect(decision).toMatchObject({ accepted: true, reason: "accepted" });
+  });
+
   it("supports linked provider identity filters", () => {
     const accepted = evaluateSubscriptionRule(
       {

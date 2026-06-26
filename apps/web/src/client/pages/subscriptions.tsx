@@ -1036,7 +1036,7 @@ function providerIdentityFromMedia(media: SelectedMedia) {
   if (!media.provider || !media.providerId) return undefined;
   return {
     provider: media.provider,
-    providerEntityType: media.providerEntityType,
+    mediaType: media.mediaType,
     providerId: media.providerId
   };
 }

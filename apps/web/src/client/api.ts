@@ -138,6 +138,7 @@ export type RatingDto = ProviderRefDto & {
 
 export type ProviderIdentityFilter = {
   provider: string;
+  mediaType?: Exclude<MediaType, "UNKNOWN">;
   providerEntityType?: ProviderEntityType;
   providerId: string;
 };

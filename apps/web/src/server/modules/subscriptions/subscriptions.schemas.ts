@@ -34,6 +34,7 @@ const regexString = optionalTrimmedString(300).refine(
 const stringList = z.array(z.string().trim().min(1).max(80)).max(50).default([]);
 const providerIdentitySchema = z.object({
   provider: providerSchema,
+  mediaType: mediaTypeSchema.optional(),
   providerEntityType: optionalTrimmedString(80),
   providerId: z.string().trim().min(1).max(80)
 });

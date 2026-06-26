@@ -119,6 +119,7 @@ export type NormalizedSubscriptionRule = {
 
 export type ProviderIdentityFilter = {
   provider: string;
+  mediaType?: MediaType | null;
   providerEntityType?: string | null;
   providerId: string;
 };

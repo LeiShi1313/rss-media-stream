@@ -1,6 +1,8 @@
 import type {
   CandidateInput,
+  MediaType,
   NormalizedSubscriptionRule,
+  ParsedMediaType,
   ProviderIdentityFilter,
   ProviderRatingFilter,
   ProviderTitleRuleView,
@@ -209,14 +211,15 @@ export function evaluateSubscriptionRule(
 export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscriptionRule {
   const criteria = criteriaObject(rule.criteriaJson);
   const mode = normalizeMode(rule.mode ?? criteria.mode);
+  const mediaType = normalizeOptionalMediaType(rule.mediaType ?? criteria.mediaType);
   const mediaTitleId = optionalString(rule.mediaTitleId) ??
     optionalString(criteria.mediaTitleId);
-  const selectedProvider = normalizeProviderIdentity(
-    rule.selectedProvider ?? criteria.selectedProvider
+  const selectedProvider = withDefaultProviderMediaType(
+    normalizeProviderIdentity(rule.selectedProvider ?? criteria.selectedProvider),
+    mediaType
   );
-  const linkedProviders = normalizeProviderIdentityList(
-    rule.linkedProviders ?? criteria.linkedProviders
-  );
+  const linkedProviders = normalizeProviderIdentityList(rule.linkedProviders ?? criteria.linkedProviders)
+    .map((filter) => withDefaultProviderMediaType(filter, mediaType));
   const providerRatings = normalizeProviderRatingList(
     rule.providerRatings ?? criteria.providerRatings
   );
@@ -279,7 +282,7 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
 
   return {
     mode,
-    mediaType: rule.mediaType ?? undefined,
+    mediaType,
     mediaTitleId,
     selectedProvider,
     linkedProviders,
@@ -369,6 +372,15 @@ function normalizeMode(value: unknown): SubscriptionMode {
     throw new SubscriptionRuleValidationError("subscription mode is unsupported");
   }
   return value as SubscriptionMode;
+}
+
+function normalizeOptionalMediaType(value: unknown): ParsedMediaType | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  if (value === "TV") return "TV_SERIES";
+  if (value === "MOVIE" || value === "TV_SERIES" || value === "UNKNOWN") {
+    return value;
+  }
+  throw new SubscriptionRuleValidationError("media type is unsupported");
 }
 
 function normalizeUpgradePolicy(value: unknown): NormalizedSubscriptionRule["upgradePolicy"] {
@@ -535,8 +547,9 @@ function normalizeProviderIdentity(value: unknown): ProviderIdentityFilter | und
   const input = value as Record<string, unknown>;
   const provider = normalizeProvider(optionalUnknownString(input.provider));
   const providerId = optionalUnknownString(input.providerId);
+  const mediaType = normalizeOptionalProviderMediaType(input.mediaType);
   const providerEntityType = optionalUnknownString(input.providerEntityType);
-  if (!provider && !providerId && !providerEntityType) return undefined;
+  if (!provider && !providerId && !mediaType && !providerEntityType) return undefined;
   if (!provider || !providerId) {
     throw new SubscriptionRuleValidationError(
       "provider identity filters require provider and providerId"
@@ -545,8 +558,23 @@ function normalizeProviderIdentity(value: unknown): ProviderIdentityFilter | und
   return {
     provider,
     providerId,
+    ...(mediaType ? { mediaType } : {}),
     ...(providerEntityType ? { providerEntityType } : {})
   };
+}
+
+function withDefaultProviderMediaType(
+  filter: ProviderIdentityFilter | undefined,
+  mediaType: ParsedMediaType | undefined
+): ProviderIdentityFilter | undefined {
+  if (!filter || filter.mediaType || !mediaType || mediaType === "UNKNOWN") return filter;
+  return { ...filter, mediaType };
+}
+
+function normalizeOptionalProviderMediaType(value: unknown): MediaType | undefined {
+  const mediaType = normalizeOptionalMediaType(value);
+  if (!mediaType || mediaType === "UNKNOWN") return undefined;
+  return mediaType;
 }
 
 function normalizeProviderIdentityList(value: unknown): ProviderIdentityFilter[] {
@@ -623,7 +651,7 @@ function uniqueProviderIdentities(filters: ProviderIdentityFilter[]): ProviderId
   const seen = new Set<string>();
   const result: ProviderIdentityFilter[] = [];
   for (const filter of filters) {
-    const key = `${filter.provider}:${filter.providerEntityType ?? ""}:${filter.providerId}`;
+    const key = `${filter.provider}:${filter.mediaType ?? ""}:${filter.providerEntityType ?? ""}:${filter.providerId}`;
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(filter);
@@ -638,7 +666,9 @@ function sameProviderIdentity(
   return (
     normalizeProvider(title.provider) === filter.provider &&
     title.providerId === filter.providerId &&
-    (!filter.providerEntityType || title.providerEntityType === filter.providerEntityType)
+    (filter.mediaType
+      ? title.mediaType === filter.mediaType
+      : !filter.providerEntityType || title.providerEntityType === filter.providerEntityType)
   );
 }
 
@@ -680,7 +710,7 @@ function activeProviderTitles(candidate: CandidateInput): ProviderTitleRuleView[
   const titles = [match.selectedProviderTitle, ...match.linkedProviderTitles];
   const seen = new Set<string>();
   return titles.filter((title) => {
-    const key = `${title.providerTitleId}:${title.provider}:${title.providerEntityType}:${title.providerId}`;
+    const key = `${title.providerTitleId}:${title.provider}:${title.mediaType}:${title.providerEntityType}:${title.providerId}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
