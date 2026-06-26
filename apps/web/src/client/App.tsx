@@ -340,6 +340,7 @@ function Dashboard({
             busy={busy}
             downloaders={downloaders}
             feeds={feeds}
+            items={items}
             subscriptions={subscriptions}
             runAction={runAction}
           />

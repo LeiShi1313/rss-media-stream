@@ -28,6 +28,7 @@ describe("Subscription management UI", () => {
 
     expect(listSource).toContain("setCreateOpen(true)");
     expect(listSource).toContain("<SubscriptionEditorModal");
+    expect(listSource).toContain("releaseGroupOptions={releaseGroupOptions}");
     expect(listSource).toContain('aria-label={t("subscriptions.editSubscriptionNamed", { name: subscription.title })}');
     expect(listSource).toContain("setEditingSubscription(subscription)");
   });
@@ -52,6 +53,7 @@ describe("Subscription management UI", () => {
     expect(source).toContain("seasonPackAllowed");
     expect(source).toContain("subscription-multi-menu");
     expect(source).toContain("ReleaseGroupInput");
+    expect(source).toContain("item.parsedRelease?.releaseGroup");
     expect(source).not.toContain("disabled={options.length === 0}");
     expect(source).not.toContain("subscription-rule-card");
   });

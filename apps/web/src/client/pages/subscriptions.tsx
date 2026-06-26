@@ -2,7 +2,7 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, ChevronDown, Film, Pencil, Plus, Search } from "lucide-react";
-import { api, type Downloader, type Feed, type MediaSearchResult, type ResolvedMediaTitle, type Subscription } from "../api.js";
+import { api, type Downloader, type Feed, type Item, type MediaSearchResult, type ResolvedMediaTitle, type Subscription } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
 import { Empty } from "../components/common/feedback.js";
@@ -13,12 +13,14 @@ export function SubscriptionsPage({
   busy,
   downloaders,
   feeds,
+  items,
   subscriptions,
   runAction
 }: {
   busy: boolean;
   downloaders: Downloader[];
   feeds: Feed[];
+  items: Item[];
   subscriptions: Subscription[];
   runAction: RunAction;
 }) {
@@ -26,7 +28,7 @@ export function SubscriptionsPage({
   const [createOpen, setCreateOpen] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
   const [query, setQuery] = useState("");
-  const releaseGroupOptions = useMemo(() => releaseGroupOptionsFromSubscriptions(subscriptions), [subscriptions]);
+  const releaseGroupOptions = useMemo(() => releaseGroupOptionsFromData(subscriptions, items), [items, subscriptions]);
   const filteredSubscriptions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return subscriptions;
@@ -164,23 +166,30 @@ function subscriptionMode(subscription: Subscription, t: (key: string) => string
   return `${ruleMode} · ${subscription.autoDownload ? t("common.auto") : t("common.manual")}`;
 }
 
-function releaseGroupOptionsFromSubscriptions(subscriptions: Subscription[]) {
+function releaseGroupOptionsFromData(subscriptions: Subscription[], items: Item[]) {
   const seen = new Set<string>();
   const options: string[] = [];
+  for (const item of items) {
+    addReleaseGroupOption(options, seen, item.parsedRelease?.releaseGroup);
+  }
   for (const subscription of subscriptions) {
     for (const group of [
       ...(subscription.rule?.releaseGroupsInclude ?? []),
       ...(subscription.rule?.releaseGroupsExclude ?? []),
       ...(subscription.rule?.preferredReleaseGroups ?? [])
     ]) {
-      const normalized = group.trim();
-      const key = normalized.toLowerCase();
-      if (!normalized || seen.has(key)) continue;
-      seen.add(key);
-      options.push(normalized);
+      addReleaseGroupOption(options, seen, group);
     }
   }
   return options.sort((a, b) => a.localeCompare(b));
+}
+
+function addReleaseGroupOption(options: string[], seen: Set<string>, value?: string | null) {
+  const normalized = value?.trim();
+  const key = normalized?.toLowerCase();
+  if (!normalized || !key || seen.has(key)) return;
+  seen.add(key);
+  options.push(normalized);
 }
 
 type RuleMode = "MEDIA_TITLE" | "REGEX";
