@@ -6,6 +6,8 @@ export type ProviderEntityType = `${MediaProvider}_${string}`;
 export type RatingType = "user_score" | "critic_score" | "popularity";
 export type ProviderRatingType = RatingType;
 export type RatingComparison = "gte" | "lte" | "gt" | "lt" | "eq";
+export type SubscriptionMode = "MEDIA_TITLE" | "REGEX";
+export type SubscriptionUpgradePolicy = "none" | "better_quality" | "preferred_release_group";
 
 export type ParsedRelease = {
   title: string;
@@ -57,11 +59,13 @@ export type TmdbTitleResult = ProviderTitleResult & {
 };
 
 export type SubscriptionRuleInput = {
+  mode?: SubscriptionMode | null;
   mediaType?: ParsedMediaType | null;
   mediaTitleId?: string | null;
   selectedProvider?: ProviderIdentityFilter | null;
   linkedProviders?: ProviderIdentityFilter[] | null;
   providerRatings?: ProviderRatingFilter[] | null;
+  feedIds?: string[] | null;
   titleRegex?: string | null;
   includeRegex?: string | null;
   excludeRegex?: string | null;
@@ -72,20 +76,26 @@ export type SubscriptionRuleInput = {
   audio?: string[] | null;
   releaseGroupsInclude?: string[] | null;
   releaseGroupsExclude?: string[] | null;
+  preferredReleaseGroups?: string[] | null;
   minSizeBytes?: bigint | number | string | null;
   maxSizeBytes?: bigint | number | string | null;
   season?: number | null;
   episodeStart?: number | null;
   episodeEnd?: number | null;
+  upgradePolicy?: SubscriptionUpgradePolicy | null;
+  allowCrossSeed?: boolean | null;
+  seasonPackAllowed?: boolean | null;
   criteriaJson?: unknown;
 };
 
 export type NormalizedSubscriptionRule = {
+  mode: SubscriptionMode;
   mediaType?: ParsedMediaType;
   mediaTitleId?: string;
   selectedProvider?: ProviderIdentityFilter;
   linkedProviders: ProviderIdentityFilter[];
   providerRatings: ProviderRatingFilter[];
+  feedIds: string[];
   titleRegex?: string;
   includeRegex?: string;
   excludeRegex?: string;
@@ -96,11 +106,15 @@ export type NormalizedSubscriptionRule = {
   audio: string[];
   releaseGroupsInclude: string[];
   releaseGroupsExclude: string[];
+  preferredReleaseGroups: string[];
   minSizeBytes?: bigint;
   maxSizeBytes?: bigint;
   season?: number;
   episodeStart?: number;
   episodeEnd?: number;
+  upgradePolicy: SubscriptionUpgradePolicy;
+  allowCrossSeed: boolean;
+  seasonPackAllowed: boolean;
 };
 
 export type ProviderIdentityFilter = {
@@ -132,6 +146,7 @@ export type ProviderTitleRuleView = {
 };
 
 export type CandidateInput = {
+  feedId?: string | null;
   rawTitle: string;
   sizeBytes?: bigint | number | string | null;
   release: ParsedRelease;

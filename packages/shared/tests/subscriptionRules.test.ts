@@ -93,6 +93,46 @@ describe("evaluateSubscriptionRule", () => {
     });
   });
 
+  it("accepts regex-mode raw releases without an active matched media title", () => {
+    const decision = evaluateSubscriptionRule(
+      {
+        mode: "REGEX",
+        mediaType: "MOVIE",
+        includeRegex: "WEB-DL",
+        minResolution: "2160p"
+      },
+      candidate({ activeMatch: null })
+    );
+
+    expect(decision).toMatchObject({ accepted: true, reason: "accepted" });
+  });
+
+  it("applies feed allowlists before accepting a rule", () => {
+    const accepted = evaluateSubscriptionRule(
+      {
+        mode: "REGEX",
+        feedIds: ["feed-1"],
+        includeRegex: "WEB-DL"
+      },
+      candidate({ feedId: "feed-1", activeMatch: null })
+    );
+
+    const rejected = evaluateSubscriptionRule(
+      {
+        mode: "REGEX",
+        feedIds: ["feed-2"],
+        includeRegex: "WEB-DL"
+      },
+      candidate({ feedId: "feed-1", activeMatch: null })
+    );
+
+    expect(accepted.accepted).toBe(true);
+    expect(rejected).toMatchObject({
+      accepted: false,
+      reason: "feed does not match subscription"
+    });
+  });
+
   it("rejects low-confidence automatic matches for auto-download", () => {
     const decision = evaluateSubscriptionRule(
       {
@@ -414,6 +454,11 @@ describe("evaluateSubscriptionRule", () => {
 
   it("normalizes criteriaJson structured filters", () => {
     expect(normalizeRule({
+      mode: "MEDIA_TITLE",
+      feedIds: ["feed-1", "feed-1", "feed-2"],
+      preferredReleaseGroups: ["grp", "better"],
+      upgradePolicy: "preferred_release_group",
+      allowCrossSeed: true,
       criteriaJson: {
         mediaTitleId: "media_1",
         selectedProvider: {
@@ -440,6 +485,11 @@ describe("evaluateSubscriptionRule", () => {
         ]
       }
     })).toMatchObject({
+      mode: "MEDIA_TITLE",
+      feedIds: ["feed-1", "feed-2"],
+      preferredReleaseGroups: ["GRP", "BETTER"],
+      upgradePolicy: "preferred_release_group",
+      allowCrossSeed: true,
       mediaTitleId: "media_1",
       selectedProvider: {
         provider: "tmdb",
@@ -486,5 +536,21 @@ describe("evaluateSubscriptionRule", () => {
         ]
       })
     ).toThrow("provider rating scale must be positive");
+    expect(() =>
+      normalizeRule({
+        mode: "REGEX",
+        selectedProvider: {
+          provider: "imdb",
+          providerId: "tt1234567"
+        }
+      })
+    ).toThrow("regex subscriptions cannot use media identity filters");
+    expect(() =>
+      normalizeRule({
+        releaseGroupsInclude: ["grp"],
+        preferredReleaseGroups: ["other"],
+        upgradePolicy: "preferred_release_group"
+      })
+    ).toThrow("preferredReleaseGroups must be within releaseGroupsInclude");
   });
 });

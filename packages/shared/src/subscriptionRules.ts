@@ -5,6 +5,7 @@ import type {
   ProviderRatingFilter,
   ProviderTitleRuleView,
   RuleDecision,
+  SubscriptionMode,
   SubscriptionRuleInput
 } from "./types.js";
 import { normalizeTitleKey } from "./titleNormalization.js";
@@ -13,6 +14,8 @@ const MAX_REGEX_LENGTH = 300;
 const AUTO_DOWNLOAD_CONFIDENCE_THRESHOLD = 0.88;
 const RATING_COMPARISONS = new Set(["gte", "lte", "gt", "lt", "eq"]);
 const RATING_TYPES = new Set(["user_score", "critic_score", "popularity"]);
+const SUBSCRIPTION_MODES = new Set(["MEDIA_TITLE", "REGEX"]);
+const UPGRADE_POLICIES = new Set(["none", "better_quality", "preferred_release_group"]);
 
 const SOURCE_ALIASES: Record<string, string> = {
   WEB: "WEB",
@@ -40,55 +43,67 @@ export function evaluateSubscriptionRule(
 ): RuleDecision {
   const normalized = normalizeRule(rule);
 
-  if (!candidate.activeMatch || candidate.activeMatch.status !== "MATCHED") {
-    return reject("release has no active matched media title", normalized);
+  if (normalized.feedIds.length > 0 && !matchesFeed(normalized.feedIds, candidate.feedId)) {
+    return reject("feed does not match subscription", normalized);
   }
 
-  if (
-    candidate.activeMatch.source === "AUTO" &&
-    candidate.activeMatch.confidence < AUTO_DOWNLOAD_CONFIDENCE_THRESHOLD
-  ) {
-    return reject("metadata match confidence is below auto-download threshold", normalized);
-  }
+  if (normalized.mode === "MEDIA_TITLE") {
+    if (!candidate.activeMatch || candidate.activeMatch.status !== "MATCHED") {
+      return reject("release has no active matched media title", normalized);
+    }
 
-  if (
-    normalized.mediaType &&
-    normalized.mediaType !== "UNKNOWN" &&
-    candidate.activeMatch.mediaTitle.mediaType !== normalized.mediaType
-  ) {
-    return reject("media type does not match", normalized);
-  }
-
-  if (
-    normalized.mediaTitleId &&
-    candidate.activeMatch.mediaTitle.id !== normalized.mediaTitleId
-  ) {
-    return reject("media title does not match subscription", normalized);
-  }
-
-  if (
-    normalized.selectedProvider &&
-    !sameProviderIdentity(
-      candidate.activeMatch.selectedProviderTitle,
-      normalized.selectedProvider
-    )
-  ) {
-    return reject("selected provider title does not match subscription", normalized);
-  }
-
-  for (const filter of normalized.linkedProviders) {
     if (
-      !candidate.activeMatch.linkedProviderTitles.some((title) =>
-        sameProviderIdentity(title, filter)
+      candidate.activeMatch.source === "AUTO" &&
+      candidate.activeMatch.confidence < AUTO_DOWNLOAD_CONFIDENCE_THRESHOLD
+    ) {
+      return reject("metadata match confidence is below auto-download threshold", normalized);
+    }
+
+    if (
+      normalized.mediaType &&
+      normalized.mediaType !== "UNKNOWN" &&
+      candidate.activeMatch.mediaTitle.mediaType !== normalized.mediaType
+    ) {
+      return reject("media type does not match", normalized);
+    }
+
+    if (
+      normalized.mediaTitleId &&
+      candidate.activeMatch.mediaTitle.id !== normalized.mediaTitleId
+    ) {
+      return reject("media title does not match subscription", normalized);
+    }
+
+    if (
+      normalized.selectedProvider &&
+      !sameProviderIdentity(
+        candidate.activeMatch.selectedProviderTitle,
+        normalized.selectedProvider
       )
     ) {
-      return reject("linked provider title does not match subscription", normalized);
+      return reject("selected provider title does not match subscription", normalized);
     }
-  }
 
-  for (const filter of normalized.providerRatings) {
-    const ratingDecision = evaluateProviderRatingFilter(candidate, filter, normalized);
-    if (ratingDecision) return ratingDecision;
+    for (const filter of normalized.linkedProviders) {
+      if (
+        !candidate.activeMatch.linkedProviderTitles.some((title) =>
+          sameProviderIdentity(title, filter)
+        )
+      ) {
+        return reject("linked provider title does not match subscription", normalized);
+      }
+    }
+
+    for (const filter of normalized.providerRatings) {
+      const ratingDecision = evaluateProviderRatingFilter(candidate, filter, normalized);
+      if (ratingDecision) return ratingDecision;
+    }
+  } else if (
+    normalized.mediaType &&
+    normalized.mediaType !== "UNKNOWN" &&
+    candidate.release.mediaType !== normalized.mediaType
+  ) {
+    return reject("media type does not match", normalized);
   }
 
   if (!matchesTitleRegex(normalized.titleRegex, candidate.release.title, candidate.rawTitle)) {
@@ -186,6 +201,7 @@ export function evaluateSubscriptionRule(
 
 export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscriptionRule {
   const criteria = criteriaObject(rule.criteriaJson);
+  const mode = normalizeMode(rule.mode ?? criteria.mode);
   const mediaTitleId = optionalString(rule.mediaTitleId) ??
     optionalString(criteria.mediaTitleId);
   const selectedProvider = normalizeProviderIdentity(
@@ -197,6 +213,15 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
   const providerRatings = normalizeProviderRatingList(
     rule.providerRatings ?? criteria.providerRatings
   );
+  if (
+    mode === "REGEX" &&
+    (mediaTitleId || selectedProvider || linkedProviders.length > 0 || providerRatings.length > 0)
+  ) {
+    throw new SubscriptionRuleValidationError(
+      "regex subscriptions cannot use media identity filters"
+    );
+  }
+
   const minResolution = normalizeOptionalResolution(rule.minResolution);
   const maxResolution = normalizeOptionalResolution(rule.maxResolution);
 
@@ -223,12 +248,36 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
     );
   }
 
+  const releaseGroupsInclude = normalizeStringList(
+    rule.releaseGroupsInclude,
+    normalizeReleaseGroup
+  );
+  const releaseGroupsExclude = normalizeStringList(
+    rule.releaseGroupsExclude,
+    normalizeReleaseGroup
+  );
+  const preferredReleaseGroups = normalizeStringList(
+    rule.preferredReleaseGroups,
+    normalizeReleaseGroup
+  );
+
+  if (
+    releaseGroupsInclude.length > 0 &&
+    preferredReleaseGroups.some((group) => !releaseGroupsInclude.includes(group))
+  ) {
+    throw new SubscriptionRuleValidationError(
+      "preferredReleaseGroups must be within releaseGroupsInclude"
+    );
+  }
+
   return {
+    mode,
     mediaType: rule.mediaType ?? undefined,
     mediaTitleId,
     selectedProvider,
     linkedProviders,
     providerRatings,
+    feedIds: normalizeStringList(rule.feedIds, normalizePlainString),
     titleRegex: normalizeRegex(rule.titleRegex),
     includeRegex: normalizeRegex(rule.includeRegex),
     excludeRegex: normalizeRegex(rule.excludeRegex),
@@ -237,19 +286,17 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
     sources: normalizeStringList(rule.sources, normalizeSource),
     codecs: normalizeStringList(rule.codecs, normalizeCodec),
     audio: normalizeStringList(rule.audio, normalizeAudio),
-    releaseGroupsInclude: normalizeStringList(
-      rule.releaseGroupsInclude,
-      normalizeReleaseGroup
-    ),
-    releaseGroupsExclude: normalizeStringList(
-      rule.releaseGroupsExclude,
-      normalizeReleaseGroup
-    ),
+    releaseGroupsInclude,
+    releaseGroupsExclude,
+    preferredReleaseGroups,
     minSizeBytes,
     maxSizeBytes,
     season: normalizeOptionalInt(rule.season),
     episodeStart: normalizeOptionalInt(rule.episodeStart),
-    episodeEnd: normalizeOptionalInt(rule.episodeEnd)
+    episodeEnd: normalizeOptionalInt(rule.episodeEnd),
+    upgradePolicy: normalizeUpgradePolicy(rule.upgradePolicy ?? criteria.upgradePolicy),
+    allowCrossSeed: rule.allowCrossSeed ?? criteria.allowCrossSeed === true,
+    seasonPackAllowed: rule.seasonPackAllowed ?? criteria.seasonPackAllowed !== false
   };
 }
 
@@ -307,6 +354,26 @@ export function normalizeAudio(value: string | null | undefined): string | undef
 export function normalizeReleaseGroup(value: string | null | undefined): string | undefined {
   const raw = optionalString(value);
   return raw?.toUpperCase();
+}
+
+function normalizeMode(value: unknown): SubscriptionMode {
+  if (value === null || value === undefined || value === "") return "MEDIA_TITLE";
+  if (typeof value !== "string" || !SUBSCRIPTION_MODES.has(value)) {
+    throw new SubscriptionRuleValidationError("subscription mode is unsupported");
+  }
+  return value as SubscriptionMode;
+}
+
+function normalizeUpgradePolicy(value: unknown): NormalizedSubscriptionRule["upgradePolicy"] {
+  if (value === null || value === undefined || value === "") return "none";
+  if (typeof value !== "string" || !UPGRADE_POLICIES.has(value)) {
+    throw new SubscriptionRuleValidationError("subscription upgrade policy is unsupported");
+  }
+  return value as NormalizedSubscriptionRule["upgradePolicy"];
+}
+
+function normalizePlainString(value: string | null | undefined): string | undefined {
+  return optionalString(value);
 }
 
 function normalizeOptionalResolution(
@@ -423,6 +490,10 @@ function matchesStringDimension(
   if (ruleValues.length === 0) return true;
   const normalized = normalizer(candidateValue);
   return normalized ? ruleValues.includes(normalized) : false;
+}
+
+function matchesFeed(feedIds: string[], candidateFeedId: string | null | undefined) {
+  return Boolean(candidateFeedId && feedIds.includes(candidateFeedId));
 }
 
 function requiresStrictEpisode(
