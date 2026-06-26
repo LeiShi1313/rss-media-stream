@@ -40,6 +40,8 @@ describe("Subscription management UI", () => {
     expect(source).toContain(".management-table-row");
     expect(source).toContain(".subscription-table-head,");
     expect(source).toContain(".subscription-table-row");
+    expect(source).toContain(".menu-content.subscription-multi-menu");
+    expect(source).toContain("overflow-y: auto");
   });
 
   it("exposes Sonarr-style rule controls without nested cards", () => {

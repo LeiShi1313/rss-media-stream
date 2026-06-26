@@ -1640,11 +1640,12 @@ small {
   white-space: nowrap;
 }
 
-.subscription-multi-menu,
-.subscription-compact-menu {
+.menu-content.subscription-multi-menu,
+.menu-content.subscription-compact-menu {
   min-width: 240px;
-  max-height: min(340px, var(--radix-dropdown-menu-content-available-height));
-  overflow: auto;
+  max-height: min(340px, var(--radix-dropdown-menu-content-available-height, 340px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 5px;
 }
 
