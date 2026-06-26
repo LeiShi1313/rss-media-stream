@@ -50,7 +50,8 @@ describe("Subscription management UI", () => {
     expect(source).toContain("upgradePolicy");
     expect(source).toContain("allowCrossSeed");
     expect(source).toContain("seasonPackAllowed");
-    expect(source).toContain("subscription-feed-list");
+    expect(source).toContain("subscription-multi-menu");
+    expect(source).toContain("ReleaseGroupInput");
     expect(source).not.toContain("subscription-rule-card");
   });
 

@@ -1,6 +1,7 @@
+import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Film, Pencil, Plus, Search } from "lucide-react";
+import { Check, ChevronDown, Film, Pencil, Plus, Search } from "lucide-react";
 import { api, type Downloader, type Feed, type MediaSearchResult, type ResolvedMediaTitle, type Subscription } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
@@ -25,6 +26,7 @@ export function SubscriptionsPage({
   const [createOpen, setCreateOpen] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
   const [query, setQuery] = useState("");
+  const releaseGroupOptions = useMemo(() => releaseGroupOptionsFromSubscriptions(subscriptions), [subscriptions]);
   const filteredSubscriptions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return subscriptions;
@@ -106,6 +108,7 @@ export function SubscriptionsPage({
             busy={busy}
             downloaders={downloaders}
             feeds={feeds}
+            releaseGroupOptions={releaseGroupOptions}
             onCancel={() => setCreateOpen(false)}
             onCreate={async (body) => {
               const result = await runAction(async () => {
@@ -123,6 +126,7 @@ export function SubscriptionsPage({
             busy={busy}
             downloaders={downloaders}
             feeds={feeds}
+            releaseGroupOptions={releaseGroupOptions}
             subscription={editingSubscription}
             onCancel={() => setEditingSubscription(null)}
             onUpdate={async (patchBody, ruleBody) => {
@@ -160,6 +164,25 @@ function subscriptionMode(subscription: Subscription, t: (key: string) => string
   return `${ruleMode} · ${subscription.autoDownload ? t("common.auto") : t("common.manual")}`;
 }
 
+function releaseGroupOptionsFromSubscriptions(subscriptions: Subscription[]) {
+  const seen = new Set<string>();
+  const options: string[] = [];
+  for (const subscription of subscriptions) {
+    for (const group of [
+      ...(subscription.rule?.releaseGroupsInclude ?? []),
+      ...(subscription.rule?.releaseGroupsExclude ?? []),
+      ...(subscription.rule?.preferredReleaseGroups ?? [])
+    ]) {
+      const normalized = group.trim();
+      const key = normalized.toLowerCase();
+      if (!normalized || seen.has(key)) continue;
+      seen.add(key);
+      options.push(normalized);
+    }
+  }
+  return options.sort((a, b) => a.localeCompare(b));
+}
+
 type RuleMode = "MEDIA_TITLE" | "REGEX";
 type UpgradePolicy = "none" | "better_quality" | "preferred_release_group";
 type MediaKind = "MOVIE" | "TV";
@@ -187,6 +210,7 @@ function SubscriptionEditorModal({
   busy,
   downloaders,
   feeds,
+  releaseGroupOptions,
   subscription,
   onCancel,
   onCreate,
@@ -195,6 +219,7 @@ function SubscriptionEditorModal({
   busy: boolean;
   downloaders: Downloader[];
   feeds: Feed[];
+  releaseGroupOptions: string[];
   subscription?: Subscription;
   onCancel: () => void;
   onCreate?: (body: string) => Promise<ActionResult>;
@@ -532,11 +557,13 @@ function SubscriptionEditorModal({
             />
           )}
           <div className="subscription-rule-row">
-            <FieldLabel>
-              {t("subscriptions.includeReleaseGroups")}
-              <FormInput value={releaseGroupsInclude} onChange={(event) => setReleaseGroupsInclude(event.target.value)} />
-            </FieldLabel>
-            <FeedPicker feeds={feeds} feedIds={feedIds} onToggle={toggleFeed} />
+            <ReleaseGroupInput
+              label={t("subscriptions.includeReleaseGroups")}
+              options={releaseGroupOptions}
+              value={releaseGroupsInclude}
+              onChange={setReleaseGroupsInclude}
+            />
+            <FeedPicker feeds={feeds} feedIds={feedIds} onClear={() => setFeedIds([])} onToggle={toggleFeed} />
           </div>
         </div>
         {commonAdvancedFields}
@@ -630,11 +657,13 @@ function SubscriptionEditorModal({
             <span>{t("subscriptions.minResolution")}</span>
             <QualitySelect value={minResolution} onValueChange={setMinResolution} />
           </div>
-          <FieldLabel className="subscription-wide-field">
-            {t("subscriptions.includeReleaseGroups")}
-            <FormInput value={releaseGroupsInclude} onChange={(event) => setReleaseGroupsInclude(event.target.value)} />
-          </FieldLabel>
-          <FeedPicker feeds={feeds} feedIds={feedIds} onToggle={toggleFeed} />
+          <ReleaseGroupInput
+            label={t("subscriptions.includeReleaseGroups")}
+            options={releaseGroupOptions}
+            value={releaseGroupsInclude}
+            onChange={setReleaseGroupsInclude}
+          />
+          <FeedPicker feeds={feeds} feedIds={feedIds} onClear={() => setFeedIds([])} onToggle={toggleFeed} />
         </div>
       </div>
       {commonAdvancedFields}
@@ -749,30 +778,119 @@ function QualitySelect({
   );
 }
 
+function ReleaseGroupInput({
+  label,
+  options,
+  value,
+  onChange
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation();
+  const selectedGroups = stringListFromInput(value);
+  const availableOptions = options.filter((option) =>
+    !selectedGroups.some((group) => group.toLowerCase() === option.toLowerCase())
+  );
+
+  const addGroup = (group: string) => {
+    onChange([...selectedGroups, group].join(", "));
+  };
+
+  return (
+    <div className="subscription-release-group-control">
+      <FieldLabel className="subscription-wide-field">
+        {label}
+        <FormInput value={value} onChange={(event) => onChange(event.target.value)} />
+      </FieldLabel>
+      <DropdownMenuPrimitive.Root>
+        <DropdownMenuPrimitive.Trigger
+          aria-label={t("subscriptions.releaseGroupSuggestions")}
+          className="secondary subscription-dropdown-icon"
+          disabled={options.length === 0}
+          title={t("subscriptions.releaseGroupSuggestions")}
+          type="button"
+        >
+          <ChevronDown size={16} />
+        </DropdownMenuPrimitive.Trigger>
+        <DropdownMenuPrimitive.Portal>
+          <DropdownMenuPrimitive.Content className="menu-content subscription-compact-menu" align="end" sideOffset={6}>
+            {availableOptions.length === 0 ? (
+              <DropdownMenuPrimitive.Item className="menu-item" disabled>
+                {t("subscriptions.noReleaseGroupSuggestions")}
+              </DropdownMenuPrimitive.Item>
+            ) : availableOptions.map((option) => (
+              <DropdownMenuPrimitive.Item
+                className="menu-item"
+                key={option}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  addGroup(option);
+                }}
+              >
+                {option}
+              </DropdownMenuPrimitive.Item>
+            ))}
+          </DropdownMenuPrimitive.Content>
+        </DropdownMenuPrimitive.Portal>
+      </DropdownMenuPrimitive.Root>
+    </div>
+  );
+}
+
 function FeedPicker({
   feeds,
   feedIds,
+  onClear,
   onToggle
 }: {
   feeds: Feed[];
   feedIds: string[];
+  onClear: () => void;
   onToggle: (feedId: string, checked: boolean) => void;
 }) {
   const { t } = useTranslation();
+  const label = feedIds.length === 0
+    ? t("subscriptions.allFeeds")
+    : t("subscriptions.feedRule", { count: feedIds.length });
   return (
     <div className="subscription-feed-picker">
       <span>{t("subscriptions.fixedFeeds")}</span>
-      <div className="subscription-feed-list compact">
-        {feeds.length === 0 && <span className="subscription-feed-empty">{t("subscriptions.noFeeds")}</span>}
-        {feeds.map((feed) => (
-          <CheckboxField
-            key={feed.id}
-            checked={feedIds.includes(feed.id)}
-            onCheckedChange={(checked) => onToggle(feed.id, checked)}
-            label={feed.name}
-          />
-        ))}
-      </div>
+      <DropdownMenuPrimitive.Root>
+        <DropdownMenuPrimitive.Trigger className="secondary subscription-dropdown-trigger" disabled={feeds.length === 0} type="button">
+          <span>{feeds.length === 0 ? t("subscriptions.noFeeds") : label}</span>
+          <ChevronDown size={16} />
+        </DropdownMenuPrimitive.Trigger>
+        <DropdownMenuPrimitive.Portal>
+          <DropdownMenuPrimitive.Content className="menu-content subscription-multi-menu" align="end" sideOffset={6}>
+            <DropdownMenuPrimitive.Item
+              className="menu-item subscription-check-item"
+              onSelect={(event) => {
+                event.preventDefault();
+                onClear();
+              }}
+            >
+              <span className="subscription-check-slot">{feedIds.length === 0 && <Check size={14} />}</span>
+              {t("subscriptions.allFeeds")}
+            </DropdownMenuPrimitive.Item>
+            <DropdownMenuPrimitive.Separator className="subscription-menu-separator" />
+            {feeds.map((feed) => (
+              <DropdownMenuPrimitive.CheckboxItem
+                checked={feedIds.includes(feed.id)}
+                className="menu-item subscription-check-item"
+                key={feed.id}
+                onCheckedChange={(checked) => onToggle(feed.id, checked === true)}
+                onSelect={(event) => event.preventDefault()}
+              >
+                <span className="subscription-check-slot">{feedIds.includes(feed.id) && <Check size={14} />}</span>
+                <span>{feed.name}</span>
+              </DropdownMenuPrimitive.CheckboxItem>
+            ))}
+          </DropdownMenuPrimitive.Content>
+        </DropdownMenuPrimitive.Portal>
+      </DropdownMenuPrimitive.Root>
     </div>
   );
 }
