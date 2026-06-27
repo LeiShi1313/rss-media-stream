@@ -214,9 +214,8 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
   const mediaType = normalizeOptionalMediaType(rule.mediaType ?? criteria.mediaType);
   const mediaTitleId = optionalString(rule.mediaTitleId) ??
     optionalString(criteria.mediaTitleId);
-  const selectedProvider = withDefaultProviderMediaType(
-    normalizeProviderIdentity(rule.selectedProvider ?? criteria.selectedProvider),
-    mediaType
+  const selectedProvider = normalizeProviderIdentity(
+    rule.selectedProvider ?? criteria.selectedProvider
   );
   const linkedProviders = normalizeProviderIdentityList(rule.linkedProviders ?? criteria.linkedProviders)
     .map((filter) => withDefaultProviderMediaType(filter, mediaType));
@@ -284,7 +283,9 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
     mode,
     mediaType,
     mediaTitleId,
-    selectedProvider,
+    selectedProvider: selectedProvider
+      ? withDefaultProviderMediaType(selectedProvider, mediaType)
+      : undefined,
     linkedProviders,
     providerRatings,
     feedIds: normalizeStringList(rule.feedIds, normalizePlainString),
@@ -564,10 +565,10 @@ function normalizeProviderIdentity(value: unknown): ProviderIdentityFilter | und
 }
 
 function withDefaultProviderMediaType(
-  filter: ProviderIdentityFilter | undefined,
+  filter: ProviderIdentityFilter,
   mediaType: ParsedMediaType | undefined
-): ProviderIdentityFilter | undefined {
-  if (!filter || filter.mediaType || !mediaType || mediaType === "UNKNOWN") return filter;
+): ProviderIdentityFilter {
+  if (filter.mediaType || !mediaType || mediaType === "UNKNOWN") return filter;
   return { ...filter, mediaType };
 }
 

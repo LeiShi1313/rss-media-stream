@@ -4,6 +4,10 @@ const mediaTypeSchema = z.preprocess(
   (value) => value === "TV" ? "TV_SERIES" : value,
   z.enum(["MOVIE", "TV_SERIES", "UNKNOWN"])
 );
+const providerIdentityMediaTypeSchema = z.preprocess(
+  (value) => value === "TV" ? "TV_SERIES" : value,
+  z.enum(["MOVIE", "TV_SERIES"])
+);
 const providerSchema = z.enum(["tmdb", "tvdb", "ptgen", "imdb", "douban", "wikidata", "trakt", "musicbrainz"]);
 const ratingTypeSchema = z.enum(["user_score", "critic_score", "popularity"]);
 const ratingComparisonSchema = z.enum(["gte", "lte", "gt", "lt", "eq"]);
@@ -34,7 +38,7 @@ const regexString = optionalTrimmedString(300).refine(
 const stringList = z.array(z.string().trim().min(1).max(80)).max(50).default([]);
 const providerIdentitySchema = z.object({
   provider: providerSchema,
-  mediaType: mediaTypeSchema.optional(),
+  mediaType: providerIdentityMediaTypeSchema.optional(),
   providerEntityType: optionalTrimmedString(80),
   providerId: z.string().trim().min(1).max(80)
 });
