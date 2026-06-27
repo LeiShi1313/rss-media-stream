@@ -68,6 +68,7 @@ const CJK_TRAILING_WHOLE_SERIES_RE = /(?:(?:[2-9]\d{0,2})|(?:十|[二三四五�
 const CJK_COMPLETE_SERIES_LABEL_RE = /全集/u;
 const CJK_COMPLETE_STATUS_LABEL_RE = /(?:^|[\s[\]({【「『|｜:：,，;；/])(?:完结|完結|完结撒花|完結撒花)(?=$|[\s\])}】」』|｜:：,，;；/])/u;
 const CJK_COMPLETE_EPISODE_RANGE_RE = /\d{1,4}\s*[-~至到－—]\s*\d{1,4}\s*(?:集|话|話)\s*(?:全|完|完结|完結)/u;
+const PURE_VARIANT_RE = /^(?:pure|纯享版?|純享版?)(?=$|[\s._-])/iu;
 const EMPTY_BRACKET_DISC_MARKER_RE = /(?:^|[^\p{L}\p{N}])DISC\s*\d{1,3}\s*\[\]/iu;
 const NORMALIZED_DISC_MARKER_RE = /(?:^|[.\s])DISC[.\s]*\d{1,3}\b/i;
 const ANIMATION_TV_EPISODE_RANGE_RE = /\bTV\b[^\[\]]{0,40}\d{1,4}\s*[-~－—]\s*\d{1,4}/iu;
@@ -227,6 +228,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const title = titleInfo.title;
   const episode = tv ? Number(tv[2]) : episodeOnly ? Number(episodeOnly[1]) : longEpisodeOnly ? Number(longEpisodeOnly[1]) : chineseEpisode?.episode ?? stackedAnimationTvEpisode?.episode;
   const episodeEnd = tv?.[3] ? Number(tv[3]) : episodeOnly?.[2] ? Number(episodeOnly[2]) : longEpisodeOnly?.[2] ? Number(longEpisodeOnly[2]) : chineseEpisode?.episodeEnd ?? stackedAnimationTvEpisode?.episodeEnd;
+  const variant = findKnownPostEpisodeVariant(normalized, tv ?? episodeOnly ?? longEpisodeOnly ?? undefined);
   const parseConfidence = scoreConfidence({
     title,
     mediaType,
@@ -251,8 +253,35 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     codec,
     audio,
     releaseGroup,
+    variant,
     parseConfidence
   };
+}
+
+function findKnownPostEpisodeVariant(
+  normalized: string,
+  episodeMatch: RegExpMatchArray | undefined
+): string | undefined {
+  if (!episodeMatch || episodeMatch.index == null) return undefined;
+
+  const tail = normalized
+    .slice(episodeMatch.index + episodeMatch[0].length)
+    .replace(/^[\s._-]+/u, "");
+  const match = tail.match(PURE_VARIANT_RE);
+  if (!match?.[0]) return undefined;
+
+  const afterVariant = tail.slice(match[0].length).replace(/^[\s._-]+/u, "");
+  if (!afterVariant || technicalMetadataTailStarts(afterVariant)) return "PURE";
+  return undefined;
+}
+
+function technicalMetadataTailStarts(value: string) {
+  return technicalPatternStarts(YEAR_RE, value) ||
+    technicalPatternStarts(QUALITY_RE, value) ||
+    technicalPatternStarts(DIMENSION_RE, value) ||
+    technicalPatternStarts(SOURCE_RE, value) ||
+    technicalPatternStarts(CODEC_RE, value) ||
+    technicalPatternStarts(AUDIO_RE, value);
 }
 
 function releaseParseInput(rawTitle: string): string {

@@ -162,6 +162,18 @@ export function evaluateSubscriptionRule(
     return reject("release group is excluded by subscription", normalized);
   }
 
+  const variant = normalizeReleaseVariant(candidate.release.variant);
+  if (normalized.variantsInclude.length > 0) {
+    if (!variant) return reject("release variant is not included by subscription", normalized);
+    if (!normalized.variantsInclude.includes(variant)) {
+      return reject("release variant is not included by subscription", normalized);
+    }
+  }
+
+  if (variant && normalized.variantsExclude.includes(variant)) {
+    return reject("release variant is excluded by subscription", normalized);
+  }
+
   const sizeBytes = normalizeOptionalBigInt(candidate.sizeBytes);
   if (normalized.minSizeBytes !== undefined) {
     if (sizeBytes === undefined) return reject("release size is missing", normalized);
@@ -265,6 +277,14 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
     rule.releaseGroupsExclude,
     normalizeReleaseGroup
   );
+  const variantsInclude = normalizeStringList(
+    rule.variantsInclude ?? criteria.variantsInclude,
+    normalizeReleaseVariant
+  );
+  const variantsExclude = normalizeStringList(
+    rule.variantsExclude ?? criteria.variantsExclude,
+    normalizeReleaseVariant
+  );
   const preferredReleaseGroups = normalizeStringList(
     rule.preferredReleaseGroups,
     normalizeReleaseGroup
@@ -299,6 +319,8 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
     audio: normalizeStringList(rule.audio, normalizeAudio),
     releaseGroupsInclude,
     releaseGroupsExclude,
+    variantsInclude,
+    variantsExclude,
     preferredReleaseGroups,
     minSizeBytes,
     maxSizeBytes,
@@ -365,6 +387,17 @@ export function normalizeAudio(value: string | null | undefined): string | undef
 export function normalizeReleaseGroup(value: string | null | undefined): string | undefined {
   const raw = optionalString(value);
   return raw?.toUpperCase();
+}
+
+export function normalizeReleaseVariant(value: string | null | undefined): string | undefined {
+  const raw = optionalString(value);
+  if (!raw) return undefined;
+  const normalized = raw
+    .toUpperCase()
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /^(?:PURE|纯享|純享)(?:版)?$/u.test(normalized) ? "PURE" : normalized;
 }
 
 function normalizeMode(value: unknown): SubscriptionMode {

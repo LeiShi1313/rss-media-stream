@@ -297,6 +297,7 @@ model ParsedRelease {
   codec           String?
   audio           String?
   releaseGroup    String?
+  variant         String?
   parseConfidence Float                @default(0)
   parsedAt        DateTime             @default(now())
   tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)

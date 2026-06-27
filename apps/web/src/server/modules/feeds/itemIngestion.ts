@@ -275,6 +275,7 @@ function parsedReleaseData(release: ReturnType<typeof parseReleaseTitle>) {
     codec: release.codec ?? null,
     audio: release.audio ?? null,
     releaseGroup: release.releaseGroup ?? null,
+    variant: release.variant ?? null,
     parseConfidence: release.parseConfidence,
     parsedAt: new Date()
   };
@@ -296,6 +297,7 @@ function parsedReleaseComparisonSelect() {
     codec: true,
     audio: true,
     releaseGroup: true,
+    variant: true,
     parseConfidence: true
   } as const;
 }
@@ -318,6 +320,7 @@ function parsedReleaseChanged(
     previous.codec !== (next.codec ?? null),
     previous.audio !== (next.audio ?? null),
     previous.releaseGroup !== (next.releaseGroup ?? null),
+    (previous.variant ?? null) !== (next.variant ?? null),
     previous.parseConfidence !== next.parseConfidence
   ].some(Boolean);
 }

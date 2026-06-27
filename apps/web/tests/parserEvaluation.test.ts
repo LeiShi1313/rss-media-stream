@@ -26,6 +26,7 @@ describe("parser evaluation", () => {
         codec: "H.264",
         audio: null,
         releaseGroup: "GROUP",
+        variant: null,
         parseConfidence: 0.85
       }
     });
@@ -47,6 +48,7 @@ describe("parser evaluation", () => {
       codec: null,
       audio: null,
       releaseGroup: null,
+      variant: null,
       parseConfidence: 0.8
     }, {
       title: "Old Movie",

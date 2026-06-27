@@ -25,6 +25,7 @@ export type ParsedRelease = {
   codec?: string;
   audio?: string;
   releaseGroup?: string;
+  variant?: string;
   parseConfidence: number;
 };
 
@@ -76,6 +77,8 @@ export type SubscriptionRuleInput = {
   audio?: string[] | null;
   releaseGroupsInclude?: string[] | null;
   releaseGroupsExclude?: string[] | null;
+  variantsInclude?: string[] | null;
+  variantsExclude?: string[] | null;
   preferredReleaseGroups?: string[] | null;
   minSizeBytes?: bigint | number | string | null;
   maxSizeBytes?: bigint | number | string | null;
@@ -106,6 +109,8 @@ export type NormalizedSubscriptionRule = {
   audio: string[];
   releaseGroupsInclude: string[];
   releaseGroupsExclude: string[];
+  variantsInclude: string[];
+  variantsExclude: string[];
   preferredReleaseGroups: string[];
   minSizeBytes?: bigint;
   maxSizeBytes?: bigint;

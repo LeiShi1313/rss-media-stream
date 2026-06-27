@@ -202,6 +202,7 @@ export type ParsedRelease = {
   codec?: string;
   audio?: string;
   releaseGroup?: string;
+  variant?: string;
   confidence: number;
 };
 
@@ -357,6 +358,8 @@ export type Subscription = {
     audio?: string[];
     releaseGroupsInclude?: string[];
     releaseGroupsExclude?: string[];
+    variantsInclude?: string[];
+    variantsExclude?: string[];
     preferredReleaseGroups?: string[];
     minSizeBytes?: string;
     maxSizeBytes?: string;

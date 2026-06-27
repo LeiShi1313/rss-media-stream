@@ -2733,6 +2733,28 @@ describe("parseReleaseTitle", () => {
     expect(extraRelease.providerSearchTitles).toEqual(["音你而来"]);
   });
 
+  it("parses known post-episode variant tokens without changing the media unit", () => {
+    const pureRelease = parseReleaseTitle(
+      "Stand-Up Comedy S03E02 Pure 2026 2160p WEB-DL H265 AAC-ADWeb"
+    );
+    const normalRelease = parseReleaseTitle(
+      "Stand-Up Comedy S03E02 2026 2160p WEB-DL H265 AAC-ADWeb"
+    );
+    const cjkPureRelease = parseReleaseTitle(
+      "Stand-Up Comedy S03E02 纯享版 2026 2160p WEB-DL H265 AAC-ADWeb"
+    );
+
+    expect(pureRelease).toMatchObject({
+      title: "Stand Up Comedy",
+      mediaType: "TV_SERIES",
+      season: 3,
+      episode: 2,
+      variant: "PURE"
+    });
+    expect(normalRelease.variant).toBeUndefined();
+    expect(cjkPureRelease.variant).toBe("PURE");
+  });
+
   it("keeps diary words that are part of a title token", () => {
     const release = parseReleaseTitle(
       "[动漫]Koala Enikki S01E01 2026 1080p WEB-DL H264 AAC-GRP[考拉绘日记 無尾熊繪日記 コアラ絵日記 | 第01集][300 MB]"

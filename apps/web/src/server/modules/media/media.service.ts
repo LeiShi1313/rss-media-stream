@@ -104,6 +104,7 @@ type ParsedReleaseSnapshot = Pick<
   | "codec"
   | "audio"
   | "releaseGroup"
+  | "variant"
   | "parseConfidence"
 >;
 
@@ -763,6 +764,7 @@ function snapshotParsedRelease(release: ParsedReleaseSnapshot): ParsedReleaseSna
     codec: release.codec,
     audio: release.audio,
     releaseGroup: release.releaseGroup,
+    variant: release.variant,
     parseConfidence: release.parseConfidence
   };
 }
@@ -789,6 +791,7 @@ async function parsedReleaseSnapshotStillCurrent(
       codec: true,
       audio: true,
       releaseGroup: true,
+      variant: true,
       parseConfidence: true
     }
   });
@@ -816,6 +819,7 @@ function parsedReleaseSnapshotsMatch(
     expected.codec === current.codec,
     expected.audio === current.audio,
     expected.releaseGroup === current.releaseGroup,
+    expected.variant === current.variant,
     expected.parseConfidence === current.parseConfidence
   ].every(Boolean);
 }
@@ -1864,6 +1868,7 @@ function serializeParsedRelease(release: any) {
     codec: release.codec,
     audio: release.audio,
     releaseGroup: release.releaseGroup,
+    variant: release.variant,
     confidence: release.parseConfidence,
     parseConfidence: release.parseConfidence,
     parsedAt: release.parsedAt?.toISOString?.() ?? release.parsedAt

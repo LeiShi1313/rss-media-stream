@@ -383,6 +383,80 @@ describe("evaluateSubscriptionRule", () => {
     });
   });
 
+  it("filters known release variants separately from title and release group", () => {
+    const tvMatch: NonNullable<CandidateInput["activeMatch"]> = {
+      id: "match_tv",
+      status: "MATCHED",
+      source: "AUTO",
+      confidence: 0.94,
+      mediaTitle: {
+        id: "media_tv",
+        mediaType: "TV_SERIES",
+        canonicalTitle: "Example Show"
+      },
+      selectedProviderTitle: {
+        ...tmdbTitle,
+        providerEntityType: "tmdb_tv",
+        mediaType: "TV_SERIES"
+      },
+      linkedProviderTitles: []
+    };
+    const tvRelease = (variant?: string): CandidateInput["release"] => ({
+      title: "Example Show",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 3,
+      variant,
+      resolution: 2160,
+      parseConfidence: 0.9
+    });
+
+    const pureDecision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        variantsInclude: ["pure"]
+      },
+      candidate({
+        rawTitle: "Example.Show.S01E03.Pure.2160p.WEB-DL.DDP5.1.HEVC-GRP",
+        release: tvRelease("PURE"),
+        activeMatch: tvMatch
+      })
+    );
+    const normalDecision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        variantsInclude: ["pure"]
+      },
+      candidate({
+        rawTitle: "Example.Show.S01E03.2160p.WEB-DL.DDP5.1.HEVC-GRP",
+        release: tvRelease(),
+        activeMatch: tvMatch
+      })
+    );
+    const excludedDecision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        variantsExclude: ["pure"]
+      },
+      candidate({
+        rawTitle: "Example.Show.S01E03.Pure.2160p.WEB-DL.DDP5.1.HEVC-GRP",
+        release: tvRelease("PURE"),
+        activeMatch: tvMatch
+      })
+    );
+
+    expect(pureDecision).toMatchObject({ accepted: true, reason: "accepted" });
+    expect(pureDecision.ruleSnapshot).toMatchObject({ variantsInclude: ["PURE"] });
+    expect(normalDecision).toMatchObject({
+      accepted: false,
+      reason: "release variant is not included by subscription"
+    });
+    expect(excludedDecision).toMatchObject({
+      accepted: false,
+      reason: "release variant is excluded by subscription"
+    });
+  });
+
   it("rejects series releases without strict episode fields", () => {
     const decision = evaluateSubscriptionRule(
       {

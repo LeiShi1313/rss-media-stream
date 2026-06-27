@@ -438,6 +438,7 @@ function serializeParsedRelease(release: any) {
     codec: release.codec,
     audio: release.audio,
     releaseGroup: release.releaseGroup,
+    variant: release.variant,
     confidence: release.parseConfidence,
     parseConfidence: release.parseConfidence,
     parsedAt: release.parsedAt.toISOString()

@@ -857,7 +857,9 @@ function ruleCriteriaJson(rule: ReturnType<typeof normalizeRule>) {
     mediaTitleId: rule.mediaTitleId,
     selectedProvider: rule.selectedProvider,
     linkedProviders: rule.linkedProviders,
-    providerRatings: rule.providerRatings
+    providerRatings: rule.providerRatings,
+    variantsInclude: rule.variantsInclude,
+    variantsExclude: rule.variantsExclude
   };
   const compact = Object.fromEntries(
     Object.entries(criteria).filter(([, value]) =>
@@ -872,6 +874,8 @@ function criteriaFromRow(rule: any): {
   selectedProvider?: SubscriptionRuleInput["selectedProvider"];
   linkedProviders?: SubscriptionRuleInput["linkedProviders"];
   providerRatings?: SubscriptionRuleInput["providerRatings"];
+  variantsInclude?: SubscriptionRuleInput["variantsInclude"];
+  variantsExclude?: SubscriptionRuleInput["variantsExclude"];
 } {
   return rule.criteriaJson && typeof rule.criteriaJson === "object" && !Array.isArray(rule.criteriaJson)
     ? rule.criteriaJson
@@ -898,6 +902,8 @@ function ruleFromRow(rule: any, subscriptionMediaTitleId?: string | null): Subsc
     audio: rule.audio ?? [],
     releaseGroupsInclude: rule.releaseGroupsInclude ?? [],
     releaseGroupsExclude: rule.releaseGroupsExclude ?? [],
+    variantsInclude: criteria.variantsInclude ?? [],
+    variantsExclude: criteria.variantsExclude ?? [],
     preferredReleaseGroups: rule.preferredReleaseGroups ?? [],
     minSizeBytes: rule.minSizeBytes ?? undefined,
     maxSizeBytes: rule.maxSizeBytes ?? undefined,
@@ -983,6 +989,7 @@ function candidateFromItem(item: any): CandidateInput {
       codec: item.parsedRelease.codec ?? undefined,
       audio: item.parsedRelease.audio ?? undefined,
       releaseGroup: item.parsedRelease.releaseGroup ?? undefined,
+      variant: item.parsedRelease.variant ?? undefined,
       parseConfidence: item.parsedRelease.parseConfidence
     },
     activeMatch: activeMatchFromRow(match)
@@ -1065,6 +1072,8 @@ function serializeRule(rule: any, subscriptionMediaTitleId?: string | null) {
     audio: rule.audio ?? [],
     releaseGroupsInclude: rule.releaseGroupsInclude ?? [],
     releaseGroupsExclude: rule.releaseGroupsExclude ?? [],
+    variantsInclude: ruleInput.variantsInclude ?? [],
+    variantsExclude: ruleInput.variantsExclude ?? [],
     preferredReleaseGroups: rule.preferredReleaseGroups ?? [],
     minSizeBytes: rule.minSizeBytes?.toString?.(),
     maxSizeBytes: rule.maxSizeBytes?.toString?.(),

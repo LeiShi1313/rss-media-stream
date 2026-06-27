@@ -16,6 +16,7 @@ export type PersistedParsedReleaseSnapshot = {
   codec: string | null;
   audio: string | null;
   releaseGroup: string | null;
+  variant: string | null;
   parseConfidence: number;
 };
 
@@ -43,6 +44,7 @@ export type ParserChangeKind =
   | "codec_changed"
   | "audio_changed"
   | "release_group_changed"
+  | "variant_changed"
   | "parse_confidence_changed"
   | "release_signature_changed"
   | "known_media_to_unknown"
@@ -121,6 +123,7 @@ export function compareParsedRelease(
   pushIf(changes, previous.codec !== (next.codec ?? null), "codec_changed");
   pushIf(changes, previous.audio !== (next.audio ?? null), "audio_changed");
   pushIf(changes, previous.releaseGroup !== (next.releaseGroup ?? null), "release_group_changed");
+  pushIf(changes, (previous.variant ?? null) !== (next.variant ?? null), "variant_changed");
   pushIf(changes, previous.parseConfidence !== next.parseConfidence, "parse_confidence_changed");
   pushIf(
     changes,
@@ -204,6 +207,7 @@ function emptyChangesByKind(): Record<ParserChangeKind, number> {
     codec_changed: 0,
     audio_changed: 0,
     release_group_changed: 0,
+    variant_changed: 0,
     parse_confidence_changed: 0,
     release_signature_changed: 0,
     known_media_to_unknown: 0,

@@ -70,6 +70,8 @@ export const subscriptionRuleSchema = z
     audio: stringList,
     releaseGroupsInclude: stringList,
     releaseGroupsExclude: stringList,
+    variantsInclude: stringList,
+    variantsExclude: stringList,
     preferredReleaseGroups: stringList,
     minSizeBytes: z.coerce.bigint().optional(),
     maxSizeBytes: z.coerce.bigint().optional(),
