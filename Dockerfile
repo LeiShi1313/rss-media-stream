@@ -35,4 +35,4 @@ COPY --from=build /app/apps ./apps
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/tsconfig.json /app/tsconfig.base.json ./
 EXPOSE 4000
-CMD ["sh", "-c", "npm run prisma:push -- --accept-data-loss && npm start"]
+CMD ["npm", "start"]

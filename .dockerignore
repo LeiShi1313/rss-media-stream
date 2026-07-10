@@ -1,5 +1,9 @@
 .env
 .git
+.local
+.superpowers
+.worktrees
+backups
 node_modules
 dist
 apps/*/dist
