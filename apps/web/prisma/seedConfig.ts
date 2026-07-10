@@ -12,6 +12,9 @@ export function loadSeedConfig(environment: SeedEnvironment = process.env): Seed
   if (environment.NODE_ENV === "production") {
     throw new Error("Database seeding is disabled in production");
   }
+  if (environment.NODE_ENV !== "development") {
+    throw new Error("Database seeding requires NODE_ENV=development");
+  }
 
   const email = requiredTrimmed(environment, "SEED_USER_EMAIL").toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

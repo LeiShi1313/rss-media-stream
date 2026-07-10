@@ -88,6 +88,16 @@ npm run dev
 npm run worker
 ```
 
+Development seeding is opt-in. Set `SEED_USER_EMAIL` and
+`SEED_USER_PASSWORD`, then run:
+
+```bash
+NODE_ENV=development npm run prisma:seed
+```
+
+The command refuses every other environment and does not modify an existing
+user's account fields.
+
 ## Safety Defaults
 
 - RSS URLs, torrent download URLs, and downloader passwords are encrypted at rest.

@@ -17,6 +17,11 @@ describe("seed configuration", () => {
       .toThrow("Database seeding is disabled in production");
   });
 
+  it("requires development mode to be explicit", () => {
+    expect(() => loadSeedConfig({ ...validEnvironment, NODE_ENV: undefined }))
+      .toThrow("Database seeding requires NODE_ENV=development");
+  });
+
   it("requires explicit credentials and an encryption secret", () => {
     expect(() => loadSeedConfig({
       ...validEnvironment,
