@@ -46,6 +46,33 @@ Schema setup is explicit so normal Docker starts do not reset local data:
 docker compose --profile tools run --rm schema
 ```
 
+Production images never create or change database objects during application
+startup. Apply reviewed migrations as a separate deployment step before starting
+the new image:
+
+```bash
+npm run prisma:migrate:deploy
+```
+
+The initial migration is also the baseline for databases created before migration
+history was introduced. Do not apply that migration directly to an existing
+database. Back it up, verify that its schema already matches the Prisma model,
+then record the baseline as applied:
+
+```bash
+npx prisma migrate diff \
+  --from-url "$DATABASE_URL" \
+  --to-schema-datamodel apps/web/prisma/schema.prisma \
+  --exit-code
+npx prisma migrate resolve \
+  --applied 20260710000000_baseline \
+  --schema apps/web/prisma/schema.prisma
+```
+
+The diff command exits with `0` only when no schema difference exists. Stop and
+prepare a reviewed migration if it reports a difference. The resolve command
+records migration history; it does not recreate application tables.
+
 The destructive local reset is opt-in:
 
 ```bash
@@ -61,9 +88,21 @@ npm run dev
 npm run worker
 ```
 
+Development seeding is opt-in. Set `SEED_USER_EMAIL` and
+`SEED_USER_PASSWORD`, then run:
+
+```bash
+NODE_ENV=development npm run prisma:seed
+```
+
+The command refuses every other environment and does not modify an existing
+user's account fields.
+
 ## Safety Defaults
 
 - RSS URLs, torrent download URLs, and downloader passwords are encrypted at rest.
 - Passkeys and tokens are redacted from API previews and logs.
+- Database seeding is disabled in production, requires explicit development credentials,
+  and never changes an existing user's account fields.
 - Series auto-downloads require strict season and episode parsing.
 - TMDB is the first metadata provider; Douban and direct IMDb adapters can be added behind the same media search/match interface.

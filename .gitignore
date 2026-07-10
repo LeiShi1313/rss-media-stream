@@ -1,6 +1,9 @@
 node_modules
 dist
 .env
+.local/
+.worktrees/
+backups/
 .DS_Store
 coverage
 prisma/dev.db
