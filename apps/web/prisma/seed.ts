@@ -1,7 +1,14 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { config as loadDotenv } from "dotenv";
 import { getDefaultPoliciesForMediaType, listProviderDefinitions } from "../src/server/integrations/providers/index.js";
 import { encryptSecret, hmacSecret } from "../src/server/secrets.js";
+import { buildSeedUserUpsertArgs, loadSeedConfig } from "./seedConfig.js";
+
+loadDotenv();
+loadDotenv({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../../../.env") });
 
 const prisma = new PrismaClient();
 
@@ -13,25 +20,10 @@ type SeedFeed = {
 };
 
 async function main() {
-  const seedEmail = (process.env.SEED_USER_EMAIL ?? "me@leishi.xyz").toLowerCase();
-  const seedPassword = process.env.SEED_USER_PASSWORD ?? "password12345";
-  const seedName = process.env.SEED_USER_NAME ?? "Lei";
-  const seedWorkspace = process.env.SEED_WORKSPACE_NAME ?? "RSS Media Stream";
-  const appSecret = process.env.APP_SECRET ?? "dev-app-secret-change-me-please-32chars";
-
-  const user = await prisma.user.upsert({
-    where: { email: seedEmail },
-    create: {
-      email: seedEmail,
-      name: seedName,
-      passwordHash: await bcrypt.hash(seedPassword, 12)
-    },
-    update: {
-      name: seedName,
-      passwordHash: await bcrypt.hash(seedPassword, 12)
-    },
-    select: { id: true }
-  });
+  const seed = loadSeedConfig();
+  const user = await prisma.user.upsert(
+    buildSeedUserUpsertArgs(seed, await bcrypt.hash(seed.password, 12))
+  );
 
   const existingMembership = await prisma.tenantMembership.findFirst({
     where: { userId: user.id },
@@ -40,7 +32,7 @@ async function main() {
 
   const tenantId = existingMembership?.tenantId ?? (await prisma.tenant.create({
     data: {
-      name: seedWorkspace,
+      name: seed.workspaceName,
       memberships: {
         create: {
           userId: user.id,
@@ -71,14 +63,14 @@ async function main() {
           tenantId: tenant.id,
           provider: definition.id,
           enabled: true,
-          encryptedSecretsJson: secrets ? encryptSecret(JSON.stringify(secrets), appSecret) : undefined,
+          encryptedSecretsJson: secrets ? encryptSecret(JSON.stringify(secrets), seed.appSecret) : undefined,
           configuredAt: secrets ? new Date() : undefined,
           lastValidatedAt: secrets ? new Date() : undefined,
           metadataLanguage: definition.defaultMetadataLanguage
         },
         update: secrets
           ? {
-              encryptedSecretsJson: encryptSecret(JSON.stringify(secrets), appSecret),
+              encryptedSecretsJson: encryptSecret(JSON.stringify(secrets), seed.appSecret),
               configuredAt: new Date(),
               lastValidatedAt: new Date(),
               lastError: null
@@ -112,14 +104,14 @@ async function main() {
     }
 
     for (const feed of seedFeedsFromEnv()) {
-      const urlHash = hmacSecret(feed.url, appSecret);
+      const urlHash = hmacSecret(feed.url, seed.appSecret);
       const existing = await prisma.rssFeed.findFirst({
         where: { tenantId: tenant.id, urlHash },
         select: { id: true }
       });
       const data = {
         name: feed.name,
-        encryptedUrl: encryptSecret(feed.url, appSecret),
+        encryptedUrl: encryptSecret(feed.url, seed.appSecret),
         urlHash,
         pollIntervalSeconds: feed.pollIntervalSeconds ?? 600,
         enabled: feed.enabled ?? true

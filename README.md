@@ -92,5 +92,7 @@ npm run worker
 
 - RSS URLs, torrent download URLs, and downloader passwords are encrypted at rest.
 - Passkeys and tokens are redacted from API previews and logs.
+- Database seeding is disabled in production, requires explicit development credentials,
+  and never changes an existing user's account fields.
 - Series auto-downloads require strict season and episode parsing.
 - TMDB is the first metadata provider; Douban and direct IMDb adapters can be added behind the same media search/match interface.
