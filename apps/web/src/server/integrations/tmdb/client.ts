@@ -11,6 +11,7 @@ type TmdbClientOptions = {
   credential?: string;
   language?: string;
   region?: string;
+  signal?: AbortSignal;
 };
 
 export async function searchTmdb(
@@ -30,7 +31,8 @@ export async function searchTmdb(
     input,
     credential,
     language,
-    region
+    region,
+    signal: options.signal
   });
   const englishBody = language.toLowerCase() === "en-us"
     ? undefined
@@ -39,7 +41,8 @@ export async function searchTmdb(
         input,
         credential,
         language: "en-US",
-        region
+        region,
+        signal: options.signal
       }).catch(() => undefined);
 
   return mapSearchResponse(primaryBody, kind, {
@@ -47,7 +50,8 @@ export async function searchTmdb(
     englishBody,
     credential,
     language,
-    region
+    region,
+    signal: options.signal
   });
 }
 
@@ -57,6 +61,7 @@ async function fetchTmdbSearch(input: {
   credential: string;
   language: string;
   region?: string;
+  signal?: AbortSignal;
 }): Promise<TmdbSearchResponse> {
   const params = new URLSearchParams({
     query: input.input.title,
@@ -70,7 +75,8 @@ async function fetchTmdbSearch(input: {
   }
   applyTmdbApiKeyParam(params, input.credential);
   const response = await fetch(`https://api.themoviedb.org/3/search/${input.kind}?${params}`, {
-    headers: tmdbHeaders(input.credential)
+    headers: tmdbHeaders(input.credential),
+    signal: input.signal
   });
   if (!response.ok) {
     throw new Error(`TMDB search failed with ${response.status}`);
@@ -94,7 +100,8 @@ export async function getTmdbMediaById(
   if (region) params.set("region", region);
   applyTmdbApiKeyParam(params, credential);
   const response = await fetch(`https://api.themoviedb.org/3/${kind}/${input.tmdbId}?${params}`, {
-    headers: tmdbHeaders(credential)
+    headers: tmdbHeaders(credential),
+    signal: options.signal
   });
   if (!response.ok) {
     throw new Error(`TMDB detail lookup failed with ${response.status}`);
@@ -134,6 +141,7 @@ function mapSearchResponse(
     credential: string;
     language: string;
     region?: string;
+    signal?: AbortSignal;
   }
 ) {
   const { input, englishBody } = context;
@@ -167,7 +175,8 @@ function mapSearchResponse(
       extraCandidateTitles,
       credential: context.credential,
       language,
-      region: context.region
+      region: context.region,
+      signal: context.signal
     });
     return toTitleResult(result, kind, { ...input, language }, extraCandidateTitles, seasonEpisodeEvidence);
   }));
@@ -194,6 +203,7 @@ async function maybeFetchTvSeasonEpisodeEvidence(input: {
   credential: string;
   language: string;
   region?: string;
+  signal?: AbortSignal;
 }): Promise<TmdbTvSeasonEpisodeEvidence | undefined> {
   if (input.kind !== "tv" || !input.input.season) return undefined;
   if (!tmdbTitleSupportsSeasonEvidence({
@@ -210,7 +220,8 @@ async function maybeFetchTvSeasonEpisodeEvidence(input: {
       tmdbId: String(input.result.id),
       credential: input.credential,
       language: input.language,
-      region: input.region
+      region: input.region,
+      signal: input.signal
     });
     return tvSeasonEpisodeEvidence(detail, {
       season: input.input.season,
@@ -227,12 +238,14 @@ async function fetchTmdbDetail(input: {
   credential: string;
   language: string;
   region?: string;
+  signal?: AbortSignal;
 }): Promise<TmdbResult> {
   const params = new URLSearchParams({ language: input.language });
   if (input.region) params.set("region", input.region);
   applyTmdbApiKeyParam(params, input.credential);
   const response = await fetch(`https://api.themoviedb.org/3/${input.kind}/${input.tmdbId}?${params}`, {
-    headers: tmdbHeaders(input.credential)
+    headers: tmdbHeaders(input.credential),
+    signal: input.signal
   });
   if (!response.ok) {
     throw new Error(`TMDB detail lookup failed with ${response.status}`);

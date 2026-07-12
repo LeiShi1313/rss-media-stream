@@ -11,9 +11,11 @@ export type MetadataAdapterId = "tmdb" | "tvdb" | "ptgen";
 export type ProviderSourceDefinition = {
   id: ProviderSource;
   provider: Exclude<MediaProvider, "ptgen">;
+  providerLabel: string;
   adapterId: MetadataAdapterId;
   label: string;
   supportedMediaTypes: readonly MediaType[];
+  ratingSupportedMediaTypes: readonly MediaType[];
   authFields: readonly ProviderSecretField[];
   supportsMetadataLanguage: boolean;
   supportsRegion: boolean;
@@ -29,9 +31,11 @@ const providerSourceDefinitions = {
   tmdb_api: {
     id: "tmdb_api",
     provider: "tmdb",
+    providerLabel: "TMDB",
     adapterId: "tmdb",
     label: "TMDB API",
     supportedMediaTypes: mediaTypes,
+    ratingSupportedMediaTypes: mediaTypes,
     authFields: [{ key: "apiKey", label: "API key or read access token", secret: true, required: true }],
     supportsMetadataLanguage: true,
     supportsRegion: true,
@@ -56,9 +60,11 @@ const providerSourceDefinitions = {
   tvdb_api: {
     id: "tvdb_api",
     provider: "tvdb",
+    providerLabel: "TVDB",
     adapterId: "tvdb",
     label: "TVDB API",
     supportedMediaTypes: mediaTypes,
+    ratingSupportedMediaTypes: [],
     authFields: [
       { key: "apiKey", label: "API key", secret: true, required: true },
       { key: "pin", label: "PIN", secret: true, required: false }
@@ -86,9 +92,11 @@ const providerSourceDefinitions = {
   ptgen_imdb: {
     id: "ptgen_imdb",
     provider: "imdb",
+    providerLabel: "IMDb",
     adapterId: "ptgen",
     label: "PTGen IMDb",
     supportedMediaTypes: mediaTypes,
+    ratingSupportedMediaTypes: mediaTypes,
     authFields: [],
     supportsMetadataLanguage: true,
     supportsRegion: false,
@@ -114,9 +122,11 @@ const providerSourceDefinitions = {
   ptgen_douban: {
     id: "ptgen_douban",
     provider: "douban",
+    providerLabel: "Douban",
     adapterId: "ptgen",
     label: "PTGen Douban",
     supportedMediaTypes: mediaTypes,
+    ratingSupportedMediaTypes: mediaTypes,
     authFields: [],
     supportsMetadataLanguage: true,
     supportsRegion: false,
@@ -169,6 +179,11 @@ export function getDefaultProviderSourcePoliciesForMediaType(
 export function providerSourceSupportsMediaType(providerSource: string, mediaType: ParsedMediaType): boolean {
   if (mediaType === "UNKNOWN") return false;
   return getProviderSourceDefinition(providerSource).supportedMediaTypes.includes(mediaType);
+}
+
+export function providerSourceSupportsRatings(providerSource: string, mediaType: ParsedMediaType): boolean {
+  if (mediaType === "UNKNOWN") return false;
+  return getProviderSourceDefinition(providerSource).ratingSupportedMediaTypes.includes(mediaType);
 }
 
 export function isProviderSource(value: string): value is ProviderSource {

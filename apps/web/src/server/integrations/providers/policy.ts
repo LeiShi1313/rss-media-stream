@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import type { MediaProvider, MediaType, ParsedMediaType, ProviderSource } from "@rss-media/shared/types";
 import { badRequest } from "../../core/errors.js";
 import { prisma } from "../../db.js";
@@ -7,6 +8,11 @@ import {
   providerSourceSupportsMediaType
 } from "./index.js";
 import { getDefaultProviderSourcePoliciesForMediaType } from "./sources.js";
+import {
+  assertRatingSourcePreference,
+  getRatingSourcePreferences,
+  setRatingSourcePreference
+} from "./ratingPreference.js";
 import type { ProviderDefaultPolicy } from "./types.js";
 
 export type ProviderPolicyDto = {
@@ -37,13 +43,25 @@ export type BroadSearchTarget = {
 const CONCRETE_MEDIA_TYPES = ["MOVIE", "TV_SERIES"] as const satisfies readonly MediaType[];
 
 export async function getProviderPolicies(tenantId: string) {
-  const policies = await Promise.all(
-    CONCRETE_MEDIA_TYPES.map(async (mediaType) => ({
-      mediaType,
-      policies: await getPoliciesForMediaType(tenantId, mediaType)
-    }))
-  );
-  return { mediaTypes: policies };
+  const [policies, ratingPreferences] = await Promise.all([
+    Promise.all(
+      CONCRETE_MEDIA_TYPES.map(async (mediaType) => ({
+        mediaType,
+        policies: await getPoliciesForMediaType(tenantId, mediaType)
+      }))
+    ),
+    getRatingSourcePreferences(tenantId)
+  ]);
+  return {
+    mediaTypes: policies.map((group) => {
+      const ratingPreference = ratingPreferences[group.mediaType];
+      if (!ratingPreference) throw new Error(`Missing ${group.mediaType} rating source preference`);
+      return {
+        ...group,
+        ratingProviderSource: ratingPreference.providerSource
+      };
+    })
+  };
 }
 
 export async function getMatchingProviderOrder(
@@ -91,21 +109,44 @@ export async function replaceMediaProviderPolicies(
   assertConcreteMediaType(mediaType);
   validatePolicyRows(mediaType, policies);
 
+  await prisma.$transaction((tx) => replacePolicyRows(tx, tenantId, mediaType, policies));
+}
+
+export async function replaceMediaProviderConfiguration(
+  tenantId: string,
+  mediaType: ParsedMediaType,
+  policies: ProviderPolicyInput[],
+  ratingProviderSource: ProviderSource
+) {
+  assertConcreteMediaType(mediaType);
+  validatePolicyRows(mediaType, policies);
+  assertRatingSourcePreference(mediaType, ratingProviderSource);
+
   await prisma.$transaction(async (tx) => {
-    const sourcePolicyModel = (tx as any).tenantProviderSourcePolicy ?? (tx as any).tenantMediaProviderPolicy;
-    await sourcePolicyModel.deleteMany({ where: { tenantId, mediaType } });
-    if (policies.length === 0) return;
-    await sourcePolicyModel.createMany({
-      data: policies.map((policy) => ({
-        tenantId,
-        mediaType,
-        ...policyProviderPersistence(policy),
-        enabledForMatching: policy.enabledForMatching,
-        enabledForPresentation: policy.enabledForPresentation,
-        matchingPriority: policy.matchingPriority,
-        presentationPriority: policy.presentationPriority
-      }))
-    });
+    await replacePolicyRows(tx, tenantId, mediaType, policies);
+    await setRatingSourcePreference(tenantId, mediaType, ratingProviderSource, tx);
+  });
+}
+
+async function replacePolicyRows(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  mediaType: MediaType,
+  policies: ProviderPolicyInput[]
+) {
+  const sourcePolicyModel = (tx as any).tenantProviderSourcePolicy ?? (tx as any).tenantMediaProviderPolicy;
+  await sourcePolicyModel.deleteMany({ where: { tenantId, mediaType } });
+  if (policies.length === 0) return;
+  await sourcePolicyModel.createMany({
+    data: policies.map((policy) => ({
+      tenantId,
+      mediaType,
+      ...policyProviderPersistence(policy),
+      enabledForMatching: policy.enabledForMatching,
+      enabledForPresentation: policy.enabledForPresentation,
+      matchingPriority: policy.matchingPriority,
+      presentationPriority: policy.presentationPriority
+    }))
   });
 }
 
@@ -150,9 +191,18 @@ function mergeMissingDefaultPolicies(
   defaults: Array<ProviderDefaultPolicy & { providerSource: ProviderSource }>
 ) {
   const seen = new Set(rows.map((row) => row.providerSource));
+  let matchingPriority = Math.max(0, ...rows.map((row) => row.matchingPriority));
+  let presentationPriority = Math.max(0, ...rows.map((row) => row.presentationPriority));
+  const missing = defaults
+    .filter((policy) => !seen.has(policy.providerSource))
+    .map((policy) => ({
+      ...policy,
+      matchingPriority: ++matchingPriority,
+      presentationPriority: ++presentationPriority
+    }));
   return [
     ...rows,
-    ...defaults.filter((policy) => !seen.has(policy.providerSource))
+    ...missing
   ].sort((a, b) =>
     a.matchingPriority - b.matchingPriority ||
     a.presentationPriority - b.presentationPriority ||

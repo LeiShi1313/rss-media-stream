@@ -4,6 +4,7 @@
 .superpowers
 .worktrees
 backups
+docs
 node_modules
 dist
 apps/*/dist

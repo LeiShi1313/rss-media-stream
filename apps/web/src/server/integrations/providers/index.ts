@@ -78,6 +78,7 @@ export {
   listProviderSourceDefinitions,
   providerSourceForLegacyProvider,
   providerSourceForLegacyProviderEntity,
+  providerSourceSupportsRatings,
   providerSourceSupportsMediaType
 } from "./sources.js";
 export type { ProviderSourceDefinition } from "./sources.js";

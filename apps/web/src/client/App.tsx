@@ -1,7 +1,6 @@
-import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { TFunction } from "i18next";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Activity, Check, Film, Globe2, HardDrive, ListFilter, LogOut, RefreshCw, Rss, Settings, Shield, Users } from "lucide-react";
+import { RefreshCw, Rss, Shield } from "lucide-react";
 import {
   api,
   type AuthResponse,
@@ -9,8 +8,8 @@ import {
   type DownloadJob,
   type Feed,
   type Item,
+  type ItemPage,
   type Subscription,
-  type TrendingMedia,
   type User,
   type Workspace,
   type WorkspaceSettings,
@@ -27,6 +26,7 @@ import { WorkspacePage } from "./pages/workspace.js";
 import { pageIds, type ActionResult, type PageId, type RunAction, type TimelinePoint } from "./types.js";
 import { relativeTime } from "./lib/format.js";
 import { applyUiLanguage, normalizeUiLanguage } from "./i18n.js";
+import { AppSidebar } from "./components/layout/app-sidebar.js";
 
 export function App() {
   const { t } = useTranslation();
@@ -177,15 +177,14 @@ function Dashboard({
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
-  const [trendingMedia, setTrendingMedia] = useState<TrendingMedia[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
   const uiLanguage = normalizeUiLanguage(i18n.language);
-  const uiLanguageOptions = [
-    { value: "en-US", label: "EN" },
-    { value: "zh-CN", label: "中文" }
-  ];
+  const pageCopy = {
+    title: t(`page.${page}.title`),
+    summary: t(`page.${page}.summary`)
+  };
 
   useEffect(() => {
     const syncPage = () => setPage(readPageFromHash());
@@ -197,23 +196,21 @@ function Dashboard({
   async function load() {
     const results = await Promise.allSettled([
       api<Feed[]>("/api/feeds"),
-      api<Item[]>("/api/items?limit=120"),
+      api<ItemPage>("/api/items?limit=120"),
       api<Downloader[]>("/api/downloaders"),
       api<TimelinePoint[]>("/api/dashboard/timeline"),
       loadSubscriptions(),
       api<DownloadJob[]>("/api/download-jobs"),
-      api<WorkspaceMember[]>("/api/workspace/members"),
-      api<TrendingMedia[]>("/api/media-titles/trending?windowDays=7&limit=18")
-    ]);
+      api<WorkspaceMember[]>("/api/workspace/members")
+    ] as const);
 
     applyResult(results[0], setFeeds);
-    applyResult(results[1], setItems);
+    if (results[1].status === "fulfilled") setItems(results[1].value.items);
     applyResult(results[2], setDownloaders);
     applyResult(results[3], setTimeline);
     applyResult(results[4], setSubscriptions);
     applyResult(results[5], setJobs);
     applyResult(results[6], setMembers);
-    applyResult(results[7], setTrendingMedia);
 
     const firstError = results.find((result) => result.status === "rejected");
     setError(firstError?.status === "rejected" ? errorMessage(firstError.reason) : "");
@@ -273,49 +270,22 @@ function Dashboard({
 
   return (
     <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-row">
-          <Rss size={26} />
-          <div>
-            <h1>{t("app.brandShort")}</h1>
-            <p>{workspace ? `${workspace.name} · ${workspace.role}` : user.name}</p>
-          </div>
-        </div>
-        <nav>
-          <PageLink page="overview" active={page} icon={<Activity size={18} />} label={t("nav.overview")} />
-          <PageLink page="rss" active={page} icon={<Rss size={18} />} label={t("nav.rss")} />
-          <PageLink page="downloaders" active={page} icon={<HardDrive size={18} />} label={t("nav.downloaders")} />
-          <PageLink page="subscriptions" active={page} icon={<Film size={18} />} label={t("nav.subscriptions")} />
-          <PageLink page="activity" active={page} icon={<ListFilter size={18} />} label={t("nav.activity")} />
-          <PageLink page="workspace" active={page} icon={<Users size={18} />} label={t("nav.workspace")} />
-          <PageLink page="settings" active={page} icon={<Settings size={18} />} label={t("nav.settings")} />
-        </nav>
-        <div className="sidebar-footer">
-          <div className="sidebar-account">
-            <div className="sidebar-account-row">
-              <span className="sidebar-email">{user.email}</span>
-              <LanguageIconSelect
-                label={t("common.language")}
-                onValueChange={(value) => void changeUiLanguage(value)}
-                options={uiLanguageOptions}
-                value={uiLanguage}
-              />
-            </div>
-            <UiButton className="ghost sidebar-signout" onClick={onLogout}>
-              <LogOut size={18} />
-              {t("app.signOut")}
-            </UiButton>
-          </div>
-        </div>
-      </aside>
+      <AppSidebar
+        accountEmail={user.email}
+        activePage={page}
+        contextLabel={workspace ? `${workspace.name} · ${workspace.role}` : user.name}
+        language={uiLanguage}
+        onLanguageChange={(value) => void changeUiLanguage(value)}
+        onLogout={onLogout}
+      />
 
-      <section className="content">
-        <header className="topbar">
+      <section className="app-content">
+        <header className="app-topbar">
           <div>
-            <h2>{pageTitle(page, t)}</h2>
-            <p>{pageSummary(page, t)}</p>
+            <h1>{pageCopy.title}</h1>
+            <p>{pageCopy.summary}</p>
           </div>
-          <div className="topbar-actions">
+          <div className="app-topbar-actions">
             {lastLoadedAt && <span>{relativeTime(lastLoadedAt)}</span>}
             <UiButton className="icon-button" onClick={() => void load()} title={t("app.refreshDashboard")}>
               <RefreshCw size={18} />
@@ -331,7 +301,6 @@ function Dashboard({
             downloaders={downloaders}
             items={items}
             stats={stats}
-            trendingMedia={trendingMedia}
             runAction={runAction}
           />
         )}
@@ -343,6 +312,8 @@ function Dashboard({
           <SubscriptionsPage
             busy={busy}
             downloaders={downloaders}
+            feeds={feeds}
+            items={items}
             subscriptions={subscriptions}
             runAction={runAction}
           />
@@ -364,119 +335,9 @@ function Dashboard({
   );
 }
 
-function LanguageIconSelect({
-  label,
-  onValueChange,
-  options,
-  value
-}: {
-  label: string;
-  onValueChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-  value: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const closeOnPointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnPointerDown);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnPointerDown);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
-
-  return (
-    <div className="sidebar-language-menu" ref={menuRef}>
-      <button
-        className="icon-button sidebar-language-trigger"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-label={label}
-        onClick={() => setOpen((current) => !current)}
-        title={label}
-        type="button"
-      >
-        <Globe2 size={18} />
-      </button>
-      {open && (
-        <div className="sidebar-language-content" role="listbox" aria-label={label}>
-          {options.map((option) => (
-            <button
-              aria-selected={option.value === value}
-              className="sidebar-language-option"
-              key={option.value}
-              onClick={() => {
-                onValueChange(option.value);
-                setOpen(false);
-              }}
-              role="option"
-              type="button"
-            >
-              <span>{option.label}</span>
-              {option.value === value && <Check size={14} />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PageLink({
-  page,
-  active,
-  icon,
-  label
-}: {
-  page: PageId;
-  active: PageId;
-  icon: ReactNode;
-  label: string;
-}) {
-  return (
-    <a className={active === page ? "active" : undefined} href={`#${page}`}>
-      {icon}
-      {label}
-    </a>
-  );
-}
-
 function readPageFromHash(): PageId {
   const value = window.location.hash.replace(/^#/, "");
   return pageIds.includes(value as PageId) ? (value as PageId) : "overview";
-}
-
-function pageTitle(page: PageId, t: TFunction) {
-  return {
-    overview: t("page.overview.title"),
-    rss: t("page.rss.title"),
-    downloaders: t("page.downloaders.title"),
-    subscriptions: t("page.subscriptions.title"),
-    activity: t("page.activity.title"),
-    workspace: t("page.workspace.title"),
-    settings: t("page.settings.title")
-  }[page];
-}
-
-function pageSummary(page: PageId, t: TFunction) {
-  return {
-    overview: t("page.overview.summary"),
-    rss: t("page.rss.summary"),
-    downloaders: t("page.downloaders.summary"),
-    subscriptions: t("page.subscriptions.summary"),
-    activity: t("page.activity.summary"),
-    workspace: t("page.workspace.summary"),
-    settings: t("page.settings.summary")
-  }[page];
 }
 
 async function syncUiLanguageFromSettings() {

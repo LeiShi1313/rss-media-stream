@@ -14,6 +14,7 @@ export type ProviderSettingsStatus = {
   provider: MediaProvider;
   label: string;
   supportedMediaTypes: readonly string[];
+  ratingSupportedMediaTypes: readonly string[];
   authFields: readonly {
     key: string;
     label: string;
@@ -90,6 +91,7 @@ export async function listProviderSettings(config: AppConfig, tenantId: string) 
         provider: definition.provider,
         label: definition.label,
         supportedMediaTypes: definition.supportedMediaTypes,
+        ratingSupportedMediaTypes: definition.ratingSupportedMediaTypes,
         authFields: definition.authFields,
         supportsMetadataLanguage: definition.supportsMetadataLanguage,
         supportsRegion: definition.supportsRegion,

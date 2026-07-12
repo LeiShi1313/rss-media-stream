@@ -10,9 +10,21 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./async": {
+      "types": "./dist/async.d.ts",
+      "import": "./dist/async.js"
+    },
     "./redact": {
       "types": "./dist/redact.d.ts",
       "import": "./dist/redact.js"
+    },
+    "./json": {
+      "types": "./dist/json.d.ts",
+      "import": "./dist/json.js"
+    },
+    "./rss": {
+      "types": "./dist/rss.d.ts",
+      "import": "./dist/rss.js"
     },
     "./releaseParser": {
       "types": "./dist/releaseParser.d.ts",

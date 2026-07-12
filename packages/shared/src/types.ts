@@ -6,6 +6,8 @@ export type ProviderEntityType = `${MediaProvider}_${string}`;
 export type RatingType = "user_score" | "critic_score" | "popularity";
 export type ProviderRatingType = RatingType;
 export type RatingComparison = "gte" | "lte" | "gt" | "lt" | "eq";
+export type SubscriptionMode = "MEDIA_TITLE" | "REGEX";
+export type SubscriptionUpgradePolicy = "none" | "better_quality" | "preferred_release_group";
 
 export type ParsedRelease = {
   title: string;
@@ -14,15 +16,19 @@ export type ParsedRelease = {
   primarySearchTitle?: string;
   year?: number;
   mediaType: ParsedMediaType;
+  tvUnitType?: "EPISODE" | "SPECIAL";
   season?: number;
   episode?: number;
   episodeEnd?: number;
+  specialNumber?: number;
+  episodePart?: string;
   resolution?: number;
   quality?: string;
   source?: string;
   codec?: string;
   audio?: string;
   releaseGroup?: string;
+  variant?: string;
   parseConfidence: number;
 };
 
@@ -57,11 +63,13 @@ export type TmdbTitleResult = ProviderTitleResult & {
 };
 
 export type SubscriptionRuleInput = {
+  mode?: SubscriptionMode | null;
   mediaType?: ParsedMediaType | null;
   mediaTitleId?: string | null;
   selectedProvider?: ProviderIdentityFilter | null;
   linkedProviders?: ProviderIdentityFilter[] | null;
   providerRatings?: ProviderRatingFilter[] | null;
+  feedIds?: string[] | null;
   titleRegex?: string | null;
   includeRegex?: string | null;
   excludeRegex?: string | null;
@@ -72,20 +80,29 @@ export type SubscriptionRuleInput = {
   audio?: string[] | null;
   releaseGroupsInclude?: string[] | null;
   releaseGroupsExclude?: string[] | null;
+  variantsInclude?: string[] | null;
+  variantsExclude?: string[] | null;
+  preferredReleaseGroups?: string[] | null;
   minSizeBytes?: bigint | number | string | null;
   maxSizeBytes?: bigint | number | string | null;
   season?: number | null;
   episodeStart?: number | null;
   episodeEnd?: number | null;
+  upgradePolicy?: SubscriptionUpgradePolicy | null;
+  allowCrossSeed?: boolean | null;
+  separateVariants?: boolean | null;
+  seasonPackAllowed?: boolean | null;
   criteriaJson?: unknown;
 };
 
 export type NormalizedSubscriptionRule = {
+  mode: SubscriptionMode;
   mediaType?: ParsedMediaType;
   mediaTitleId?: string;
   selectedProvider?: ProviderIdentityFilter;
   linkedProviders: ProviderIdentityFilter[];
   providerRatings: ProviderRatingFilter[];
+  feedIds: string[];
   titleRegex?: string;
   includeRegex?: string;
   excludeRegex?: string;
@@ -96,15 +113,23 @@ export type NormalizedSubscriptionRule = {
   audio: string[];
   releaseGroupsInclude: string[];
   releaseGroupsExclude: string[];
+  variantsInclude: string[];
+  variantsExclude: string[];
+  preferredReleaseGroups: string[];
   minSizeBytes?: bigint;
   maxSizeBytes?: bigint;
   season?: number;
   episodeStart?: number;
   episodeEnd?: number;
+  upgradePolicy: SubscriptionUpgradePolicy;
+  allowCrossSeed: boolean;
+  separateVariants: boolean;
+  seasonPackAllowed: boolean;
 };
 
 export type ProviderIdentityFilter = {
   provider: string;
+  mediaType?: MediaType | null;
   providerEntityType?: string | null;
   providerId: string;
 };
@@ -132,6 +157,7 @@ export type ProviderTitleRuleView = {
 };
 
 export type CandidateInput = {
+  feedId?: string | null;
   rawTitle: string;
   sizeBytes?: bigint | number | string | null;
   release: ParsedRelease;

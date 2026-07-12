@@ -12,6 +12,15 @@ export type ProviderSearchInput = {
   providerSource?: ProviderSource;
 };
 
+export type ProviderMetadataCandidate = ProviderTitleResult & {
+  providerSource: ProviderSource;
+  provider: Exclude<MediaProvider, "ptgen">;
+  providerId: string;
+  titleKey: string;
+  localeKey: string;
+  titleAliases: string[];
+};
+
 export type ProviderDetailInput = {
   mediaType?: MediaType;
   providerEntityType: string;
@@ -60,9 +69,11 @@ export type ProviderDefaultPolicy = {
 export type ProviderDefinition = {
   id: ProviderSource;
   provider: MediaProvider;
+  providerLabel: string;
   adapterId: string;
   label: string;
   supportedMediaTypes: readonly MediaType[];
+  ratingSupportedMediaTypes: readonly MediaType[];
   authFields: readonly ProviderSecretField[];
   supportsMetadataLanguage: boolean;
   supportsRegion: boolean;
@@ -91,6 +102,7 @@ export type ProviderRuntimeContext = {
 
 export type ProviderContext = {
   runtime: ProviderRuntimeContext;
+  signal?: AbortSignal;
 };
 
 export type MetadataProvider = {

@@ -4,9 +4,15 @@ const mediaTypeSchema = z.preprocess(
   (value) => value === "TV" ? "TV_SERIES" : value,
   z.enum(["MOVIE", "TV_SERIES", "UNKNOWN"])
 );
+const providerIdentityMediaTypeSchema = z.preprocess(
+  (value) => value === "TV" ? "TV_SERIES" : value,
+  z.enum(["MOVIE", "TV_SERIES"])
+);
 const providerSchema = z.enum(["tmdb", "tvdb", "ptgen", "imdb", "douban", "wikidata", "trakt", "musicbrainz"]);
 const ratingTypeSchema = z.enum(["user_score", "critic_score", "popularity"]);
 const ratingComparisonSchema = z.enum(["gte", "lte", "gt", "lt", "eq"]);
+const subscriptionModeSchema = z.enum(["MEDIA_TITLE", "REGEX"]);
+const upgradePolicySchema = z.enum(["none", "better_quality", "preferred_release_group"]);
 
 const optionalTrimmedString = (max: number) =>
   z
@@ -32,6 +38,7 @@ const regexString = optionalTrimmedString(300).refine(
 const stringList = z.array(z.string().trim().min(1).max(80)).max(50).default([]);
 const providerIdentitySchema = z.object({
   provider: providerSchema,
+  mediaType: providerIdentityMediaTypeSchema.optional(),
   providerEntityType: optionalTrimmedString(80),
   providerId: z.string().trim().min(1).max(80)
 });
@@ -46,11 +53,13 @@ const providerRatingFilterSchema = z.object({
 
 export const subscriptionRuleSchema = z
   .object({
+    mode: subscriptionModeSchema.default("MEDIA_TITLE"),
     mediaType: mediaTypeSchema.optional(),
     mediaTitleId: z.string().min(1).optional(),
     selectedProvider: providerIdentitySchema.optional(),
     linkedProviders: z.array(providerIdentitySchema).max(20).default([]),
     providerRatings: z.array(providerRatingFilterSchema).max(20).default([]),
+    feedIds: stringList,
     titleRegex: regexString,
     includeRegex: regexString,
     excludeRegex: regexString,
@@ -61,11 +70,18 @@ export const subscriptionRuleSchema = z
     audio: stringList,
     releaseGroupsInclude: stringList,
     releaseGroupsExclude: stringList,
+    variantsInclude: stringList,
+    variantsExclude: stringList,
+    preferredReleaseGroups: stringList,
     minSizeBytes: z.coerce.bigint().optional(),
     maxSizeBytes: z.coerce.bigint().optional(),
     season: z.number().int().optional(),
     episodeStart: z.number().int().optional(),
-    episodeEnd: z.number().int().optional()
+    episodeEnd: z.number().int().optional(),
+    upgradePolicy: upgradePolicySchema.default("none"),
+    allowCrossSeed: z.boolean().default(false),
+    separateVariants: z.boolean().default(false),
+    seasonPackAllowed: z.boolean().default(true)
   })
   .refine(
     (rule) =>

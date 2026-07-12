@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -14,12 +14,14 @@ import {
   Sparkles,
   XCircle
 } from "lucide-react";
-import { api, type Downloader, type Item, type Media, type MediaDetail, type MediaSearchResult, type TrendingMedia } from "../api.js";
+import { api, type Downloader, type Item, type ItemPage, type Media, type MediaDetail, type MediaSearchResult, type TrendingMedia, type TrendingMediaPage } from "../api.js";
 import type { RunAction } from "../types.js";
 import { AppDialog, FieldLabel, FormInput, SelectField, StatTile, UiButton } from "../components/ui/index.js";
 import { Empty, Pill, StatusPill } from "../components/common/feedback.js";
 import { ManualDownload } from "../components/common/manual-download.js";
+import { RatingBadge } from "../components/media/rating-badge.js";
 import { formatBytes, relativeTime } from "../lib/format.js";
+import { formatNativeRating } from "../lib/ratings.js";
 import { matchRate, releaseIdentityState, releaseStatus, releaseTitle } from "../lib/releases.js";
 
 type ShelfKey = "all" | "matched" | "downloading" | "attention";
@@ -31,7 +33,6 @@ export function OverviewPage({
   downloaders,
   items,
   stats,
-  trendingMedia,
   runAction
 }: {
   busy: boolean;
@@ -46,17 +47,27 @@ export function OverviewPage({
     subscriptions: number;
     downloaders: number;
   };
-  trendingMedia: TrendingMedia[];
   runAction: RunAction;
 }) {
   const { t } = useTranslation();
-  const [selectedReleaseId, setSelectedReleaseId] = useState<string | null>(null);
+  const [selectedRelease, setSelectedRelease] = useState<Item | null>(null);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [selectedMediaDetail, setSelectedMediaDetail] = useState<MediaDetail | null>(null);
   const [query, setQuery] = useState("");
   const [feedFilter, setFeedFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<ReleaseCategoryFilter>("");
   const [statusFilter, setStatusFilter] = useState<ReleaseStatusFilter>("");
+  const filtersActive = Boolean(query.trim() || feedFilter || categoryFilter || statusFilter);
+  const newlyAddedShelf = useItemShelf({ enabled: !filtersActive });
+  const filteredShelf = useItemShelf({
+    enabled: filtersActive,
+    q: query,
+    feedId: feedFilter,
+    category: categoryFilter,
+    status: statusFilter
+  });
+  const trendingMovies = useTrendingMediaShelf("MOVIE");
+  const trendingTv = useTrendingMediaShelf("TV_SERIES");
 
   const feedOptions = useMemo(
     () => [
@@ -67,41 +78,7 @@ export function OverviewPage({
     [items, t]
   );
 
-  const filteredItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return items.filter((item) => {
-      const matchesSearch =
-        !normalizedQuery ||
-        [
-          item.rawTitle,
-          item.parsedRelease?.title,
-          item.match?.presentation?.title,
-          item.feed?.name,
-          item.parsedRelease?.quality,
-          item.parsedRelease?.source,
-          item.parsedRelease?.codec,
-          item.parsedRelease?.audio,
-          item.parsedRelease?.releaseGroup
-        ]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(normalizedQuery));
-      const matchesFeed = !feedFilter || item.feed?.id === feedFilter;
-      const matchesCategory = !categoryFilter || releaseCategory(item) === categoryFilter;
-      const matchesStatus = !statusFilter || itemBelongsToStatus(item, statusFilter);
-      return matchesSearch && matchesFeed && matchesCategory && matchesStatus;
-    });
-  }, [categoryFilter, feedFilter, items, query, statusFilter]);
-
   const shelves = useMemo(() => buildShelves(items), [items]);
-  const selectedRelease = useMemo(
-    () => items.find((item) => item.id === selectedReleaseId) ?? null,
-    [items, selectedReleaseId]
-  );
-  const filteredReleaseItems = useMemo(
-    () => [...filteredItems].sort((a, b) => new Date(b.firstSeenAt).getTime() - new Date(a.firstSeenAt).getTime()),
-    [filteredItems]
-  );
-  const filtersActive = Boolean(query.trim() || feedFilter || categoryFilter || statusFilter);
   const needsAttentionCount = items.filter((item) => itemBelongsToShelf(item, "attention")).length;
 
   useEffect(() => {
@@ -189,11 +166,15 @@ export function OverviewPage({
             <PosterShelf
               cardVariant="parsed"
               emptyLabel={t("overview.shelves.filteredEmpty")}
+              error={filteredShelf.error}
               icon={<Search size={18} />}
-              items={filteredReleaseItems}
+              items={filteredShelf.items}
               layout="grid"
-              limit={60}
-              onInspect={(item) => setSelectedReleaseId(item.id)}
+              limit={null}
+              loading={filteredShelf.loading}
+              onInspect={setSelectedRelease}
+              onRetry={filteredShelf.loadMore}
+              sentinelRef={filteredShelf.sentinelRef}
               title={t("overview.shelves.filtered")}
             />
           ) : (
@@ -201,34 +182,46 @@ export function OverviewPage({
               <PosterShelf
                 cardVariant="parsed"
                 emptyLabel={t("overview.shelves.newlyAddedEmpty")}
+                error={newlyAddedShelf.error}
                 icon={<Clock3 size={18} />}
-                items={shelves.newlyAdded}
-                onInspect={(item) => setSelectedReleaseId(item.id)}
+                items={newlyAddedShelf.items}
+                limit={null}
+                loading={newlyAddedShelf.loading}
+                onInspect={setSelectedRelease}
+                onRetry={newlyAddedShelf.loadMore}
+                railRef={newlyAddedShelf.railRef}
+                sentinelRef={newlyAddedShelf.sentinelRef}
                 title={t("overview.shelves.newlyAdded")}
               />
               <TrendingMediaShelf
-                items={trendingMedia}
+                shelf={trendingMovies}
                 onInspect={(media) => setSelectedMediaId(media.id)}
+                title={t("overview.shelves.trendingMovies")}
+              />
+              <TrendingMediaShelf
+                shelf={trendingTv}
+                onInspect={(media) => setSelectedMediaId(media.id)}
+                title={t("overview.shelves.trendingTv")}
               />
               <PosterShelf
                 emptyLabel={t("overview.shelves.matchedEmpty")}
                 icon={<CheckCircle2 size={18} />}
                 items={shelves.matched}
-                onInspect={(item) => setSelectedReleaseId(item.id)}
+                onInspect={setSelectedRelease}
                 title={t("overview.shelves.matched")}
               />
               <PosterShelf
                 emptyLabel={t("overview.shelves.downloadingEmpty")}
                 icon={<DownloadCloud size={18} />}
                 items={shelves.downloading}
-                onInspect={(item) => setSelectedReleaseId(item.id)}
+                onInspect={setSelectedRelease}
                 title={t("overview.shelves.downloading")}
               />
               <PosterShelf
                 emptyLabel={t("overview.shelves.attentionEmpty")}
                 icon={<XCircle size={18} />}
                 items={shelves.attention}
-                onInspect={(item) => setSelectedReleaseId(item.id)}
+                onInspect={setSelectedRelease}
                 title={t("overview.shelves.attention")}
               />
             </>
@@ -241,7 +234,7 @@ export function OverviewPage({
           busy={busy}
           downloaders={downloaders}
           item={selectedRelease}
-          onClose={() => setSelectedReleaseId(null)}
+          onClose={() => setSelectedRelease(null)}
           runAction={runAction}
         />
       )}
@@ -259,30 +252,253 @@ export function OverviewPage({
 }
 
 function TrendingMediaShelf({
-  items,
-  onInspect
+  onInspect,
+  shelf,
+  title
 }: {
-  items: TrendingMedia[];
   onInspect: (media: Media) => void;
+  shelf: TrendingShelfState;
+  title: string;
 }) {
   const { t } = useTranslation();
   return (
     <section className="poster-shelf">
       <header className="poster-shelf-head">
-        <h3><Sparkles size={18} />{t("overview.shelves.trending")}</h3>
+        <h3><Sparkles size={18} />{title}</h3>
         <span>{t("overview.shelves.trendingWindow")}</span>
       </header>
-      {items.length === 0 ? (
+      {shelf.items.length === 0 && !shelf.loading ? (
         <Empty label={t("overview.shelves.trendingEmpty")} />
       ) : (
-        <div className="poster-rail">
-          {items.map((entry) => (
+        <div className="poster-rail" ref={shelf.railRef}>
+          {shelf.items.map((entry) => (
             <TrendingMediaCard entry={entry} key={entry.media.id} onInspect={() => onInspect(entry.media)} />
           ))}
+          {!shelf.exhausted && <span aria-hidden="true" className="poster-rail-sentinel" ref={shelf.sentinelRef} />}
+        </div>
+      )}
+      {(shelf.loading || shelf.error) && (
+        <div className="shelf-inline-status">
+          {shelf.loading && <span>{t("common.loading")}</span>}
+          {shelf.error && (
+            <>
+              <span>{shelf.error}</span>
+              <UiButton className="secondary compact" onClick={() => shelf.loadMore()}>
+                {t("common.retry")}
+              </UiButton>
+            </>
+          )}
         </div>
       )}
     </section>
   );
+}
+
+type TrendingShelfState = {
+  items: TrendingMedia[];
+  loading: boolean;
+  error: string;
+  exhausted: boolean;
+  loadMore: () => void;
+  railRef: RefObject<HTMLDivElement | null>;
+  sentinelRef: RefObject<HTMLSpanElement | null>;
+};
+
+type ItemShelfState = {
+  items: Item[];
+  loading: boolean;
+  error: string;
+  exhausted: boolean;
+  loadMore: () => void;
+  railRef: RefObject<HTMLDivElement | null>;
+  sentinelRef: RefObject<HTMLSpanElement | null>;
+};
+
+type ItemShelfOptions = {
+  enabled?: boolean;
+  q?: string;
+  feedId?: string;
+  category?: ReleaseCategoryFilter;
+  status?: ReleaseStatusFilter;
+};
+
+function useItemShelf({
+  enabled = true,
+  q = "",
+  feedId = "",
+  category = "",
+  status = ""
+}: ItemShelfOptions): ItemShelfState {
+  const [items, setItems] = useState<Item[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [exhausted, setExhausted] = useState(false);
+  const loadingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLSpanElement | null>(null);
+  const query = q.trim();
+
+  const loadPage = useCallback(async (cursor?: string, replace = false) => {
+    if (!enabled) return;
+    if (loadingRef.current) {
+      if (!replace) return;
+      abortRef.current?.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+    loadingRef.current = true;
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ limit: "24" });
+      if (cursor) params.set("cursor", cursor);
+      if (query) params.set("q", query);
+      if (feedId) params.set("feedId", feedId);
+      if (category) params.set("category", category);
+      if (status) params.set("status", status);
+      const page = await api<ItemPage>(`/api/items?${params.toString()}`, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setItems((current) => replace ? page.items : appendItems(current, page.items));
+      setNextCursor(page.nextCursor);
+      setExhausted(!page.nextCursor);
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        loadingRef.current = false;
+        setLoading(false);
+      }
+    }
+  }, [category, enabled, feedId, query, status]);
+
+  const loadMore = useCallback(() => {
+    if (loadingRef.current || exhausted) return;
+    void loadPage(nextCursor);
+  }, [exhausted, loadPage, nextCursor]);
+
+  useEffect(() => {
+    setItems([]);
+    setNextCursor(undefined);
+    setError("");
+    setExhausted(!enabled);
+    if (!enabled) {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      loadingRef.current = false;
+      setLoading(false);
+      return undefined;
+    }
+    void loadPage(undefined, true);
+    return () => abortRef.current?.abort();
+  }, [enabled, loadPage]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!enabled || !sentinel || exhausted) return undefined;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMore();
+    }, {
+      root: railRef.current,
+      rootMargin: railRef.current ? "0px 320px 0px 0px" : "360px 0px 360px 0px"
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [enabled, exhausted, items.length, loadMore]);
+
+  return { items, loading, error, exhausted, loadMore, railRef, sentinelRef };
+}
+
+function appendItems(current: Item[], next: Item[]) {
+  const seen = new Set(current.map((item) => item.id));
+  return [
+    ...current,
+    ...next.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    })
+  ];
+}
+
+function useTrendingMediaShelf(mediaType: "MOVIE" | "TV_SERIES"): TrendingShelfState {
+  const [items, setItems] = useState<TrendingMedia[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [exhausted, setExhausted] = useState(false);
+  const loadingRef = useRef(false);
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLSpanElement | null>(null);
+
+  const loadPage = useCallback(async (cursor?: string, replace = false) => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({
+        windowDays: "7",
+        limit: "24",
+        mediaType
+      });
+      if (cursor) params.set("cursor", cursor);
+      const page = await api<TrendingMediaPage>(`/api/media-titles/trending?${params.toString()}`);
+      setItems((current) => replace ? page.items : appendTrendingItems(current, page.items));
+      setNextCursor(page.nextCursor);
+      setExhausted(!page.nextCursor);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, [mediaType]);
+
+  const loadMore = useCallback(() => {
+    if (loadingRef.current || exhausted) return;
+    void loadPage(nextCursor);
+  }, [exhausted, loadPage, nextCursor]);
+
+  useEffect(() => {
+    setItems([]);
+    setNextCursor(undefined);
+    setExhausted(false);
+    void loadPage(undefined, true);
+  }, [loadPage]);
+
+  useEffect(() => {
+    const root = railRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel || exhausted) return undefined;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMore();
+    }, {
+      root: railRef.current,
+      rootMargin: "0px 320px 0px 0px"
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [exhausted, items.length, loadMore]);
+
+  return { items, loading, error, exhausted, loadMore, railRef, sentinelRef };
+}
+
+function appendTrendingItems(current: TrendingMedia[], next: TrendingMedia[]) {
+  const seen = new Set(current.map((entry) => entry.media.id));
+  return [
+    ...current,
+    ...next.filter((entry) => {
+      if (seen.has(entry.media.id)) return false;
+      seen.add(entry.media.id);
+      return true;
+    })
+  ];
 }
 
 function TrendingMediaCard({ entry, onInspect }: { entry: TrendingMedia; onInspect: () => void }) {
@@ -291,6 +507,7 @@ function TrendingMediaCard({ entry, onInspect }: { entry: TrendingMedia; onInspe
   return (
     <button className="release-poster-card" onClick={onInspect} type="button">
       <span className="poster-badge">{t("common.releaseCount", { count: entry.releaseCount })}</span>
+      <RatingBadge rating={entry.media.rating} />
       <span className="poster-art">
         {posterUrl ? <img src={posterUrl} alt="" /> : <PosterFallback title={entry.media.title} />}
       </span>
@@ -305,34 +522,45 @@ function TrendingMediaCard({ entry, onInspect }: { entry: TrendingMedia; onInspe
 function PosterShelf({
   cardVariant = "status",
   emptyLabel,
+  error = "",
   icon,
   items,
   layout = "rail",
   limit = 18,
+  loading = false,
   onInspect,
+  onRetry,
+  railRef,
+  sentinelRef,
   title
 }: {
   cardVariant?: "status" | "parsed";
   emptyLabel: string;
+  error?: string;
   icon: ReactNode;
   items: Item[];
   layout?: "rail" | "grid";
-  limit?: number;
+  limit?: number | null;
+  loading?: boolean;
   onInspect: (item: Item) => void;
+  onRetry?: () => void;
+  railRef?: RefObject<HTMLDivElement | null>;
+  sentinelRef?: RefObject<HTMLSpanElement | null>;
   title: string;
 }) {
   const { t } = useTranslation();
+  const visibleItems = limit == null ? items : items.slice(0, limit);
   return (
     <section className="poster-shelf">
       <header className="poster-shelf-head">
         <h3>{icon}{title}</h3>
         <span>{t("common.releaseCount", { count: items.length })}</span>
       </header>
-      {items.length === 0 ? (
+      {items.length === 0 && !loading ? (
         <Empty label={emptyLabel} />
       ) : (
-        <div className={layout === "grid" ? "poster-grid" : "poster-rail"}>
-          {items.slice(0, limit).map((item) => (
+        <div className={layout === "grid" ? "poster-grid" : "poster-rail"} ref={layout === "rail" ? railRef : undefined}>
+          {visibleItems.map((item) => (
             <ReleasePosterCard
               item={item}
               key={item.id}
@@ -340,6 +568,22 @@ function PosterShelf({
               variant={cardVariant}
             />
           ))}
+          {sentinelRef && <span aria-hidden="true" className={layout === "grid" ? "poster-grid-sentinel" : "poster-rail-sentinel"} ref={sentinelRef} />}
+        </div>
+      )}
+      {(loading || error) && (
+        <div className="shelf-inline-status">
+          {loading && <span>{t("common.loading")}</span>}
+          {error && (
+            <>
+              <span>{error}</span>
+              {onRetry && (
+                <UiButton className="secondary compact" onClick={onRetry}>
+                  {t("common.retry")}
+                </UiButton>
+              )}
+            </>
+          )}
         </div>
       )}
     </section>
@@ -358,7 +602,6 @@ function ReleasePosterCard({
   const { t } = useTranslation();
   const title = releaseTitle(item);
   const status = releaseStatus(item);
-  const enrichmentPending = item.enrichmentState === "PENDING";
   const presentation = item.match?.presentation;
   const posterUrl = presentation?.posterUrl ?? undefined;
   const parsedTags = parsedReleaseTags(item);
@@ -368,6 +611,7 @@ function ReleasePosterCard({
       {variant === "status" && (
         <span className={status.ok ? "poster-badge" : "poster-badge warn"}>{t(status.labelKey, { defaultValue: status.label })}</span>
       )}
+      <RatingBadge rating={presentation?.rating} />
       <span className="poster-art">
         {posterUrl ? <img src={posterUrl} alt="" /> : <PosterFallback title={title} />}
       </span>
@@ -833,12 +1077,7 @@ function PosterFallback({ title }: { title: string }) {
 }
 
 function buildShelves(items: Item[]) {
-  const newlyAdded = [...items]
-    .sort((a, b) => new Date(b.firstSeenAt).getTime() - new Date(a.firstSeenAt).getTime())
-    .slice(0, 18);
-
   return {
-    newlyAdded,
     matched: items.filter((item) => itemBelongsToShelf(item, "matched")),
     downloading: items.filter((item) => itemBelongsToShelf(item, "downloading")),
     attention: items.filter((item) => itemBelongsToShelf(item, "attention"))
@@ -851,7 +1090,7 @@ function itemBelongsToShelf(item: Item, shelf: ShelfKey) {
   const identity = releaseIdentityState(item);
   if (shelf === "all") return true;
   if (shelf === "matched") return identity === "resolved";
-  if (shelf === "downloading") return Boolean(latestJob && !["FAILED", "SENT", "COMPLETED"].includes(latestJob.status));
+  if (shelf === "downloading") return Boolean(latestJob && !isTerminalDownloadStatus(latestJob.status));
   return status.group === "failed" || identity !== "resolved";
 }
 
@@ -875,6 +1114,10 @@ function latestDownloadJob(item: Item) {
   return [...(item.downloadJobs ?? [])].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   )[0];
+}
+
+function isTerminalDownloadStatus(status?: string | null) {
+  return Boolean(status && ["FAILED", "SENT", "COMPLETE", "COMPLETED", "SKIPPED"].includes(status));
 }
 
 function posterMetadata(item: Item) {
@@ -931,16 +1174,10 @@ function formatSearchRating(result: MediaSearchResult) {
   const rating = result.presentation?.rating;
   if (!rating) return "";
   const source = searchResultSourceLabel(result);
-  const score = formatRatingNumber(rating.value);
-  const scale = formatRatingNumber(rating.scale);
   const votes = rating.voteCount
     ? ` · ${new Intl.NumberFormat(undefined, { notation: "compact" }).format(rating.voteCount)} votes`
     : "";
-  return `${source ? `${source} ` : ""}${score}/${scale}${votes}`;
-}
-
-function formatRatingNumber(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  return `${source ? `${source} ` : ""}${formatNativeRating(rating)}${votes}`;
 }
 
 function searchResultSourceLabel(result: MediaSearchResult) {

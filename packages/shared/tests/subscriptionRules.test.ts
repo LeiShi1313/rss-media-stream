@@ -93,6 +93,46 @@ describe("evaluateSubscriptionRule", () => {
     });
   });
 
+  it("accepts regex-mode raw releases without an active matched media title", () => {
+    const decision = evaluateSubscriptionRule(
+      {
+        mode: "REGEX",
+        mediaType: "MOVIE",
+        includeRegex: "WEB-DL",
+        minResolution: "2160p"
+      },
+      candidate({ activeMatch: null })
+    );
+
+    expect(decision).toMatchObject({ accepted: true, reason: "accepted" });
+  });
+
+  it("applies feed allowlists before accepting a rule", () => {
+    const accepted = evaluateSubscriptionRule(
+      {
+        mode: "REGEX",
+        feedIds: ["feed-1"],
+        includeRegex: "WEB-DL"
+      },
+      candidate({ feedId: "feed-1", activeMatch: null })
+    );
+
+    const rejected = evaluateSubscriptionRule(
+      {
+        mode: "REGEX",
+        feedIds: ["feed-2"],
+        includeRegex: "WEB-DL"
+      },
+      candidate({ feedId: "feed-1", activeMatch: null })
+    );
+
+    expect(accepted.accepted).toBe(true);
+    expect(rejected).toMatchObject({
+      accepted: false,
+      reason: "feed does not match subscription"
+    });
+  });
+
   it("rejects low-confidence automatic matches for auto-download", () => {
     const decision = evaluateSubscriptionRule(
       {
@@ -142,6 +182,47 @@ describe("evaluateSubscriptionRule", () => {
       accepted: false,
       reason: "selected provider title does not match subscription"
     });
+  });
+
+  it("matches provider-selected subscriptions by provider, id, and media type", () => {
+    const decision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        selectedProvider: {
+          provider: "tmdb",
+          providerId: "261471",
+          providerEntityType: "tmdb_tv",
+          mediaType: "TV_SERIES"
+        }
+      },
+      candidate({
+        release: {
+          title: "Stand Up Comedy",
+          mediaType: "TV_SERIES",
+          season: 3,
+          episode: 1,
+          resolution: 2160,
+          parseConfidence: 1
+        },
+        activeMatch: {
+          ...candidate().activeMatch!,
+          mediaTitle: {
+            id: "media_tv",
+            mediaType: "TV_SERIES",
+            canonicalTitle: "Example Show"
+          },
+          selectedProviderTitle: {
+            providerTitleId: "metadata_tmdb_261471",
+            provider: "tmdb",
+            providerId: "261471",
+            mediaType: "TV_SERIES"
+          },
+          linkedProviderTitles: []
+        }
+      })
+    );
+
+    expect(decision).toMatchObject({ accepted: true, reason: "accepted" });
   });
 
   it("supports linked provider identity filters", () => {
@@ -302,10 +383,85 @@ describe("evaluateSubscriptionRule", () => {
     });
   });
 
+  it("filters known release variants separately from title and release group", () => {
+    const tvMatch: NonNullable<CandidateInput["activeMatch"]> = {
+      id: "match_tv",
+      status: "MATCHED",
+      source: "AUTO",
+      confidence: 0.94,
+      mediaTitle: {
+        id: "media_tv",
+        mediaType: "TV_SERIES",
+        canonicalTitle: "Example Show"
+      },
+      selectedProviderTitle: {
+        ...tmdbTitle,
+        providerEntityType: "tmdb_tv",
+        mediaType: "TV_SERIES"
+      },
+      linkedProviderTitles: []
+    };
+    const tvRelease = (variant?: string): CandidateInput["release"] => ({
+      title: "Example Show",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 3,
+      variant,
+      resolution: 2160,
+      parseConfidence: 0.9
+    });
+
+    const pureDecision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        variantsInclude: ["pure"]
+      },
+      candidate({
+        rawTitle: "Example.Show.S01E03.Pure.2160p.WEB-DL.DDP5.1.HEVC-GRP",
+        release: tvRelease("PURE"),
+        activeMatch: tvMatch
+      })
+    );
+    const normalDecision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        variantsInclude: ["pure"]
+      },
+      candidate({
+        rawTitle: "Example.Show.S01E03.2160p.WEB-DL.DDP5.1.HEVC-GRP",
+        release: tvRelease(),
+        activeMatch: tvMatch
+      })
+    );
+    const excludedDecision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        variantsExclude: ["pure"]
+      },
+      candidate({
+        rawTitle: "Example.Show.S01E03.Pure.2160p.WEB-DL.DDP5.1.HEVC-GRP",
+        release: tvRelease("PURE"),
+        activeMatch: tvMatch
+      })
+    );
+
+    expect(pureDecision).toMatchObject({ accepted: true, reason: "accepted" });
+    expect(pureDecision.ruleSnapshot).toMatchObject({ variantsInclude: ["PURE"] });
+    expect(normalDecision).toMatchObject({
+      accepted: false,
+      reason: "release variant is not included by subscription"
+    });
+    expect(excludedDecision).toMatchObject({
+      accepted: false,
+      reason: "release variant is excluded by subscription"
+    });
+  });
+
   it("rejects series releases without strict episode fields", () => {
     const decision = evaluateSubscriptionRule(
       {
         mediaType: "TV_SERIES",
+        seasonPackAllowed: false,
         minResolution: "720p"
       },
       candidate({
@@ -341,6 +497,46 @@ describe("evaluateSubscriptionRule", () => {
       accepted: false,
       reason: "series release lacks strict season and episode fields"
     });
+  });
+
+  it("accepts TV season packs when season packs are allowed", () => {
+    const decision = evaluateSubscriptionRule(
+      {
+        mediaType: "TV_SERIES",
+        season: 1,
+        minResolution: "720p",
+        seasonPackAllowed: true
+      },
+      candidate({
+        rawTitle: "Example.Show.S01.1080p.BluRay.x265-GRP",
+        release: {
+          title: "Example Show",
+          mediaType: "TV_SERIES",
+          season: 1,
+          quality: "1080p",
+          parseConfidence: 0.8
+        },
+        activeMatch: {
+          id: "match_tv",
+          status: "MATCHED",
+          source: "AUTO",
+          confidence: 0.94,
+          mediaTitle: {
+            id: "media_tv",
+            mediaType: "TV_SERIES",
+            canonicalTitle: "Example Show"
+          },
+          selectedProviderTitle: {
+            ...tmdbTitle,
+            providerEntityType: "tmdb_tv",
+            mediaType: "TV_SERIES"
+          },
+          linkedProviderTitles: []
+        }
+      })
+    );
+
+    expect(decision).toMatchObject({ accepted: true, reason: "accepted" });
   });
 
   it("rejects excluded releases", () => {
@@ -414,6 +610,11 @@ describe("evaluateSubscriptionRule", () => {
 
   it("normalizes criteriaJson structured filters", () => {
     expect(normalizeRule({
+      mode: "MEDIA_TITLE",
+      feedIds: ["feed-1", "feed-1", "feed-2"],
+      preferredReleaseGroups: ["grp", "better"],
+      upgradePolicy: "preferred_release_group",
+      allowCrossSeed: true,
       criteriaJson: {
         mediaTitleId: "media_1",
         selectedProvider: {
@@ -440,6 +641,11 @@ describe("evaluateSubscriptionRule", () => {
         ]
       }
     })).toMatchObject({
+      mode: "MEDIA_TITLE",
+      feedIds: ["feed-1", "feed-2"],
+      preferredReleaseGroups: ["GRP", "BETTER"],
+      upgradePolicy: "preferred_release_group",
+      allowCrossSeed: true,
       mediaTitleId: "media_1",
       selectedProvider: {
         provider: "tmdb",
@@ -486,5 +692,21 @@ describe("evaluateSubscriptionRule", () => {
         ]
       })
     ).toThrow("provider rating scale must be positive");
+    expect(() =>
+      normalizeRule({
+        mode: "REGEX",
+        selectedProvider: {
+          provider: "imdb",
+          providerId: "tt1234567"
+        }
+      })
+    ).toThrow("regex subscriptions cannot use media identity filters");
+    expect(() =>
+      normalizeRule({
+        releaseGroupsInclude: ["grp"],
+        preferredReleaseGroups: ["other"],
+        upgradePolicy: "preferred_release_group"
+      })
+    ).toThrow("preferredReleaseGroups must be within releaseGroupsInclude");
   });
 });

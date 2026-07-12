@@ -79,6 +79,7 @@ export type ProviderSettings = {
   provider: string;
   label: string;
   supportedMediaTypes: Array<"MOVIE" | "TV_SERIES">;
+  ratingSupportedMediaTypes: Array<"MOVIE" | "TV_SERIES">;
   authFields: ProviderAuthField[];
   supportsMetadataLanguage: boolean;
   supportsRegion: boolean;
@@ -112,6 +113,7 @@ export type MediaProviderPolicy = {
 export type MediaProviderPoliciesResponse = {
   mediaTypes: Array<{
     mediaType: "MOVIE" | "TV_SERIES";
+    ratingProviderSource: ProviderSettings["id"];
     policies: MediaProviderPolicy[];
   }>;
 };
@@ -129,15 +131,19 @@ export type ProviderRefDto = {
 };
 
 export type RatingDto = ProviderRefDto & {
+  providerSource: string;
+  providerLabel: string;
+  providerSourceLabel: string;
   value: number;
   scale: number;
-  normalized: number;
-  voteCount?: number;
+  voteCount?: number | null;
   type: "user_score" | "critic_score" | "popularity";
+  fetchedAt?: string;
 };
 
 export type ProviderIdentityFilter = {
   provider: string;
+  mediaType?: Exclude<MediaType, "UNKNOWN">;
   providerEntityType?: ProviderEntityType;
   providerId: string;
 };
@@ -192,15 +198,19 @@ export type ParsedRelease = {
   title: string;
   year?: number;
   kind: "MOVIE" | "TV" | "UNKNOWN";
+  tvUnitType?: "EPISODE" | "SPECIAL";
   season?: number;
   episode?: number;
   episodeEnd?: number;
+  specialNumber?: number;
+  episodePart?: string;
   resolution?: number;
   quality?: string;
   source?: string;
   codec?: string;
   audio?: string;
   releaseGroup?: string;
+  variant?: string;
   confidence: number;
 };
 
@@ -242,6 +252,11 @@ export type Item = {
   downloadJobs?: Array<{ id: string; status: string; error?: string; createdAt: string }>;
 };
 
+export type ItemPage = {
+  items: Item[];
+  nextCursor?: string;
+};
+
 export type TrendingMedia = {
   media: Media;
   releaseCount: number;
@@ -250,6 +265,11 @@ export type TrendingMedia = {
   feeds: string[];
   qualities: string[];
   releaseGroups: string[];
+};
+
+export type TrendingMediaPage = {
+  items: TrendingMedia[];
+  nextCursor?: string;
 };
 
 export type MediaDetail = {
@@ -289,6 +309,21 @@ export type MediaSearchResult = {
   externalUrl?: string;
 };
 
+export type ResolvedMediaTitle = {
+  mediaTitleId: string;
+  mediaType: Exclude<MediaType, "UNKNOWN">;
+  title: string;
+  originalTitle?: string | null;
+  year?: number | null;
+  posterUrl?: string | null;
+  hasCover: boolean;
+  provider: string;
+  providerSource?: string;
+  providerEntityType?: ProviderEntityType;
+  providerId: string;
+  presentation?: MediaPresentationDto;
+};
+
 export type Subscription = {
   id: string;
   title: string;
@@ -314,11 +349,13 @@ export type Subscription = {
   autoDownload: boolean;
   enabled: boolean;
   rule?: {
+    mode?: "MEDIA_TITLE" | "REGEX";
     mediaType?: MediaType;
     mediaTitleId?: string;
     selectedProvider?: ProviderIdentityFilter;
     linkedProviders?: ProviderIdentityFilter[];
     providerRatings?: ProviderRatingFilter[];
+    feedIds?: string[];
     titleRegex?: string;
     includeRegex?: string;
     excludeRegex?: string;
@@ -329,11 +366,18 @@ export type Subscription = {
     audio?: string[];
     releaseGroupsInclude?: string[];
     releaseGroupsExclude?: string[];
+    variantsInclude?: string[];
+    variantsExclude?: string[];
+    preferredReleaseGroups?: string[];
     minSizeBytes?: string;
     maxSizeBytes?: string;
     season?: number;
     episodeStart?: number;
     episodeEnd?: number;
+    upgradePolicy?: "none" | "better_quality" | "preferred_release_group";
+    allowCrossSeed?: boolean;
+    separateVariants?: boolean;
+    seasonPackAllowed?: boolean;
   };
   createdAt: string;
   updatedAt: string;

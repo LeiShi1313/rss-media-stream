@@ -1,12 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, DownloadCloud, Pencil, Plus, ServerCog } from "lucide-react";
+import { Pencil, Plus, Search, ServerCog } from "lucide-react";
 import { api, type Downloader } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
-import { Empty, Pill, StatusPill } from "../components/common/feedback.js";
-import { DistributionBars, EndpointStatusGrid } from "../components/common/charts.js";
-import { Modal, Panel } from "../components/common/surfaces.js";
+import { Empty } from "../components/common/feedback.js";
+import { Modal } from "../components/common/surfaces.js";
 import { optionalText, stringListFromInput } from "../lib/forms.js";
 
 export function DownloadersPage({
@@ -20,79 +19,107 @@ export function DownloadersPage({
 }) {
   const { t } = useTranslation();
   const [downloaderModal, setDownloaderModal] = useState<Downloader | "new" | null>(null);
+  const [query, setQuery] = useState("");
+  const filteredDownloaders = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return downloaders;
+    return downloaders.filter((downloader) =>
+      [
+        downloader.name,
+        downloader.type,
+        downloader.baseUrl,
+        downloader.category,
+        ...(downloader.tags ?? [])
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery))
+    );
+  }, [downloaders, query]);
 
   return (
-    <div className="page-stack">
-      <section className="overview-insight-grid">
-        <Panel title={t("downloaders.dispatchVolume")} icon={<DownloadCloud size={19} />}>
-          <DistributionBars
-            entries={downloaders.map((downloader) => ({
-              label: downloader.name,
-              value: downloader.jobCount ?? 0,
-              detail: downloader.type,
-              tone: downloader.enabled ? "accent" : "neutral"
-            }))}
-            emptyLabel={t("downloaders.emptyJobs")}
-          />
-        </Panel>
-        <Panel title={t("downloaders.endpointStatus")} icon={<ServerCog size={19} />}>
-          <EndpointStatusGrid downloaders={downloaders} />
-        </Panel>
-      </section>
-      <Panel
-        title={t("downloaders.endpoints")}
-        icon={<ServerCog size={19} />}
-        actions={
-          <UiButton className="primary" disabled={busy} onClick={() => setDownloaderModal("new")}>
-            <Plus size={17} />
-            {t("downloaders.addDownloader")}
-          </UiButton>
-        }
-      >
-        <div className="list">
-          {downloaders.length === 0 && <Empty label={t("downloaders.noEndpoints")} />}
-          {downloaders.map((downloader) => (
-            <article className="row-card downloader-card" key={downloader.id}>
-              <div>
-                <strong>{downloader.name}</strong>
-                <span>{downloader.type} · {downloader.baseUrl}</span>
-                <small>{t("downloaders.jobs", { count: downloader.jobCount ?? 0 })}{downloader.tags?.length ? ` · ${downloader.tags.join(", ")}` : ""}</small>
-              </div>
-              <div className="row-actions">
-                {downloader.isDefault && <Pill>{t("downloaders.default")}</Pill>}
-                <StatusPill ok={downloader.enabled}>{downloader.enabled ? t("common.enabled") : t("common.disabled")}</StatusPill>
-                <UiButton className="secondary" disabled={busy} onClick={() => setDownloaderModal(downloader)}>
-                  <Pencil size={16} />
-                  {t("common.edit")}
-                </UiButton>
-                {!downloader.isDefault && (
-                  <UiButton
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() =>
-                      runAction(() =>
-                        api("/api/downloaders/default", {
-                          method: "PUT",
-                          body: JSON.stringify({ downloaderId: downloader.id })
-                        })
-                      )
-                    }
-                  >
-                    {t("downloaders.makeDefault")}
-                  </UiButton>
-                )}
-                <UiButton
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => runAction(() => api(`/api/downloaders/${downloader.id}/test`, { method: "POST" }))}
-                >
-                  {t("common.test")}
-                </UiButton>
-              </div>
-            </article>
-          ))}
+    <div className="management-workbench">
+      <section className="management-command" aria-label={t("downloaders.endpoints")}>
+        <div className="management-command-left">
+          <FieldLabel className="search-control management-search">
+            <span className="sr-only">{t("downloaders.searchDownloaders")}</span>
+            <Search size={16} />
+            <FormInput
+              aria-label={t("downloaders.searchDownloaders")}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("downloaders.searchDownloaders")}
+              type="search"
+              value={query}
+            />
+          </FieldLabel>
+          <span className="management-count">{t("downloaders.endpointCount", { count: downloaders.length })}</span>
         </div>
-      </Panel>
+        <UiButton className="primary" disabled={busy} onClick={() => setDownloaderModal("new")}>
+          <Plus size={17} />
+          {t("downloaders.addDownloader")}
+        </UiButton>
+      </section>
+
+      <section className="management-table" role="table" aria-label={t("downloaders.endpoints")}>
+        <div className="management-table-head downloader-table-head" role="row">
+          <span role="columnheader">{t("downloaders.endpoint")}</span>
+          <span role="columnheader">{t("common.type")}</span>
+          <span role="columnheader">{t("common.baseUrl")}</span>
+          <span role="columnheader">{t("downloaders.jobsColumn")}</span>
+          <span role="columnheader">{t("common.tags")}</span>
+          <span role="columnheader">{t("downloaders.default")}</span>
+          <span role="columnheader">{t("downloaders.actions")}</span>
+        </div>
+        {downloaders.length === 0 && <Empty label={t("downloaders.noEndpoints")} />}
+        {downloaders.length > 0 && filteredDownloaders.length === 0 && <Empty label={t("downloaders.noMatchingEndpoints")} />}
+        {filteredDownloaders.map((downloader) => (
+          <article className="management-table-row downloader-table-row" key={downloader.id} role="row">
+            <div className="management-primary-cell" role="cell">
+              <strong>{downloader.name}</strong>
+              <span>{[downloader.enabled ? t("common.enabled") : t("common.disabled"), downloader.category].filter(Boolean).join(" · ")}</span>
+            </div>
+            <span role="cell">{downloader.type}</span>
+            <code role="cell">{downloader.baseUrl}</code>
+            <strong role="cell">{downloader.jobCount ?? 0}</strong>
+            <span role="cell">{downloader.tags?.length ? downloader.tags.join(", ") : t("downloaders.noTags")}</span>
+            <span role="cell">{downloader.isDefault ? t("downloaders.default") : t("downloaders.notDefault")}</span>
+            <div className="row-actions" role="cell">
+              <UiButton
+                aria-label={t("downloaders.editDownloaderNamed", { name: downloader.name })}
+                className="icon-button"
+                disabled={busy}
+                onClick={() => setDownloaderModal(downloader)}
+                title={t("common.edit")}
+              >
+                <Pencil size={16} />
+              </UiButton>
+              {!downloader.isDefault && (
+                <UiButton
+                  className="secondary compact-action"
+                  disabled={busy}
+                  onClick={() =>
+                    runAction(() =>
+                      api("/api/downloaders/default", {
+                        method: "PUT",
+                        body: JSON.stringify({ downloaderId: downloader.id })
+                      })
+                    )
+                  }
+                >
+                  {t("downloaders.makeDefault")}
+                </UiButton>
+              )}
+              <UiButton
+                className="secondary compact-action"
+                disabled={busy}
+                onClick={() => runAction(() => api(`/api/downloaders/${downloader.id}/test`, { method: "POST" }))}
+              >
+                {t("common.test")}
+              </UiButton>
+            </div>
+          </article>
+        ))}
+      </section>
+
       {downloaderModal && (
         <Modal
           title={downloaderModal === "new" ? t("downloaders.addDownloader") : t("downloaders.editDownloader")}

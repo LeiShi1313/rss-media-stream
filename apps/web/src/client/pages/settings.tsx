@@ -98,11 +98,15 @@ export function SettingsPage({
     if (result.ok) await loadSettings();
   }
 
-  async function savePolicies(mediaType: "MOVIE" | "TV_SERIES", rows: MediaProviderPolicy[]) {
+  async function savePolicies(group: MediaProviderPoliciesResponse["mediaTypes"][number]) {
     const result = await runAction(() =>
       api<MediaProviderPoliciesResponse>("/api/settings/media-provider-policies", {
         method: "PUT",
-        body: JSON.stringify({ mediaType, policies: rows })
+        body: JSON.stringify({
+          mediaType: group.mediaType,
+          policies: group.policies,
+          ratingProviderSource: group.ratingProviderSource
+        })
       })
     );
     if (result.ok) await loadSettings();
@@ -141,8 +145,17 @@ export function SettingsPage({
               onChange={(rows) => setPolicies((current) =>
                 current.map((item) => item.mediaType === group.mediaType ? { ...item, policies: rows } : item)
               )}
-              onSave={() => void savePolicies(group.mediaType, group.policies)}
+              onRatingSourceChange={(ratingProviderSource) => setPolicies((current) =>
+                current.map((item) => item.mediaType === group.mediaType
+                  ? {
+                      ...item,
+                      ratingProviderSource
+                    }
+                  : item)
+              )}
+              onSave={() => void savePolicies(group)}
               ownerOnly={ownerOnly}
+              providerSettings={providerSettings}
               t={t}
             />
           ))}
@@ -283,17 +296,28 @@ function PolicyTable({
   busy,
   group,
   onChange,
+  onRatingSourceChange,
   onSave,
   ownerOnly,
+  providerSettings,
   t
 }: {
   busy: boolean;
   group: MediaProviderPoliciesResponse["mediaTypes"][number];
   onChange: (policies: MediaProviderPolicy[]) => void;
+  onRatingSourceChange: (providerSource: ProviderSettings["id"]) => void;
   onSave: () => void;
   ownerOnly: boolean;
+  providerSettings: ProviderSettings[];
   t: TFunction;
 }) {
+  const ratingProviders = providerSettings.filter((provider) =>
+    provider.ratingSupportedMediaTypes.includes(group.mediaType)
+  );
+  const selectedRatingProvider = providerSettings.find((provider) =>
+    provider.id === group.ratingProviderSource
+  );
+
   function update(providerSource: string, patch: Partial<MediaProviderPolicy>) {
     onChange(group.policies.map((policy) => policy.providerSource === providerSource ? { ...policy, ...patch } : policy));
   }
@@ -302,9 +326,26 @@ function PolicyTable({
     <div className="policy-group">
       <div className="policy-heading">
         <strong>{mediaTypeLabel(group.mediaType, t)}</strong>
-        <UiButton className="secondary" disabled={busy || ownerOnly} onClick={onSave} type="button">
-          {t("settings.savePolicy")}
-        </UiButton>
+        <div className="policy-heading-actions">
+          <FieldLabel className="rating-provider-field">
+            <span>{t("settings.ratingProviderSource")}</span>
+            <SelectField
+              disabled={busy || ownerOnly}
+              onValueChange={(value) => onRatingSourceChange(value as ProviderSettings["id"])}
+              options={ratingProviders.map((provider) => ({
+                value: provider.id,
+                label: provider.label
+              }))}
+              value={group.ratingProviderSource}
+            />
+          </FieldLabel>
+          {selectedRatingProvider && !selectedRatingProvider.enabled && (
+            <Pill>{t("settings.ratingProviderDisabled")}</Pill>
+          )}
+          <UiButton className="secondary" disabled={busy || ownerOnly} onClick={onSave} type="button">
+            {t("settings.savePolicy")}
+          </UiButton>
+        </div>
       </div>
       <div className="policy-rows">
         {group.policies.map((policy) => (

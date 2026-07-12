@@ -1,3 +1,6 @@
+import { getProviderSourceDefinition } from "../../integrations/providers/sources.js";
+import { LOW_CONFIDENCE_THRESHOLD } from "./matchingPolicy.js";
+
 export type MediaPresentationDto = {
   mediaTitleId?: string;
   mediaType: "MOVIE" | "TV_SERIES" | "UNKNOWN";
@@ -20,27 +23,20 @@ export type ProviderRefDto = {
 };
 
 export type RatingDto = ProviderRefDto & {
+  providerSource: string;
+  providerLabel: string;
+  providerSourceLabel: string;
   value: number;
   scale: number;
-  normalized: number;
   voteCount?: number | null;
   type: "user_score" | "critic_score" | "popularity";
+  fetchedAt?: string;
 };
 
 export type PresentationOptions = {
   providerOrder?: string[];
+  ratingProviderSource?: string;
 };
-
-export type PresentationOrders = Partial<Record<"MOVIE" | "TV_SERIES", string[]>>;
-
-export function providerOrderForMediaType(
-  orders: PresentationOrders,
-  mediaType?: string | null
-) {
-  return mediaType === "MOVIE" || mediaType === "TV_SERIES"
-    ? orders[mediaType]
-    : undefined;
-}
 
 export type ReleaseMatchDto = {
   id?: string;
@@ -67,7 +63,6 @@ export type AttentionReason =
   | "no_cover"
   | "failed_download";
 
-export const LOW_CONFIDENCE_THRESHOLD = 0.88;
 export function serializeProviderRef(providerMetadata: any): ProviderRefDto | undefined {
   if (!providerMetadata) return undefined;
   const identity = providerMetadata.mediaProviderIdentity;
@@ -78,8 +73,8 @@ export function serializeProviderRef(providerMetadata: any): ProviderRefDto | un
   }
   return {
     provider,
-    providerSource: providerMetadata.providerSource,
-    providerEntityType: providerMetadata.providerEntityType,
+    ...(providerMetadata.providerSource ? { providerSource: providerMetadata.providerSource } : {}),
+    ...(providerMetadata.providerEntityType ? { providerEntityType: providerMetadata.providerEntityType } : {}),
     providerId
   };
 }
@@ -103,6 +98,14 @@ export function serializeMediaPresentation(input: {
     release,
     providerOrder: options.providerOrder
   });
+  const ratingMetadata = selectRatingProviderMetadata({
+    mediaTitle,
+    selectedProviderMetadata: input.providerMetadata ?? providerTitleToMetadata(input.providerTitle),
+    providerIdentities: input.providerIdentities ?? mediaTitle?.providerIdentities,
+    providerLinks: input.providerLinks ?? mediaTitle?.providerLinks,
+    release,
+    ratingProviderSource: options.ratingProviderSource
+  });
   const payload = providerPayload(providerMetadata?.payload);
   const mediaType = mediaTitle?.mediaType ?? providerMetadata?.mediaType ?? release?.mediaType ?? "UNKNOWN";
   const title = providerMetadata?.title ?? mediaTitle?.title ?? mediaTitle?.canonicalTitle ?? release?.title ?? input.rawTitle ?? "Unknown";
@@ -120,7 +123,7 @@ export function serializeMediaPresentation(input: {
     posterUrl,
     backdropUrl,
     displaySource: source,
-    rating: serializeRating(providerMetadata),
+    rating: serializeRating(ratingMetadata),
     hasCover: Boolean(posterUrl)
   };
 }
@@ -136,24 +139,7 @@ export function selectPresentationProviderMetadata(input: {
 }) {
   const selectedProviderMetadata = input.selectedProviderMetadata ?? providerTitleToMetadata(input.selectedProviderTitle);
   const mediaType = input.mediaTitle?.mediaType ?? selectedProviderMetadata?.mediaType ?? input.release?.mediaType;
-  const choices: Array<{
-    providerMetadata: any;
-    selected: boolean;
-    linkUpdatedAt?: unknown;
-    linkCreatedAt?: unknown;
-  }> = [];
-  const seen = new Set<string>();
-
-  // Active release matches keep their selected provider as presentation provenance.
-  addProviderChoice(choices, seen, selectedProviderMetadata, true);
-  for (const identity of input.providerIdentities ?? []) {
-    for (const metadata of identity.metadata ?? []) {
-      addProviderChoice(choices, seen, attachIdentity(metadata, identity), false);
-    }
-  }
-  for (const link of input.providerLinks ?? []) {
-    addProviderChoice(choices, seen, providerTitleToMetadata(link.providerTitle), false, link);
-  }
+  const choices = collectProviderChoices({ ...input, selectedProviderMetadata });
 
   const filtered = input.providerOrder
     ? choices.filter((choice) =>
@@ -161,10 +147,46 @@ export function selectPresentationProviderMetadata(input: {
       )
     : choices;
 
-  return filtered.sort((a, b) => compareProviderChoices(a, b, mediaType, input.providerOrder))[0]?.providerMetadata;
+  const ordered = filtered.sort((a, b) =>
+    compareProviderChoices(a, b, mediaType, input.providerOrder)
+  );
+  return ordered.find((choice) =>
+    providerMetadataHasPresentationContent(choice.providerMetadata)
+  )?.providerMetadata ?? ordered[0]?.providerMetadata;
+}
+
+export function selectRatingProviderMetadata(input: {
+  mediaTitle?: any;
+  selectedProviderMetadata?: any;
+  providerIdentities?: Array<{ metadata?: any[]; provider?: string; providerId?: string }>;
+  providerLinks?: Array<{ providerTitle?: any; updatedAt?: unknown; createdAt?: unknown }>;
+  release?: any;
+  ratingProviderSource?: string;
+}) {
+  if (!input.ratingProviderSource) return undefined;
+  const mediaType = input.mediaTitle?.mediaType ?? input.selectedProviderMetadata?.mediaType ?? input.release?.mediaType;
+  return collectProviderChoices(input)
+    .filter((choice) =>
+      choice.providerMetadata?.providerSource === input.ratingProviderSource &&
+      providerMatchesMediaType(choice.providerMetadata, mediaType) &&
+      serializeRating(choice.providerMetadata)
+    )
+    .sort((a, b) =>
+      providerPayloadTime(b) - providerPayloadTime(a) ||
+      stableProviderKey(a.providerMetadata).localeCompare(stableProviderKey(b.providerMetadata))
+    )[0]?.providerMetadata;
 }
 
 export const selectPresentationProviderTitle = selectPresentationProviderMetadata;
+
+export function selectReleaseMatchForPresentation(matches?: any[], providerOrder?: string[]) {
+  const active = (matches ?? []).filter(Boolean);
+  const matched = active.filter((match) => match.status === "MATCHED");
+  if (matched.length > 0) {
+    return matched.sort((a, b) => compareReleaseMatchChoices(a, b, providerOrder))[0];
+  }
+  return active.sort((a, b) => releaseMatchTime(b) - releaseMatchTime(a))[0];
+}
 
 export function serializeReleaseMatch(input: {
   match?: any;
@@ -219,6 +241,8 @@ export function serializeProviderTitleSearchResult(result: {
 }) {
   const presentation = serializeMediaPresentation({
     providerTitle: result
+  }, {
+    ratingProviderSource: result.providerSource
   });
   return {
     provider: result.provider,
@@ -267,13 +291,59 @@ function releaseAttentionReasons(
   return [...reasons];
 }
 
+function compareReleaseMatchChoices(a: any, b: any, providerOrder?: string[]) {
+  const providerPriorityDelta = providerPriority(releaseMatchProviderSource(a), providerOrder) -
+    providerPriority(releaseMatchProviderSource(b), providerOrder);
+  if (providerPriorityDelta !== 0) return providerPriorityDelta;
+
+  const timeDelta = releaseMatchTime(b) - releaseMatchTime(a);
+  if (timeDelta !== 0) return timeDelta;
+
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+}
+
+function releaseMatchProviderSource(match: any) {
+  return match.providerMediaMetadata?.providerSource ?? match.providerTitle?.providerSource;
+}
+
+function releaseMatchTime(match: any) {
+  return Math.max(
+    timeValue(match?.matchedAt),
+    timeValue(match?.updatedAt),
+    timeValue(match?.createdAt)
+  );
+}
+
+type ProviderChoice = {
+  providerMetadata: any;
+  selected: boolean;
+  linkUpdatedAt?: unknown;
+  linkCreatedAt?: unknown;
+};
+
+function collectProviderChoices(input: {
+  selectedProviderMetadata?: any;
+  providerIdentities?: Array<{ metadata?: any[]; provider?: string; providerId?: string }>;
+  providerLinks?: Array<{ providerTitle?: any; updatedAt?: unknown; createdAt?: unknown }>;
+}) {
+  const choices: ProviderChoice[] = [];
+  const seen = new Set<string>();
+
+  // Active release matches keep their selected provider as metadata provenance.
+  addProviderChoice(choices, seen, input.selectedProviderMetadata, true);
+  for (const identity of input.providerIdentities ?? []) {
+    for (const metadata of identity.metadata ?? []) {
+      addProviderChoice(choices, seen, attachIdentity(metadata, identity), false);
+    }
+  }
+  for (const link of input.providerLinks ?? []) {
+    addProviderChoice(choices, seen, providerTitleToMetadata(link.providerTitle), false, link);
+  }
+  return choices;
+}
+
 function addProviderChoice(
-  choices: Array<{
-    providerMetadata: any;
-    selected: boolean;
-    linkUpdatedAt?: unknown;
-    linkCreatedAt?: unknown;
-  }>,
+  choices: ProviderChoice[],
   seen: Set<string>,
   providerMetadata: any,
   selected: boolean,
@@ -295,18 +365,8 @@ function addProviderChoice(
 }
 
 function compareProviderChoices(
-  a: {
-    providerMetadata: any;
-    selected: boolean;
-    linkUpdatedAt?: unknown;
-    linkCreatedAt?: unknown;
-  },
-  b: {
-    providerMetadata: any;
-    selected: boolean;
-    linkUpdatedAt?: unknown;
-    linkCreatedAt?: unknown;
-  },
+  a: ProviderChoice,
+  b: ProviderChoice,
   mediaType?: string | null,
   providerOrder?: string[]
 ) {
@@ -333,7 +393,7 @@ function compareProviderChoices(
 
 function providerMatchesMediaType(providerTitle: any, mediaType?: string | null) {
   if (!mediaType || mediaType === "UNKNOWN") return true;
-  return providerTitle.mediaType === mediaType;
+  return (providerTitle.mediaType ?? providerTitle.mediaProviderIdentity?.mediaType) === mediaType;
 }
 
 function providerPriority(provider?: string | null, providerOrder?: string[]) {
@@ -386,13 +446,22 @@ function serializeRating(providerMetadata: any): RatingDto | undefined {
     return undefined;
   }
   if (providerMetadata.ratingScale <= 0) return undefined;
+  const definition = getProviderSourceDefinition(providerMetadata.providerSource);
+  const fetchedAt = providerMetadata.fetchedAt instanceof Date
+    ? providerMetadata.fetchedAt.toISOString()
+    : typeof providerMetadata.fetchedAt === "string"
+      ? providerMetadata.fetchedAt
+      : undefined;
   return {
     ...source,
+    providerSource: definition.id,
+    providerLabel: definition.providerLabel,
+    providerSourceLabel: definition.label,
     value: providerMetadata.ratingValue,
     scale: providerMetadata.ratingScale,
-    normalized: providerMetadata.ratingValue / providerMetadata.ratingScale,
     voteCount: providerMetadata.ratingVoteCount,
-    type
+    type,
+    fetchedAt
   };
 }
 
@@ -411,6 +480,13 @@ function providerPayload(payload: unknown): {
   return typeof payload === "object" && payload !== null
     ? payload as { posterPath?: string | null; backdropPath?: string | null; overview?: string | null }
     : {};
+}
+
+function providerMetadataHasPresentationContent(providerMetadata: any) {
+  const payload = providerPayload(providerMetadata?.payload);
+  return [payload.overview, payload.posterPath, payload.backdropPath].some(
+    (value) => typeof value === "string" && value.trim().length > 0
+  );
 }
 
 function providerImageUrl(provider: string | undefined, path: string | null | undefined, size: "w185" | "w342") {

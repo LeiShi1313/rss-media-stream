@@ -7,15 +7,19 @@ export type PersistedParsedReleaseSnapshot = {
   providerSearchTitles: string[];
   year: number | null;
   mediaType: ParsedRelease["mediaType"];
+  tvUnitType: ParsedRelease["tvUnitType"] | null;
   season: number | null;
   episode: number | null;
   episodeEnd: number | null;
+  specialNumber: number | null;
+  episodePart: string | null;
   resolution: number | null;
   quality: string | null;
   source: string | null;
   codec: string | null;
   audio: string | null;
   releaseGroup: string | null;
+  variant: string | null;
   parseConfidence: number;
 };
 
@@ -33,16 +37,20 @@ export type ParserChangeKind =
   | "title_changed"
   | "provider_search_titles_changed"
   | "media_type_changed"
+  | "tv_unit_type_changed"
   | "year_changed"
   | "season_changed"
   | "episode_changed"
   | "episode_end_changed"
+  | "special_number_changed"
+  | "episode_part_changed"
   | "resolution_changed"
   | "quality_changed"
   | "source_changed"
   | "codec_changed"
   | "audio_changed"
   | "release_group_changed"
+  | "variant_changed"
   | "parse_confidence_changed"
   | "release_signature_changed"
   | "known_media_to_unknown"
@@ -111,16 +119,20 @@ export function compareParsedRelease(
     "provider_search_titles_changed"
   );
   pushIf(changes, previous.mediaType !== next.mediaType, "media_type_changed");
+  pushIf(changes, (previous.tvUnitType ?? null) !== (next.tvUnitType ?? null), "tv_unit_type_changed");
   pushIf(changes, previous.year !== (next.year ?? null), "year_changed");
   pushIf(changes, previous.season !== (next.season ?? null), "season_changed");
   pushIf(changes, previous.episode !== (next.episode ?? null), "episode_changed");
   pushIf(changes, previous.episodeEnd !== (next.episodeEnd ?? null), "episode_end_changed");
+  pushIf(changes, previous.specialNumber !== (next.specialNumber ?? null), "special_number_changed");
+  pushIf(changes, (previous.episodePart ?? null) !== (next.episodePart ?? null), "episode_part_changed");
   pushIf(changes, previous.resolution !== (next.resolution ?? null), "resolution_changed");
   pushIf(changes, previous.quality !== (next.quality ?? null), "quality_changed");
   pushIf(changes, previous.source !== (next.source ?? null), "source_changed");
   pushIf(changes, previous.codec !== (next.codec ?? null), "codec_changed");
   pushIf(changes, previous.audio !== (next.audio ?? null), "audio_changed");
   pushIf(changes, previous.releaseGroup !== (next.releaseGroup ?? null), "release_group_changed");
+  pushIf(changes, (previous.variant ?? null) !== (next.variant ?? null), "variant_changed");
   pushIf(changes, previous.parseConfidence !== next.parseConfidence, "parse_confidence_changed");
   pushIf(
     changes,
@@ -194,16 +206,20 @@ function emptyChangesByKind(): Record<ParserChangeKind, number> {
     title_changed: 0,
     provider_search_titles_changed: 0,
     media_type_changed: 0,
+    tv_unit_type_changed: 0,
     year_changed: 0,
     season_changed: 0,
     episode_changed: 0,
     episode_end_changed: 0,
+    special_number_changed: 0,
+    episode_part_changed: 0,
     resolution_changed: 0,
     quality_changed: 0,
     source_changed: 0,
     codec_changed: 0,
     audio_changed: 0,
     release_group_changed: 0,
+    variant_changed: 0,
     parse_confidence_changed: 0,
     release_signature_changed: 0,
     known_media_to_unknown: 0,
