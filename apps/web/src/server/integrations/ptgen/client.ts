@@ -35,6 +35,7 @@ export const PTGEN_BACKENDS = [
 
 type PtgenClientOptions = {
   language?: string;
+  signal?: AbortSignal;
 };
 
 export async function searchPtgen(
@@ -43,7 +44,7 @@ export async function searchPtgen(
 ): Promise<ProviderTitleResult[]> {
   let body: PtgenSearchResponse = { hits: [] };
   for (const attempt of ptgenSearchAttempts(input)) {
-    body = await fetchPtgenSearch(attempt);
+    body = await fetchPtgenSearch(attempt, options.signal);
     if ((body.hits ?? []).length > 0) break;
   }
 
@@ -65,8 +66,8 @@ export async function searchPtgen(
     .filter((result): result is ProviderTitleResult => Boolean(result));
 }
 
-async function fetchPtgenSearch(input: Parameters<typeof ptgenSearchUrl>[1]) {
-  const response = await fetch(ptgenSearchUrl(PTGEN_SEARCH_BASE_URL, input));
+async function fetchPtgenSearch(input: Parameters<typeof ptgenSearchUrl>[1], signal?: AbortSignal) {
+  const response = await fetch(ptgenSearchUrl(PTGEN_SEARCH_BASE_URL, input), { signal });
   if (!response.ok) {
     throw new Error(`PTGen search failed with ${response.status}`);
   }

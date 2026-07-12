@@ -2,6 +2,7 @@ import type { FastifyRequest } from "fastify";
 import { redactSecrets } from "@rss-media/shared/redact";
 import {
   evaluateSubscriptionRule,
+  normalizeReleaseVariant,
   normalizeReleaseGroup,
   normalizeRule,
   normalizeResolution,
@@ -18,13 +19,14 @@ import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { forbidden, notFound } from "../../core/errors.js";
 import { isAdminRole } from "../../core/permissions.js";
-import { getPresentationProviderOrder } from "../../integrations/providers/policy.js";
 import { createDownloadJob, sendDownloadJob } from "../jobs/jobs.service.js";
+import { serializeMediaPresentation } from "../media/presentation.js";
 import {
-  providerOrderForMediaType,
-  serializeMediaPresentation,
-  type PresentationOrders
-} from "../media/presentation.js";
+  EMPTY_PRESENTATION_PREFERENCES,
+  loadPresentationPreferences,
+  presentationOptionsForMediaType,
+  type PresentationPreferences
+} from "../media/presentationPreferences.js";
 import type {
   matchHistoryQuerySchema,
   subscriptionCreateSchema,
@@ -41,10 +43,13 @@ type MatchHistoryQuery = z.infer<typeof matchHistoryQuerySchema>;
 type AcquisitionUnit = {
   contentKey: string;
   mediaTitleId: string;
-  unitType: "MOVIE" | "TV_SEASON" | "TV_EPISODE";
+  unitType: "MOVIE" | "TV_SEASON" | "TV_EPISODE" | "TV_SPECIAL";
   season?: number;
   episode?: number;
   episodeEnd?: number;
+  specialNumber?: number;
+  episodePart?: string;
+  variant?: string;
 };
 
 type ReleaseScore = {
@@ -139,8 +144,8 @@ export async function listSubscriptions(input: {
     orderBy: { createdAt: "desc" }
   });
 
-  const presentationOrders = await preloadPresentationOrders(input.tenantId);
-  return subscriptions.map((subscription: any) => serializeSubscription(subscription, presentationOrders));
+  const presentationPreferences = await loadPresentationPreferences(input.tenantId);
+  return subscriptions.map((subscription: any) => serializeSubscription(subscription, presentationPreferences));
 }
 
 export async function createSubscriptionWithRule(args: {
@@ -190,7 +195,7 @@ export async function createSubscriptionWithRule(args: {
 
     return subscription;
   });
-  return serializeSubscription(subscription, await preloadPresentationOrders(args.tenantId));
+  return serializeSubscription(subscription, await loadPresentationPreferences(args.tenantId));
 }
 
 export async function updateSubscription(input: {
@@ -228,7 +233,7 @@ export async function updateSubscription(input: {
 
     return subscription;
   });
-  return serializeSubscription(subscription, await preloadPresentationOrders(input.tenantId));
+  return serializeSubscription(subscription, await loadPresentationPreferences(input.tenantId));
 }
 
 export async function deleteSubscription(tenantId: string, id: string) {
@@ -266,7 +271,7 @@ export async function updateSubscriptionRule(input: {
     include: subscriptionInclude
   });
   if (!subscription) throw notFound("Subscription");
-  return serializeSubscription(subscription, await preloadPresentationOrders(input.tenantId));
+  return serializeSubscription(subscription, await loadPresentationPreferences(input.tenantId));
 }
 
 export async function listSubscriptionHistory(input: {
@@ -534,7 +539,7 @@ async function planAcquisition(input: {
 }): Promise<AcquisitionPlan> {
   if (input.rule.mode !== "MEDIA_TITLE") return { accepted: true };
 
-  const unit = acquisitionUnitFromCandidate(input.candidate);
+  const unit = acquisitionUnitFromCandidate(input.candidate, input.rule);
   if (!unit) {
     return {
       accepted: false,
@@ -656,13 +661,19 @@ async function recordAcquisitionAccepted(input: {
       season: input.acquisition.unit.season ?? null,
       episode: input.acquisition.unit.episode ?? null,
       episodeEnd: input.acquisition.unit.episodeEnd ?? null,
+      specialNumber: input.acquisition.unit.specialNumber ?? null,
+      episodePart: input.acquisition.unit.episodePart ?? null,
+      variant: input.acquisition.unit.variant ?? null,
       ...currentData
     },
     update: currentData
   });
 }
 
-function acquisitionUnitFromCandidate(candidate: CandidateInput): AcquisitionUnit | undefined {
+function acquisitionUnitFromCandidate(
+  candidate: CandidateInput,
+  rule: NormalizedSubscriptionRule
+): AcquisitionUnit | undefined {
   const mediaTitle = candidate.activeMatch?.mediaTitle;
   if (!mediaTitle) return undefined;
 
@@ -678,6 +689,18 @@ function acquisitionUnitFromCandidate(candidate: CandidateInput): AcquisitionUni
   if (season === undefined) return undefined;
 
   const seasonKey = `tv:${mediaTitle.id}:s${padNumber(season)}`;
+  if (candidate.release.tvUnitType === "SPECIAL") {
+    const specialNumber = candidate.release.specialNumber;
+    if (specialNumber === undefined) return undefined;
+    return {
+      contentKey: `${seasonKey}:sp:${specialNumber}`,
+      mediaTitleId: mediaTitle.id,
+      unitType: "TV_SPECIAL",
+      season,
+      specialNumber
+    };
+  }
+
   if (candidate.release.episode === undefined) {
     return {
       contentKey: `${seasonKey}:season`,
@@ -692,15 +715,26 @@ function acquisitionUnitFromCandidate(candidate: CandidateInput): AcquisitionUni
     candidate.release.episodeEnd > candidate.release.episode
       ? candidate.release.episodeEnd
       : undefined;
-  return {
-    contentKey: episodeEnd
+  const variant = rule.separateVariants
+    ? normalizeReleaseVariant(candidate.release.variant)
+    : undefined;
+  const episodePart = normalizeEpisodePart(candidate.release.episodePart);
+  const contentKeyParts = [
+    episodeEnd
       ? `${seasonKey}:e${padNumber(candidate.release.episode)}-e${padNumber(episodeEnd)}`
       : `${seasonKey}:e${padNumber(candidate.release.episode)}`,
+    variant ? `variant:${variant}` : undefined,
+    episodePart ? `part:${episodePart}` : undefined
+  ].filter((part): part is string => Boolean(part));
+  return {
+    contentKey: contentKeyParts.join(":"),
     mediaTitleId: mediaTitle.id,
     unitType: "TV_EPISODE",
     season,
     episode: candidate.release.episode,
-    episodeEnd
+    episodeEnd,
+    episodePart,
+    variant
   };
 }
 
@@ -819,6 +853,14 @@ function padNumber(value: number) {
   return String(value).padStart(2, "0");
 }
 
+function normalizeEpisodePart(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  return /^\d+$/u.test(normalized)
+    ? String(Number(normalized))
+    : normalized.toUpperCase();
+}
+
 function rulePersistenceData(rule: ReturnType<typeof normalizeRule>) {
   return {
     mode: rule.mode,
@@ -859,7 +901,8 @@ function ruleCriteriaJson(rule: ReturnType<typeof normalizeRule>) {
     linkedProviders: rule.linkedProviders,
     providerRatings: rule.providerRatings,
     variantsInclude: rule.variantsInclude,
-    variantsExclude: rule.variantsExclude
+    variantsExclude: rule.variantsExclude,
+    separateVariants: rule.separateVariants ? true : undefined
   };
   const compact = Object.fromEntries(
     Object.entries(criteria).filter(([, value]) =>
@@ -876,6 +919,7 @@ function criteriaFromRow(rule: any): {
   providerRatings?: SubscriptionRuleInput["providerRatings"];
   variantsInclude?: SubscriptionRuleInput["variantsInclude"];
   variantsExclude?: SubscriptionRuleInput["variantsExclude"];
+  separateVariants?: SubscriptionRuleInput["separateVariants"];
 } {
   return rule.criteriaJson && typeof rule.criteriaJson === "object" && !Array.isArray(rule.criteriaJson)
     ? rule.criteriaJson
@@ -912,6 +956,7 @@ function ruleFromRow(rule: any, subscriptionMediaTitleId?: string | null): Subsc
     episodeEnd: rule.episodeEnd ?? undefined,
     upgradePolicy: rule.upgradePolicy ?? undefined,
     allowCrossSeed: rule.allowCrossSeed ?? undefined,
+    separateVariants: rule.separateVariants ?? criteria.separateVariants,
     seasonPackAllowed: rule.seasonPackAllowed ?? undefined
   };
 }
@@ -980,9 +1025,12 @@ function candidateFromItem(item: any): CandidateInput {
       title: item.parsedRelease.title,
       year: item.parsedRelease.year ?? undefined,
       mediaType: item.parsedRelease.mediaType,
+      tvUnitType: item.parsedRelease.tvUnitType ?? undefined,
       season: item.parsedRelease.season ?? undefined,
       episode: item.parsedRelease.episode ?? undefined,
       episodeEnd: item.parsedRelease.episodeEnd ?? undefined,
+      specialNumber: item.parsedRelease.specialNumber ?? undefined,
+      episodePart: item.parsedRelease.episodePart ?? undefined,
       resolution: item.parsedRelease.resolution ?? undefined,
       quality: item.parsedRelease.quality ?? undefined,
       source: item.parsedRelease.source ?? undefined,
@@ -997,17 +1045,18 @@ function candidateFromItem(item: any): CandidateInput {
 }
 
 export async function serializeSubscriptionForTenant(tenantId: string, subscription: any) {
-  return serializeSubscription(subscription, await preloadPresentationOrders(tenantId));
+  return serializeSubscription(subscription, await loadPresentationPreferences(tenantId));
 }
 
-export function serializeSubscription(subscription: any, presentationOrders: PresentationOrders = {}) {
+export function serializeSubscription(
+  subscription: any,
+  presentationPreferences: PresentationPreferences = EMPTY_PRESENTATION_PREFERENCES
+) {
   const mediaPresentation = subscription.mediaTitle
     ? serializeMediaPresentation({
         mediaTitle: subscription.mediaTitle,
         providerIdentities: subscription.mediaTitle.providerIdentities
-      }, {
-        providerOrder: providerOrderForMediaType(presentationOrders, subscription.mediaTitle.mediaType)
-      })
+      }, presentationOptionsForMediaType(presentationPreferences, subscription.mediaTitle.mediaType))
     : undefined;
   return {
     id: subscription.id,
@@ -1044,13 +1093,6 @@ export function serializeSubscription(subscription: any, presentationOrders: Pre
   };
 }
 
-async function preloadPresentationOrders(tenantId: string): Promise<PresentationOrders> {
-  return {
-    MOVIE: await getPresentationProviderOrder(tenantId, "MOVIE"),
-    TV_SERIES: await getPresentationProviderOrder(tenantId, "TV_SERIES")
-  };
-}
-
 function serializeRule(rule: any, subscriptionMediaTitleId?: string | null) {
   const ruleInput = ruleFromRow(rule, subscriptionMediaTitleId);
   return {
@@ -1082,6 +1124,7 @@ function serializeRule(rule: any, subscriptionMediaTitleId?: string | null) {
     episodeEnd: rule.episodeEnd,
     upgradePolicy: ruleInput.upgradePolicy,
     allowCrossSeed: ruleInput.allowCrossSeed,
+    separateVariants: ruleInput.separateVariants,
     seasonPackAllowed: ruleInput.seasonPackAllowed,
     createdAt: rule.createdAt,
     updatedAt: rule.updatedAt

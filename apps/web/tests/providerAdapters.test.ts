@@ -7,7 +7,9 @@ import {
 import {
   getBroadSearchTargets,
   getMatchingProviderOrder,
+  getProviderPolicies,
   getPresentationProviderOrder,
+  replaceMediaProviderConfiguration,
   replaceMediaProviderPolicies
 } from "../src/server/integrations/providers/policy.js";
 import { scoreProviderCandidate } from "../src/server/integrations/providers/scoring.js";
@@ -28,7 +30,7 @@ import { searchTmdb } from "../src/server/integrations/tmdb/client.js";
 import { tmdbProvider } from "../src/server/integrations/tmdb/provider.js";
 import { toTitleResult } from "../src/server/integrations/tmdb/mapper.js";
 import { tvdbProvider } from "../src/server/integrations/tvdb/provider.js";
-import { getTvdbMovieById, getTvdbSeriesById } from "../src/server/integrations/tvdb/client.js";
+import { getTvdbMovieById, getTvdbSeriesById, searchTvdbSeries } from "../src/server/integrations/tvdb/client.js";
 import { tvdbSearchResultToTitleResult } from "../src/server/integrations/tvdb/mapper.js";
 import { manualProviderMatchSchema } from "../src/server/modules/media/media.schemas.js";
 import { encryptSecret } from "../src/server/secrets.js";
@@ -45,6 +47,14 @@ const mocks = vi.hoisted(() => ({
       findMany: vi.fn(),
       deleteMany: vi.fn(),
       createMany: vi.fn()
+    },
+    tenantProviderSourceConfig: {
+      findMany: vi.fn(),
+      findUnique: vi.fn()
+    },
+    tenantRatingSourcePreference: {
+      findMany: vi.fn(),
+      upsert: vi.fn()
     }
   }
 }));
@@ -68,17 +78,26 @@ describe("provider adapter defaults", () => {
     mocks.prisma.tenantProviderConfig.findUnique.mockResolvedValue(null);
     mocks.prisma.tenantProviderConfig.findMany.mockResolvedValue([]);
     mocks.prisma.tenantMediaProviderPolicy.findMany.mockResolvedValue([]);
+    mocks.prisma.tenantProviderSourceConfig.findMany.mockResolvedValue([]);
+    mocks.prisma.tenantProviderSourceConfig.findUnique.mockResolvedValue(null);
+    mocks.prisma.tenantRatingSourcePreference.findMany.mockResolvedValue([]);
+    mocks.prisma.tenantRatingSourcePreference.upsert.mockResolvedValue({});
+    mocks.prisma.tenantMediaProviderPolicy.deleteMany.mockResolvedValue({ count: 0 });
+    mocks.prisma.tenantMediaProviderPolicy.createMany.mockResolvedValue({ count: 2 });
+    mocks.prisma.$transaction.mockImplementation(async (callback: any) => callback(mocks.prisma));
   });
 
   it("uses registry default media type policies", () => {
     expect(listProviderDefinitions().map((provider) => provider.id)).toEqual(["tmdb_api", "tvdb_api", "ptgen_imdb", "ptgen_douban"]);
     const tvdb = listProviderDefinitions().find((provider) => provider.id === "tvdb_api");
     expect(tvdb?.supportedMediaTypes).toEqual(["MOVIE", "TV_SERIES"]);
+    expect(tvdb?.ratingSupportedMediaTypes).toEqual([]);
     const ptgen = listProviderDefinitions().find((provider) => provider.id === "ptgen_imdb");
     expect(ptgen).toMatchObject({
       label: "PTGen IMDb",
       authFields: [],
-      baseUrlOptions: []
+      baseUrlOptions: [],
+      ratingSupportedMediaTypes: ["MOVIE", "TV_SERIES"]
     });
     expect(getDefaultPoliciesForMediaType("MOVIE").map((policy) => policy.providerSource)).toEqual(["tmdb_api", "tvdb_api", "ptgen_imdb", "ptgen_douban"]);
     expect(getDefaultPoliciesForMediaType("TV_SERIES").map((policy) => policy.providerSource)).toEqual(["tmdb_api", "tvdb_api", "ptgen_imdb", "ptgen_douban"]);
@@ -172,7 +191,35 @@ describe("provider adapter defaults", () => {
         : []
     );
 
-    await expect(getPresentationProviderOrder("tenant-1", "MOVIE")).resolves.toEqual(["tmdb_api", "ptgen_imdb", "tvdb_api", "ptgen_douban"]);
+    await expect(getPresentationProviderOrder("tenant-1", "MOVIE")).resolves.toEqual([
+      "tmdb_api",
+      "tvdb_api",
+      "ptgen_imdb",
+      "ptgen_douban"
+    ]);
+    const moviePolicies = (await getProviderPolicies("tenant-1")).mediaTypes
+      .find((group) => group.mediaType === "MOVIE")!.policies;
+    expect(moviePolicies.map((policy) => policy.matchingPriority)).toEqual([1, 2, 3, 4]);
+    expect(moviePolicies.map((policy) => policy.presentationPriority)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("returns rating source selection alongside each media provider policy group", async () => {
+    mocks.prisma.tenantRatingSourcePreference.findMany.mockResolvedValue([
+      { mediaType: "MOVIE", providerSource: "tmdb_api" }
+    ]);
+
+    await expect(getProviderPolicies("tenant-1")).resolves.toMatchObject({
+      mediaTypes: [
+        {
+          mediaType: "MOVIE",
+          ratingProviderSource: "tmdb_api"
+        },
+        {
+          mediaType: "TV_SERIES",
+          ratingProviderSource: "ptgen_douban"
+        }
+      ]
+    });
   });
 
   it("rejects duplicate enabled policy priorities", async () => {
@@ -192,6 +239,37 @@ describe("provider adapter defaults", () => {
         presentationPriority: 2
       }
     ])).rejects.toThrow("Duplicate matching priority");
+  });
+
+  it("saves media policies and the rating source in one transaction", async () => {
+    await replaceMediaProviderConfiguration("tenant-1", "MOVIE", [
+      {
+        providerSource: "tmdb_api",
+        enabledForMatching: true,
+        enabledForPresentation: true,
+        matchingPriority: 1,
+        presentationPriority: 1
+      },
+      {
+        providerSource: "ptgen_douban",
+        enabledForMatching: true,
+        enabledForPresentation: true,
+        matchingPriority: 2,
+        presentationPriority: 2
+      }
+    ], "ptgen_douban");
+
+    expect(mocks.prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.tenantMediaProviderPolicy.createMany).toHaveBeenCalled();
+    expect(mocks.prisma.tenantRatingSourcePreference.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          tenantId: "tenant-1",
+          mediaType: "MOVIE",
+          providerSource: "ptgen_douban"
+        })
+      })
+    );
   });
 
   it("rejects base URL settings for providers without options", async () => {
@@ -564,11 +642,14 @@ describe("PTGen title mapper", () => {
         })
       });
     vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
 
-    const results = await searchPtgen({ title: "The Matrix", mediaType: "MOVIE" });
+    const results = await searchPtgen({ title: "The Matrix", mediaType: "MOVIE" }, { signal });
 
     expect(fetchMock.mock.calls[0]?.[0]).toContain("kind=movie");
     expect(fetchMock.mock.calls[1]?.[0]).toContain("kind=work");
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual({ signal });
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual({ signal });
     expect(results[0]).toMatchObject({
       providerEntityType: "ptgen_douban",
       providerId: "douban-1291843",
@@ -810,14 +891,17 @@ describe("TMDB title mapper", () => {
         })
       });
     vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
 
     const results = await searchTmdb(
       { title: "The First Jasmine", mediaType: "TV_SERIES", year: 2026 },
-      { credential: "tmdb-key", language: "zh-CN" }
+      { credential: "tmdb-key", language: "zh-CN", signal }
     );
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("language=zh-CN");
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("language=en-US");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ signal });
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ signal });
     expect(results[0]).toMatchObject({
       title: "莫离",
       originalTitle: "莫离",
@@ -1701,6 +1785,28 @@ describe("TVDB title mapper", () => {
     });
     expect(result?.matchConfidence).toBeGreaterThanOrEqual(0.88);
     expect(result?.ratingValue).toBeUndefined();
+  });
+
+  it("uses one abort signal for TVDB login and search requests", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { token: "token-search-signal" } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    await searchTvdbSeries(
+      { title: "Signal Test", mediaType: "TV_SERIES" },
+      { apiKey: "tvdb-search-signal-key", signal }
+    );
+
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ signal });
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ signal });
   });
 
   it("passes metadata language through TVDB detail lookup requests", async () => {

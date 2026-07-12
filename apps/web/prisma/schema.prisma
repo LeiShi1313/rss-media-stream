@@ -85,34 +85,35 @@ enum DedupeKeyType {
 }
 
 model Tenant {
-  id                   String                      @id @default(cuid())
-  name                 String
-  createdAt            DateTime                    @default(now())
-  updatedAt            DateTime                    @updatedAt
-  settings             TenantSettings?
-  providerConfigs      TenantProviderConfig[]
-  providerPolicies     TenantMediaProviderPolicy[]
-  providerSourceConfigs TenantProviderSourceConfig[]
-  providerSourcePolicies TenantProviderSourcePolicy[]
-  memberships          TenantMembership[]
-  feeds                RssFeed[]
-  items                RssItem[]
-  parsedReleases       ParsedRelease[]
-  parsedReleaseMatches ParsedReleaseMatch[]
-  downloaders          Downloader[]
-  subscriptions        Subscription[]
-  subscriptionRules    SubscriptionRule[]
+  id                       String                         @id @default(cuid())
+  name                     String
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
+  settings                 TenantSettings?
+  providerConfigs          TenantProviderConfig[]
+  providerPolicies         TenantMediaProviderPolicy[]
+  providerSourceConfigs    TenantProviderSourceConfig[]
+  providerSourcePolicies   TenantProviderSourcePolicy[]
+  ratingSourcePreferences  TenantRatingSourcePreference[]
+  memberships              TenantMembership[]
+  feeds                    RssFeed[]
+  items                    RssItem[]
+  parsedReleases           ParsedRelease[]
+  parsedReleaseMatches     ParsedReleaseMatch[]
+  downloaders              Downloader[]
+  subscriptions            Subscription[]
+  subscriptionRules        SubscriptionRule[]
   subscriptionAcquisitions SubscriptionAcquisition[]
-  matchDecisions       SubscriptionMatchDecision[]
-  downloadJobs         DownloadJob[]
-  audits               AuditLog[]
+  matchDecisions           SubscriptionMatchDecision[]
+  downloadJobs             DownloadJob[]
+  audits                   AuditLog[]
 }
 
 model TenantSettings {
-  tenantId            String @id
+  tenantId            String  @id
   defaultDownloaderId String?
-  webLanguage         String @default("en-US")
-  tenant              Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  webLanguage         String  @default("en-US")
+  tenant              Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([defaultDownloaderId])
 }
@@ -138,17 +139,17 @@ model TenantProviderConfig {
 }
 
 model TenantMediaProviderPolicy {
-  id                       String    @id @default(cuid())
-  tenantId                 String
-  mediaType                MediaType
-  provider                 String
-  enabledForMatching       Boolean   @default(true)
-  enabledForPresentation   Boolean   @default(true)
-  matchingPriority         Int
-  presentationPriority     Int
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
-  tenant                   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                     String    @id @default(cuid())
+  tenantId               String
+  mediaType              MediaType
+  provider               String
+  enabledForMatching     Boolean   @default(true)
+  enabledForPresentation Boolean   @default(true)
+  matchingPriority       Int
+  presentationPriority   Int
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, mediaType, provider])
   @@index([tenantId, mediaType])
@@ -175,20 +176,33 @@ model TenantProviderSourceConfig {
 }
 
 model TenantProviderSourcePolicy {
-  id                       String    @id @default(cuid())
-  tenantId                 String
-  mediaType                MediaType
-  providerSource           String
-  enabledForMatching       Boolean   @default(true)
-  enabledForPresentation   Boolean   @default(true)
-  matchingPriority         Int
-  presentationPriority     Int
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
-  tenant                   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                     String    @id @default(cuid())
+  tenantId               String
+  mediaType              MediaType
+  providerSource         String
+  enabledForMatching     Boolean   @default(true)
+  enabledForPresentation Boolean   @default(true)
+  matchingPriority       Int
+  presentationPriority   Int
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, mediaType, providerSource])
   @@index([tenantId, mediaType])
+}
+
+model TenantRatingSourcePreference {
+  id             String    @id @default(cuid())
+  tenantId       String
+  mediaType      MediaType
+  providerSource String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, mediaType])
+  @@index([tenantId])
 }
 
 model User {
@@ -278,31 +292,37 @@ model RssItem {
   @@index([tenantId, parseStatus])
   @@index([tenantId, releaseSignature])
   @@index([tenantId, infoHash])
+  @@index([feedId, guidHash])
+  @@index([feedId, infoHash])
+  @@index([feedId, linkHash])
 }
 
 model ParsedRelease {
-  id              String               @id @default(cuid())
-  tenantId        String
-  rssItemId       String
-  title           String
+  id                   String               @id @default(cuid())
+  tenantId             String
+  rssItemId            String
+  title                String
   providerSearchTitles String[]             @default([])
-  year            Int?
-  mediaType       MediaType            @default(UNKNOWN)
-  season          Int?
-  episode         Int?
-  episodeEnd      Int?
-  resolution      Int?
-  quality         String?
-  source          String?
-  codec           String?
-  audio           String?
-  releaseGroup    String?
-  variant         String?
-  parseConfidence Float                @default(0)
-  parsedAt        DateTime             @default(now())
-  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  item            RssItem              @relation(fields: [rssItemId, tenantId], references: [id, tenantId], onDelete: Cascade)
-  matches         ParsedReleaseMatch[]
+  year                 Int?
+  mediaType            MediaType            @default(UNKNOWN)
+  tvUnitType           String?
+  season               Int?
+  episode              Int?
+  episodeEnd           Int?
+  specialNumber        Int?
+  episodePart          String?
+  resolution           Int?
+  quality              String?
+  source               String?
+  codec                String?
+  audio                String?
+  releaseGroup         String?
+  variant              String?
+  parseConfidence      Float                @default(0)
+  parsedAt             DateTime             @default(now())
+  tenant               Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  item                 RssItem              @relation(fields: [rssItemId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  matches              ParsedReleaseMatch[]
 
   @@unique([rssItemId, tenantId])
   @@unique([id, tenantId])
@@ -322,14 +342,14 @@ model MediaTitle {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  supersededBy       MediaTitle?               @relation("MediaTitleSupersession", fields: [supersededById], references: [id], onDelete: Restrict)
-  supersedes         MediaTitle[]              @relation("MediaTitleSupersession")
+  supersededBy       MediaTitle?              @relation("MediaTitleSupersession", fields: [supersededById], references: [id], onDelete: Restrict)
+  supersedes         MediaTitle[]             @relation("MediaTitleSupersession")
   providerIdentities MediaProviderIdentity[]
   providerLinks      MediaTitleProviderLink[]
   releaseMatches     ParsedReleaseMatch[]
   subscriptions      Subscription[]
-  sourceMerges       MediaTitleMerge[]         @relation("MediaTitleMergeSource")
-  targetMerges       MediaTitleMerge[]         @relation("MediaTitleMergeTarget")
+  sourceMerges       MediaTitleMerge[]        @relation("MediaTitleMergeSource")
+  targetMerges       MediaTitleMerge[]        @relation("MediaTitleMergeTarget")
 
   @@unique([id, mediaType])
   @@index([mediaType, titleKey])
@@ -455,34 +475,34 @@ model MediaTitleProviderLink {
 }
 
 model ParsedReleaseMatch {
-  id                String                   @id @default(cuid())
-  tenantId          String
-  parsedReleaseId   String
-  mediaTitleId      String?
-  providerTitleId   String?
+  id                      String                   @id @default(cuid())
+  tenantId                String
+  parsedReleaseId         String
+  mediaTitleId            String?
+  providerTitleId         String?
   mediaProviderIdentityId String?
   providerMediaMetadataId String?
-  mediaType         MediaType?
-  status            ParsedReleaseMatchStatus
-  source            ParsedReleaseMatchSource
-  confidence        Float?
-  reason            String?
-  matchedAt         DateTime?
-  rejectedAt        DateTime?
-  replacedByMatchId String?
-  invalidatedAt     DateTime?
-  staleReason       String?
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
+  mediaType               MediaType?
+  status                  ParsedReleaseMatchStatus
+  source                  ParsedReleaseMatchSource
+  confidence              Float?
+  reason                  String?
+  matchedAt               DateTime?
+  rejectedAt              DateTime?
+  replacedByMatchId       String?
+  invalidatedAt           DateTime?
+  staleReason             String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
 
-  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  parsedRelease   ParsedRelease        @relation(fields: [parsedReleaseId, tenantId], references: [id, tenantId], onDelete: Cascade)
-  mediaTitle      MediaTitle?          @relation(fields: [mediaTitleId], references: [id], onDelete: Restrict)
-  providerTitle   ProviderTitle?       @relation(fields: [providerTitleId], references: [id], onDelete: Restrict)
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parsedRelease         ParsedRelease          @relation(fields: [parsedReleaseId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  mediaTitle            MediaTitle?            @relation(fields: [mediaTitleId], references: [id], onDelete: Restrict)
+  providerTitle         ProviderTitle?         @relation(fields: [providerTitleId], references: [id], onDelete: Restrict)
   mediaProviderIdentity MediaProviderIdentity? @relation(fields: [mediaProviderIdentityId], references: [id], onDelete: Restrict)
   providerMediaMetadata ProviderMediaMetadata? @relation(fields: [providerMediaMetadataId], references: [id], onDelete: Restrict)
-  replacedByMatch ParsedReleaseMatch?  @relation("ParsedReleaseMatchReplacement", fields: [replacedByMatchId], references: [id])
-  replaces        ParsedReleaseMatch[] @relation("ParsedReleaseMatchReplacement")
+  replacedByMatch       ParsedReleaseMatch?    @relation("ParsedReleaseMatchReplacement", fields: [replacedByMatchId], references: [id])
+  replaces              ParsedReleaseMatch[]   @relation("ParsedReleaseMatchReplacement")
 
   @@unique([id, tenantId])
   @@index([tenantId, parsedReleaseId, status, invalidatedAt])
@@ -542,41 +562,41 @@ model Subscription {
 }
 
 model SubscriptionRule {
-  id                   String       @id @default(cuid())
-  tenantId             String
-  subscriptionId       String
-  mode                 String       @default("MEDIA_TITLE") @map("ruleMode")
-  mediaType            MediaType?
-  provider             String?
-  providerEntityType   String?
-  providerId           String?
-  imdbId               String?
-  doubanId             String?
-  titleRegex           String?
-  includeRegex         String?
-  excludeRegex         String?
-  minResolution        Int?
-  maxResolution        Int?
-  sources              String[]
-  codecs               String[]
-  audio                String[]
-  feedIds              String[]     @default([])
-  releaseGroupsInclude String[]
-  releaseGroupsExclude String[]
-  preferredReleaseGroups String[]   @default([])
-  minSizeBytes         BigInt?
-  maxSizeBytes         BigInt?
-  season               Int?
-  episodeStart         Int?
-  episodeEnd           Int?
-  upgradePolicy        String       @default("none")
-  allowCrossSeed       Boolean      @default(false)
-  seasonPackAllowed    Boolean      @default(true)
-  criteriaJson         Json?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  tenant               Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  subscription         Subscription @relation(fields: [subscriptionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  id                     String       @id @default(cuid())
+  tenantId               String
+  subscriptionId         String
+  mode                   String       @default("MEDIA_TITLE") @map("ruleMode")
+  mediaType              MediaType?
+  provider               String?
+  providerEntityType     String?
+  providerId             String?
+  imdbId                 String?
+  doubanId               String?
+  titleRegex             String?
+  includeRegex           String?
+  excludeRegex           String?
+  minResolution          Int?
+  maxResolution          Int?
+  sources                String[]
+  codecs                 String[]
+  audio                  String[]
+  feedIds                String[]     @default([])
+  releaseGroupsInclude   String[]
+  releaseGroupsExclude   String[]
+  preferredReleaseGroups String[]     @default([])
+  minSizeBytes           BigInt?
+  maxSizeBytes           BigInt?
+  season                 Int?
+  episodeStart           Int?
+  episodeEnd             Int?
+  upgradePolicy          String       @default("none")
+  allowCrossSeed         Boolean      @default(false)
+  seasonPackAllowed      Boolean      @default(true)
+  criteriaJson           Json?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  tenant                 Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription           Subscription @relation(fields: [subscriptionId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@unique([subscriptionId, tenantId])
   @@unique([id, tenantId])
@@ -596,6 +616,9 @@ model SubscriptionAcquisition {
   season                   Int?
   episode                  Int?
   episodeEnd               Int?
+  specialNumber            Int?
+  episodePart              String?
+  variant                  String?
   acceptedBySubscriptionId String?
   currentItemId            String?
   currentJobId             String?

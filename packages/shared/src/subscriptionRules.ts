@@ -329,6 +329,7 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
     episodeEnd: normalizeOptionalInt(rule.episodeEnd),
     upgradePolicy: normalizeUpgradePolicy(rule.upgradePolicy ?? criteria.upgradePolicy),
     allowCrossSeed: rule.allowCrossSeed ?? criteria.allowCrossSeed === true,
+    separateVariants: rule.separateVariants ?? criteria.separateVariants === true,
     seasonPackAllowed: rule.seasonPackAllowed ?? criteria.seasonPackAllowed !== false
   };
 }

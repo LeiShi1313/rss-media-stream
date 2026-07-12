@@ -16,9 +16,12 @@ export type ParsedRelease = {
   primarySearchTitle?: string;
   year?: number;
   mediaType: ParsedMediaType;
+  tvUnitType?: "EPISODE" | "SPECIAL";
   season?: number;
   episode?: number;
   episodeEnd?: number;
+  specialNumber?: number;
+  episodePart?: string;
   resolution?: number;
   quality?: string;
   source?: string;
@@ -87,6 +90,7 @@ export type SubscriptionRuleInput = {
   episodeEnd?: number | null;
   upgradePolicy?: SubscriptionUpgradePolicy | null;
   allowCrossSeed?: boolean | null;
+  separateVariants?: boolean | null;
   seasonPackAllowed?: boolean | null;
   criteriaJson?: unknown;
 };
@@ -119,6 +123,7 @@ export type NormalizedSubscriptionRule = {
   episodeEnd?: number;
   upgradePolicy: SubscriptionUpgradePolicy;
   allowCrossSeed: boolean;
+  separateVariants: boolean;
   seasonPackAllowed: boolean;
 };
 

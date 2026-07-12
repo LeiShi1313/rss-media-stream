@@ -52,7 +52,12 @@ describe("RSS item utilities", () => {
       link: "https://tracker.example/download.php?id=11&source=rss"
     })).toBe("https://tracker.example/download.php?id=11&source=rss");
 
+    expect(extractRssDownloadUrl({
+      link: "https://passthepopcorn.example/torrents.php?action=download&id=12"
+    })).toBe("https://passthepopcorn.example/torrents.php?action=download&id=12");
+
     expect(isLikelyTorrentDownloadUrl("https://tracker.example/file.torrent?passkey=secret")).toBe(true);
+    expect(isLikelyTorrentDownloadUrl("https://passthepopcorn.example/torrents.php?action=download&id=13")).toBe(true);
     expect(isLikelyTorrentDownloadUrl("https://tracker.example/details.php?id=12")).toBe(false);
   });
 
@@ -68,6 +73,29 @@ describe("RSS item utilities", () => {
         }
       ]
     }, downloadUrl)).toBe(12345n);
+  });
+
+  it("trusts typed torrent enclosures even when the URL path is tracker-specific", () => {
+    const downloadUrl = "https://totheglory.example/rssdd.php?par=abc&ssl=yes";
+    const item = {
+      link: "https://totheglory.example/details.php?id=539098",
+      links: [
+        {
+          rel: "alternate",
+          type: "text/html",
+          href: "https://totheglory.example/details.php?id=539098"
+        },
+        {
+          rel: "enclosure",
+          type: "application/x-bittorrent",
+          href: downloadUrl,
+          length: "34318629898"
+        }
+      ]
+    };
+
+    expect(extractRssDownloadUrl(item)).toBe(downloadUrl);
+    expect(extractRssDownloadSizeBytes(item, downloadUrl)).toBe(34318629898n);
   });
 
   it("falls back to magnet, link, and URL-like guid for torrent URLs", () => {

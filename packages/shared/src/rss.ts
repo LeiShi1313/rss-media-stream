@@ -44,8 +44,10 @@ export function extractRssTorrentUrl(item: RssUrlFields): string {
 }
 
 export function extractRssDownloadUrl(item: RssUrlFields): string | undefined {
+  const enclosureUrl = enclosureTorrentUrl(item);
+  if (enclosureUrl) return enclosureUrl;
+
   return [
-    enclosureTorrentUrl(item),
     ...rssLinks(item).map((link) => readString(link.href)),
     readString(item.torrentMagnetUri),
     readString(item.enclosure?.url),
@@ -67,7 +69,7 @@ export function extractRssSourceUrl(item: RssUrlFields, torrentUrl: string): str
 export function extractRssDownloadSizeBytes(item: RssUrlFields, downloadUrl?: string): bigint | undefined {
   const link = rssLinks(item).find((candidate) =>
     (!downloadUrl || readString(candidate.href) === downloadUrl) &&
-    isLikelyTorrentDownloadUrl(readString(candidate.href))
+    (isTorrentEnclosureLink(candidate) || isLikelyTorrentDownloadUrl(readString(candidate.href)))
   );
   return parsePositiveBigInt(link?.length ?? item.enclosure?.length);
 }
@@ -126,16 +128,19 @@ export function isLikelyTorrentDownloadUrl(value?: string): value is string {
   if (!url) return false;
   return /^magnet:/i.test(url) ||
     /\.torrent(?:[?#]|$)/i.test(url) ||
-    /\/download(?:\.php)?(?:[/?#]|$)/i.test(url);
+    /\/download(?:\.php)?(?:[/?#]|$)/i.test(url) ||
+    /[?&]action=download(?:[&#]|$)/i.test(url);
 }
 
 function enclosureTorrentUrl(item: RssUrlFields): string | undefined {
-  const link = rssLinks(item).find((candidate) =>
-    lowerString(candidate.rel) === "enclosure" &&
-    /bittorrent|octet-stream/i.test(readString(candidate.type) ?? "") &&
-    readString(candidate.href)
-  );
+  const link = rssLinks(item).find(isTorrentEnclosureLink);
   return readString(link?.href);
+}
+
+function isTorrentEnclosureLink(candidate: RssLink): boolean {
+  return lowerString(candidate.rel) === "enclosure" &&
+    /bittorrent|octet-stream/i.test(readString(candidate.type) ?? "") &&
+    Boolean(readString(candidate.href));
 }
 
 function alternateHtmlUrl(item: RssUrlFields): string | undefined {

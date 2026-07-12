@@ -19,7 +19,8 @@ export const tmdbProvider: MetadataProvider = {
       {
         credential: context.runtime.credential?.secrets.apiKey,
         language: context.runtime.metadataLanguage,
-        region: context.runtime.region
+        region: context.runtime.region,
+        signal: context.signal
       }
     );
   },
@@ -73,7 +74,8 @@ export const tmdbProvider: MetadataProvider = {
       {
         credential: context.runtime.credential?.secrets.apiKey,
         language: context.runtime.metadataLanguage,
-        region: context.runtime.region
+        region: context.runtime.region,
+        signal: context.signal
       }
     );
   },

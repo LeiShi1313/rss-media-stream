@@ -19,7 +19,9 @@ import type { RunAction } from "../types.js";
 import { AppDialog, FieldLabel, FormInput, SelectField, StatTile, UiButton } from "../components/ui/index.js";
 import { Empty, Pill, StatusPill } from "../components/common/feedback.js";
 import { ManualDownload } from "../components/common/manual-download.js";
+import { RatingBadge } from "../components/media/rating-badge.js";
 import { formatBytes, relativeTime } from "../lib/format.js";
+import { formatNativeRating } from "../lib/ratings.js";
 import { matchRate, releaseIdentityState, releaseStatus, releaseTitle } from "../lib/releases.js";
 
 type ShelfKey = "all" | "matched" | "downloading" | "attention";
@@ -505,6 +507,7 @@ function TrendingMediaCard({ entry, onInspect }: { entry: TrendingMedia; onInspe
   return (
     <button className="release-poster-card" onClick={onInspect} type="button">
       <span className="poster-badge">{t("common.releaseCount", { count: entry.releaseCount })}</span>
+      <RatingBadge rating={entry.media.rating} />
       <span className="poster-art">
         {posterUrl ? <img src={posterUrl} alt="" /> : <PosterFallback title={entry.media.title} />}
       </span>
@@ -599,7 +602,6 @@ function ReleasePosterCard({
   const { t } = useTranslation();
   const title = releaseTitle(item);
   const status = releaseStatus(item);
-  const enrichmentPending = item.enrichmentState === "PENDING";
   const presentation = item.match?.presentation;
   const posterUrl = presentation?.posterUrl ?? undefined;
   const parsedTags = parsedReleaseTags(item);
@@ -609,6 +611,7 @@ function ReleasePosterCard({
       {variant === "status" && (
         <span className={status.ok ? "poster-badge" : "poster-badge warn"}>{t(status.labelKey, { defaultValue: status.label })}</span>
       )}
+      <RatingBadge rating={presentation?.rating} />
       <span className="poster-art">
         {posterUrl ? <img src={posterUrl} alt="" /> : <PosterFallback title={title} />}
       </span>
@@ -1171,16 +1174,10 @@ function formatSearchRating(result: MediaSearchResult) {
   const rating = result.presentation?.rating;
   if (!rating) return "";
   const source = searchResultSourceLabel(result);
-  const score = formatRatingNumber(rating.value);
-  const scale = formatRatingNumber(rating.scale);
   const votes = rating.voteCount
     ? ` · ${new Intl.NumberFormat(undefined, { notation: "compact" }).format(rating.voteCount)} votes`
     : "";
-  return `${source ? `${source} ` : ""}${score}/${scale}${votes}`;
-}
-
-function formatRatingNumber(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  return `${source ? `${source} ` : ""}${formatNativeRating(rating)}${votes}`;
 }
 
 function searchResultSourceLabel(result: MediaSearchResult) {

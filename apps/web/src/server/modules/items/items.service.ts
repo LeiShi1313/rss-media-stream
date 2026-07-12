@@ -2,14 +2,17 @@ import { ParsedReleaseMatchStatus, type Prisma } from "@prisma/client";
 import { prisma } from "../../db.js";
 import { notFound } from "../../core/errors.js";
 import { decryptAead } from "../../secrets.js";
-import { getPresentationProviderOrder } from "../../integrations/providers/policy.js";
 import {
-  providerOrderForMediaType,
   selectReleaseMatchForPresentation,
   serializeReleaseMatch,
-  type PresentationOrders,
   type ReleaseMatchDto
 } from "../media/presentation.js";
+import {
+  EMPTY_PRESENTATION_PREFERENCES,
+  loadPresentationPreferences,
+  presentationOptionsForMediaType,
+  type PresentationPreferences
+} from "../media/presentationPreferences.js";
 import type { ItemQueryInput } from "./items.schemas.js";
 
 const itemRelations = {
@@ -80,7 +83,7 @@ export async function listItems(
 ): Promise<ItemPageResponse> {
   const where = itemListWhere(tenantId, query);
 
-  const presentationOrders = await preloadPresentationOrders(tenantId);
+  const presentationPreferences = await loadPresentationPreferences(tenantId);
   const items: ItemResponse[] = [];
   let cursorId = query.cursor;
   const scanLimit = query.q || query.category || query.status
@@ -120,7 +123,7 @@ export async function listItems(
 
     for (const [index, row] of scannedRows.entries()) {
       cursorId = row.id;
-      const item = serializeItem(row, presentationOrders);
+      const item = serializeItem(row, presentationPreferences);
       if (itemMatchesSerializedFilters(row, item, query)) {
         items.push(item);
       }
@@ -243,8 +246,8 @@ export async function getItem(
   });
 
   if (!item) throw notFound("Item");
-  const presentationOrders = await preloadPresentationOrders(tenantId);
-  return serializeItem(item, presentationOrders);
+  const presentationPreferences = await loadPresentationPreferences(tenantId);
+  return serializeItem(item, presentationPreferences);
 }
 
 export async function assertItemInTenant(tenantId: string, itemId: string) {
@@ -257,10 +260,13 @@ export async function assertItemInTenant(tenantId: string, itemId: string) {
   return item;
 }
 
-export function serializeItem(item: ItemWithRelations, presentationOrders: PresentationOrders = {}): ItemResponse {
+export function serializeItem(
+  item: ItemWithRelations,
+  presentationPreferences: PresentationPreferences = EMPTY_PRESENTATION_PREFERENCES
+): ItemResponse {
   const release = item.parsedRelease;
-  const providerOrder = providerOrderForMediaType(presentationOrders, release?.mediaType);
-  const activeMatch = selectReleaseMatchForPresentation(release?.matches, providerOrder);
+  const releaseOptions = presentationOptionsForMediaType(presentationPreferences, release?.mediaType);
+  const activeMatch = selectReleaseMatchForPresentation(release?.matches, releaseOptions.providerOrder);
   return {
     id: item.id,
     feed: {
@@ -281,25 +287,16 @@ export function serializeItem(item: ItemWithRelations, presentationOrders: Prese
       release,
       rawTitle: item.rawTitle,
       downloadJobs: item.downloadJobs
-    }, {
-      providerOrder: providerOrderForMediaType(
-        presentationOrders,
-        activeMatch?.mediaType ?? activeMatch?.mediaTitle?.mediaType ?? release?.mediaType
-      )
-    }),
+    }, presentationOptionsForMediaType(
+      presentationPreferences,
+      activeMatch?.mediaType ?? activeMatch?.mediaTitle?.mediaType ?? release?.mediaType
+    )),
     downloadJobs: item.downloadJobs.map((job: any) => ({
       id: job.id,
       status: job.status,
       clientHash: job.clientHash,
       createdAt: job.createdAt.toISOString()
     }))
-  };
-}
-
-async function preloadPresentationOrders(tenantId: string): Promise<PresentationOrders> {
-  return {
-    MOVIE: await getPresentationProviderOrder(tenantId, "MOVIE"),
-    TV_SERIES: await getPresentationProviderOrder(tenantId, "TV_SERIES")
   };
 }
 
@@ -429,9 +426,12 @@ function serializeParsedRelease(release: any) {
     year: release.year,
     kind: legacyKindFromMediaType(release.mediaType),
     mediaType: release.mediaType,
+    tvUnitType: release.tvUnitType,
     season: release.season,
     episode: release.episode,
     episodeEnd: release.episodeEnd,
+    specialNumber: release.specialNumber,
+    episodePart: release.episodePart,
     resolution: release.resolution,
     quality: release.quality,
     source: release.source,

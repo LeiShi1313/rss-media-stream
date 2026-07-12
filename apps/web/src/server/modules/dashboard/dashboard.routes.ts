@@ -1,14 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { requireTenantRole } from "../../core/permissions.js";
 import { prisma } from "../../db.js";
-import { getPresentationProviderOrder } from "../../integrations/providers/policy.js";
 import {
-  providerOrderForMediaType,
   selectReleaseMatchForPresentation,
   serializeMediaPresentation,
-  legacyKindFromMediaType,
-  type PresentationOrders
+  legacyKindFromMediaType
 } from "../media/presentation.js";
+import {
+  loadPresentationPreferences,
+  presentationOptionsForMediaType
+} from "../media/presentationPreferences.js";
 
 export function registerDashboardRoutes(app: FastifyInstance) {
   app.get(
@@ -60,21 +61,25 @@ export function registerDashboardRoutes(app: FastifyInstance) {
         string,
         { title: string; count: number; posterUrl?: string | null; latest: Date }
       >();
-      const presentationOrders = await preloadPresentationOrders(request.tenantId!);
+      const presentationPreferences = await loadPresentationPreferences(request.tenantId!);
       for (const item of items) {
-        const providerOrder = providerOrderForMediaType(presentationOrders, item.parsedRelease?.mediaType);
-        const match = selectReleaseMatchForPresentation(item.parsedRelease?.matches, providerOrder);
+        const releaseOptions = presentationOptionsForMediaType(
+          presentationPreferences,
+          item.parsedRelease?.mediaType
+        );
+        const match = selectReleaseMatchForPresentation(
+          item.parsedRelease?.matches,
+          releaseOptions.providerOrder
+        );
         const presentation = serializeMediaPresentation({
           mediaTitle: match?.mediaTitle,
           providerMetadata: match?.providerMediaMetadata,
           release: item.parsedRelease,
           rawTitle: item.rawTitle
-        }, {
-          providerOrder: providerOrderForMediaType(
-            presentationOrders,
-            match?.mediaType ?? match?.mediaTitle?.mediaType ?? item.parsedRelease?.mediaType
-          )
-        });
+        }, presentationOptionsForMediaType(
+          presentationPreferences,
+          match?.mediaType ?? match?.mediaTitle?.mediaType ?? item.parsedRelease?.mediaType
+        ));
         const title = presentation.title;
         const current = heat.get(title) ?? {
           title,
@@ -116,7 +121,7 @@ export function registerDashboardRoutes(app: FastifyInstance) {
           parsedRelease: { include: { item: true } }
         }
       });
-      const presentationOrders = await preloadPresentationOrders(request.tenantId!);
+      const presentationPreferences = await loadPresentationPreferences(request.tenantId!);
       return matches
         .map((match) => {
           const presentation = serializeMediaPresentation({
@@ -124,12 +129,10 @@ export function registerDashboardRoutes(app: FastifyInstance) {
             providerMetadata: match.providerMediaMetadata,
             release: match.parsedRelease,
             rawTitle: match.parsedRelease.item.rawTitle
-          }, {
-            providerOrder: providerOrderForMediaType(
-              presentationOrders,
-              match.mediaType ?? match.mediaTitle?.mediaType ?? match.parsedRelease?.mediaType
-            )
-          });
+          }, presentationOptionsForMediaType(
+            presentationPreferences,
+            match.mediaType ?? match.mediaTitle?.mediaType ?? match.parsedRelease?.mediaType
+          ));
           if (!presentation.posterUrl) return null;
           return {
             id: match.id,
@@ -144,11 +147,4 @@ export function registerDashboardRoutes(app: FastifyInstance) {
         .filter(Boolean);
     }
   );
-}
-
-async function preloadPresentationOrders(tenantId: string): Promise<PresentationOrders> {
-  return {
-    MOVIE: await getPresentationProviderOrder(tenantId, "MOVIE"),
-    TV_SERIES: await getPresentationProviderOrder(tenantId, "TV_SERIES")
-  };
 }

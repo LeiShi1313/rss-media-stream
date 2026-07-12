@@ -9,7 +9,7 @@ import { audit } from "../../core/audit.js";
 import { setSessionCookie } from "../auth/auth.routes.js";
 import {
   getProviderPolicies,
-  replaceMediaProviderPolicies
+  replaceMediaProviderConfiguration
 } from "../../integrations/providers/policy.js";
 import {
   listProviderSettings,
@@ -52,22 +52,14 @@ const providerSettingsUpdateSchema = z.object({
 
 const providerPolicyUpdateSchema = z.object({
   mediaType: concreteMediaTypeSchema,
+  ratingProviderSource: providerSourceSchema,
   policies: z.array(z.object({
-    providerSource: providerSourceSchema.optional(),
-    provider: providerSourceSchema.optional(),
+    providerSource: providerSourceSchema,
     enabledForMatching: z.boolean(),
     enabledForPresentation: z.boolean(),
     matchingPriority: z.coerce.number().int().positive(),
     presentationPriority: z.coerce.number().int().positive()
-  }).refine((policy) => policy.providerSource || policy.provider, {
-    message: "providerSource is required"
-  }).transform((policy) => ({
-    providerSource: policy.providerSource ?? policy.provider!,
-    enabledForMatching: policy.enabledForMatching,
-    enabledForPresentation: policy.enabledForPresentation,
-    matchingPriority: policy.matchingPriority,
-    presentationPriority: policy.presentationPriority
-  })))
+  }))
 });
 
 export async function registerWorkspaceRoutes(app: FastifyInstance, config: AppConfig) {
@@ -192,9 +184,15 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, config: AppC
     { preHandler: requireTenantRole("OWNER") },
     async (request) => {
       const input = parseBody(providerPolicyUpdateSchema, request);
-      await replaceMediaProviderPolicies(request.tenantId!, input.mediaType, input.policies);
+      await replaceMediaProviderConfiguration(
+        request.tenantId!,
+        input.mediaType,
+        input.policies,
+        input.ratingProviderSource
+      );
       await audit(request, "settings.provider_policy.update", "tenant", request.tenantId!, {
-        mediaType: input.mediaType
+        mediaType: input.mediaType,
+        ratingProviderSource: input.ratingProviderSource
       });
       return getProviderPolicies(request.tenantId!);
     }

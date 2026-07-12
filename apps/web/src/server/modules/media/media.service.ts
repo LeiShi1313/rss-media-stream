@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { ParsedReleaseMatchStatus, Prisma } from "@prisma/client";
+import { toJsonStorageValue } from "@rss-media/shared/json";
 import { redactSecrets } from "@rss-media/shared/redact";
 import { normalizeTitleKey } from "@rss-media/shared/titleNormalization";
 import type { MediaProvider, MediaType, ParsedMediaType, ProviderSource, ProviderTitleResult } from "@rss-media/shared/types";
@@ -12,21 +13,33 @@ import {
 } from "../../integrations/providers/index.js";
 import {
   getBroadSearchTargets,
-  getMatchingProviderOrder,
-  getPresentationProviderOrder
+  getMatchingProviderOrder
 } from "../../integrations/providers/policy.js";
 import { providerRuntimeAvailable, resolveProviderRuntime } from "../../integrations/providers/runtime.js";
-import type { ProviderRuntimeContext } from "../../integrations/providers/types.js";
+import { getActiveRatingProviderSources } from "../../integrations/providers/ratingPreference.js";
 import {
-  LOW_CONFIDENCE_THRESHOLD,
+  executeProviderSearch,
+  type ProviderSearchLogger
+} from "../../integrations/providers/searchExecution.js";
+import { ProviderSearchSession } from "../../integrations/providers/searchSession.js";
+import type {
+  ProviderMetadataCandidate,
+  ProviderRuntimeContext
+} from "../../integrations/providers/types.js";
+import {
   legacyKindFromMediaType,
-  providerOrderForMediaType,
   selectReleaseMatchForPresentation,
   serializeMediaPresentation,
   serializeProviderTitleSearchResult,
-  serializeReleaseMatch,
-  type PresentationOrders
+  serializeReleaseMatch
 } from "./presentation.js";
+import { LOW_CONFIDENCE_THRESHOLD } from "./matchingPolicy.js";
+import {
+  EMPTY_PRESENTATION_PREFERENCES,
+  loadPresentationPreferences,
+  presentationOptionsForMediaType,
+  type PresentationPreferences
+} from "./presentationPreferences.js";
 import type {
   localMediaSearchQuerySchema,
   mediaSearchQuerySchema,
@@ -78,14 +91,7 @@ type ActiveParsedReleaseMatch = Prisma.ParsedReleaseMatchGetPayload<{
   };
 }>;
 
-export type ProviderMetadataCandidate = ProviderTitleResult & {
-  providerSource: ProviderSource;
-  provider: Exclude<MediaProvider, "ptgen">;
-  providerId: string;
-  titleKey: string;
-  localeKey: string;
-  titleAliases: string[];
-};
+export type { ProviderMetadataCandidate } from "../../integrations/providers/types.js";
 const MIN_AUTO_MATCH_CONFIDENCE = 0.3;
 type ParsedReleaseSnapshot = Pick<
   Prisma.ParsedReleaseGetPayload<{}>,
@@ -95,9 +101,12 @@ type ParsedReleaseSnapshot = Pick<
   | "providerSearchTitles"
   | "year"
   | "mediaType"
+  | "tvUnitType"
   | "season"
   | "episode"
   | "episodeEnd"
+  | "specialNumber"
+  | "episodePart"
   | "resolution"
   | "quality"
   | "source"
@@ -113,24 +122,19 @@ const ACTIVE_STATUSES = ["MATCHED", "UNMATCHED"] as const;
 export async function searchExternalMedia(
   config: AppConfig,
   tenantId: string,
-  query: MediaSearchQuery
+  query: MediaSearchQuery,
+  logger?: ProviderSearchLogger
 ) {
   const providerSource = canonicalProviderSource(query.providerSource ?? query.provider);
-  const results = providerSource
-    ? await runProviderSearch(config, tenantId, providerSource, {
-        title: query.q,
-        mediaType: query.mediaType,
-        year: query.year
-      })
-    : await searchProviderTargets(
-        config,
-        tenantId,
-        (await providerSearchTargets(tenantId, query.mediaType)).map((target) => ({
-          ...target,
-          title: query.q,
-          year: query.year
-        }))
-      );
+  const targets = (providerSource
+    ? [{ providerSource, mediaType: query.mediaType }]
+    : await providerSearchTargets(tenantId, query.mediaType)
+  ).map((target) => ({
+    ...target,
+    title: query.q,
+    year: query.year
+  }));
+  const results = await searchProviderTargets(config, tenantId, targets, logger);
 
   return dedupeProviderResults(results).map(serializeProviderTitleSearchResult);
 }
@@ -138,7 +142,8 @@ export async function searchExternalMedia(
 export async function smartSearchExternalMedia(
   config: AppConfig,
   tenantId: string,
-  query: SmartProviderTitleSearchInput
+  query: SmartProviderTitleSearchInput,
+  logger?: ProviderSearchLogger
 ) {
   const providerSource = canonicalProviderSource(query.providerSource ?? query.provider);
   const metadataProviders = providerSource
@@ -196,7 +201,7 @@ export async function smartSearchExternalMedia(
         year: query.year
       }));
 
-  const results = await searchProviderTargets(config, tenantId, targets);
+  const results = await searchProviderTargets(config, tenantId, targets, logger);
   return dedupeProviderResults(results).map(serializeProviderTitleSearchResult);
 }
 
@@ -222,10 +227,14 @@ export async function resolveProviderMediaTitle(
       linkSource: "MANUAL"
     })
   );
+  const presentationPreferences = await loadPresentationPreferences(
+    tenantId,
+    [resolved.mediaTitle.mediaType]
+  );
   const presentation = serializeMediaPresentation({
     mediaTitle: resolved.mediaTitle,
     providerMetadata: resolved.metadata
-  });
+  }, presentationOptionsForMediaType(presentationPreferences, resolved.mediaTitle.mediaType));
 
   return {
     mediaTitleId: resolved.mediaTitle.id,
@@ -279,7 +288,7 @@ export async function searchLocalMedia(tenantId: string, query: LocalMediaSearch
     take: query.limit
   });
 
-  const presentationOrders = await preloadPresentationOrders(
+  const presentationPreferences = await loadPresentationPreferences(
     tenantId,
     query.mediaType ? [query.mediaType] : undefined
   );
@@ -288,7 +297,7 @@ export async function searchLocalMedia(tenantId: string, query: LocalMediaSearch
       ...item,
       matchCount: item._count.releaseMatches,
       subscriptionCount: item._count.subscriptions
-    }, presentationOrders)
+    }, presentationPreferences)
   );
 }
 
@@ -402,7 +411,10 @@ export async function listTrendingMedia(tenantId: string, query: TrendingMediaQu
       })
     : [];
   const selectedMetadataById = new Map(selectedMetadata.map((metadata) => [metadata.id, metadata]));
-  const presentationOrders = await preloadPresentationOrders(tenantId, mediaType ? [mediaType] : undefined);
+  const presentationPreferences = await loadPresentationPreferences(
+    tenantId,
+    mediaType ? [mediaType] : undefined
+  );
   const items = topEntries
     .filter((entry) => mediaById.has(entry.mediaTitleId))
     .map((entry) => ({
@@ -412,7 +424,7 @@ export async function listTrendingMedia(tenantId: string, query: TrendingMediaQu
           ? selectedMetadataById.get(entry.providerMediaMetadataId)
           : undefined,
         matchCount: entry.releaseCount
-      }, presentationOrders),
+      }, presentationPreferences),
       releaseCount: entry.releaseCount,
       latestReleaseAt: entry.latestReleaseAt.toISOString(),
       feedCount: entry.feedCount,
@@ -494,17 +506,23 @@ export async function getMedia(tenantId: string, mediaTitleId: string) {
   });
   if (!media) throw notFound("Media title");
 
-  const presentationOrders = await preloadPresentationOrders(tenantId, concreteMediaTypeList(media.mediaType));
+  const presentationPreferences = await loadPresentationPreferences(
+    tenantId,
+    concreteMediaTypeList(media.mediaType)
+  );
   return serializeMediaTitle({
     ...media,
     matchCount: media._count.releaseMatches,
     subscriptionCount: media._count.subscriptions
-  }, presentationOrders);
+  }, presentationPreferences);
 }
 
 export async function listMediaItems(tenantId: string, mediaTitleId: string) {
   const media = await assertMediaTitleExists(mediaTitleId);
-  const presentationOrders = await preloadPresentationOrders(tenantId, concreteMediaTypeList(media.mediaType));
+  const presentationPreferences = await loadPresentationPreferences(
+    tenantId,
+    concreteMediaTypeList(media.mediaType)
+  );
 
   const items = await prisma.rssItem.findMany({
     where: {
@@ -524,7 +542,7 @@ export async function listMediaItems(tenantId: string, mediaTitleId: string) {
     include: itemRelations()
   });
 
-  return items.map((item) => serializeItem(item, presentationOrders));
+  return items.map((item) => serializeItem(item, presentationPreferences));
 }
 
 export async function getMediaDetail(tenantId: string, mediaTitleId: string) {
@@ -567,6 +585,18 @@ export async function matchParsedReleaseForItem(input: {
     });
   }
 
+  const searchSession = new ProviderSearchSession(runProviderSearchWithRuntime);
+  const ratingCandidatePromise = resolveRatingEnrichmentCandidate({
+    config: input.config,
+    tenantId: input.tenantId,
+    title: release.title,
+    titleCandidates: release.providerSearchTitles,
+    mediaType: release.mediaType,
+    year: release.year ?? undefined,
+    season: release.season ?? undefined,
+    episode: release.episode ?? undefined,
+    searchSession
+  }).catch(() => undefined);
   const selected = await selectProviderTitleCandidate({
     config: input.config,
     tenantId: input.tenantId,
@@ -575,7 +605,8 @@ export async function matchParsedReleaseForItem(input: {
     mediaType: release.mediaType,
     year: release.year ?? undefined,
     season: release.season ?? undefined,
-    episode: release.episode ?? undefined
+    episode: release.episode ?? undefined,
+    searchSession
   });
 
   if (!selected.result) {
@@ -596,7 +627,7 @@ export async function matchParsedReleaseForItem(input: {
     });
   }
 
-  return prisma.$transaction(async (tx) => {
+  const persistedMatch = await prisma.$transaction(async (tx) => {
     await lockParsedReleaseMatchWrites(tx, {
       tenantId: input.tenantId,
       parsedReleaseId: releaseSnapshot.id
@@ -611,7 +642,7 @@ export async function matchParsedReleaseForItem(input: {
     });
     const confidence = selected.result.matchConfidence ?? 0;
 
-    return createMatchedParsedReleaseMatch(tx, {
+    const match = await createMatchedParsedReleaseMatch(tx, {
       tenantId: input.tenantId,
       parsedReleaseId: releaseSnapshot.id,
       mediaTitleId: providerMetadata.mediaTitle.id,
@@ -624,7 +655,16 @@ export async function matchParsedReleaseForItem(input: {
         ? "automatic_low_confidence_match"
         : "automatic_match"
     });
+    return { match, mediaTitleId: providerMetadata.mediaTitle.id };
   });
+
+  void ratingCandidatePromise.then((resolvedRating) => persistResolvedRatingCandidate({
+    mediaTitleId: persistedMatch.mediaTitleId,
+    selectedProviderSource: selected.result.providerSource,
+    selectedConfidence: selected.result.matchConfidence ?? 0,
+    resolvedRating
+  }));
+  return persistedMatch.match;
 }
 
 async function selectProviderTitleCandidate(input: {
@@ -636,6 +676,7 @@ async function selectProviderTitleCandidate(input: {
   year?: number;
   season?: number;
   episode?: number;
+  searchSession: ProviderSearchSession;
 }) {
   let configured = 0;
   let missingReleaseYear = false;
@@ -657,7 +698,7 @@ async function selectProviderTitleCandidate(input: {
     for (const searchTitle of searchTitles) {
       let results: ProviderMetadataCandidate[];
       try {
-        results = await runProviderSearchWithRuntime(providerSource, runtime, {
+        results = await input.searchSession.search(providerSource, runtime, {
           title: searchTitle.title,
           titleSource: searchTitle.titleSource,
           mediaType: input.mediaType,
@@ -710,6 +751,159 @@ async function selectProviderTitleCandidate(input: {
   };
 }
 
+async function resolveRatingEnrichmentCandidate(input: {
+  config: AppConfig;
+  tenantId: string;
+  mediaType: MediaType;
+  title: string;
+  titleCandidates?: string[];
+  year?: number;
+  season?: number;
+  episode?: number;
+  searchSession: ProviderSearchSession;
+}) {
+  const ratingProviderSource = (await getActiveRatingProviderSources(
+    input.tenantId,
+    [input.mediaType]
+  ))[input.mediaType];
+  if (!ratingProviderSource) return undefined;
+
+  return resolveRatingCandidateForSource({
+    ...input,
+    ratingProviderSource
+  });
+}
+
+async function resolveRatingCandidateForSource(input: {
+  config: AppConfig;
+  tenantId: string;
+  mediaType: MediaType;
+  title: string;
+  titleCandidates?: string[];
+  year?: number;
+  season?: number;
+  episode?: number;
+  searchSession: ProviderSearchSession;
+  ratingProviderSource: ProviderSource;
+}) {
+  const { ratingProviderSource } = input;
+
+  const runtime = await resolveProviderRuntime(input.config, input.tenantId, ratingProviderSource);
+  if (!providerRuntimeAvailable(runtime)) return { providerSource: ratingProviderSource };
+
+  for (const searchTitle of matchingSearchTitles(input.title, input.titleCandidates)) {
+    const results = await input.searchSession.search(ratingProviderSource, runtime, {
+      title: searchTitle.title,
+      titleSource: searchTitle.titleSource,
+      mediaType: input.mediaType,
+      year: input.year,
+      season: input.season,
+      episode: input.episode
+    });
+    const candidate = results.find((result) => strictRatingCandidateMatches({
+      result,
+      searchTitle: searchTitle.title,
+      mediaType: input.mediaType,
+      year: input.year
+    }));
+    if (candidate) return { providerSource: ratingProviderSource, candidate };
+  }
+
+  return { providerSource: ratingProviderSource };
+}
+
+export async function enrichMediaTitleRating(input: {
+  config: AppConfig;
+  tenantId: string;
+  mediaTitleId: string;
+  mediaType: MediaType;
+  title: string;
+  titleCandidates?: string[];
+  year?: number;
+  season?: number;
+  episode?: number;
+  ratingProviderSource: ProviderSource;
+  selectedProviderSource?: ProviderSource;
+  selectedConfidence?: number;
+}) {
+  try {
+    const resolvedRating = await resolveRatingCandidateForSource({
+      ...input,
+      searchSession: new ProviderSearchSession(runProviderSearchWithRuntime)
+    });
+    return persistResolvedRatingCandidate({
+      mediaTitleId: input.mediaTitleId,
+      selectedProviderSource: input.selectedProviderSource,
+      selectedConfidence: input.selectedConfidence,
+      resolvedRating
+    });
+  } catch {
+    return false;
+  }
+}
+
+function strictRatingCandidateMatches(input: {
+  result: ProviderMetadataCandidate;
+  searchTitle: string;
+  mediaType: MediaType;
+  year?: number;
+}) {
+  const { result } = input;
+  if (
+    result.mediaType !== input.mediaType ||
+    typeof result.ratingValue !== "number" ||
+    typeof result.ratingScale !== "number" ||
+    result.ratingScale <= 0 ||
+    !result.ratingType ||
+    input.year == null ||
+    result.releaseYear == null ||
+    releaseYearIncompatible(input.mediaType, input.year, result.releaseYear)
+  ) {
+    return false;
+  }
+
+  const searchTitleKey = normalizeTitle(input.searchTitle);
+  return [result.titleKey, result.normalizedTitle, result.originalTitle, ...result.titleAliases]
+    .filter((title): title is string => Boolean(title))
+    .some((title) => normalizeTitle(title) === searchTitleKey);
+}
+
+async function persistResolvedRatingCandidate(input: {
+  mediaTitleId?: string | null;
+  selectedProviderSource?: ProviderSource;
+  selectedConfidence?: number;
+  resolvedRating?: {
+    providerSource: ProviderSource;
+    candidate?: ProviderMetadataCandidate;
+  };
+}) {
+  const resolvedRating = input.resolvedRating;
+  const candidate = resolvedRating?.candidate;
+  const mediaTitleId = input.mediaTitleId;
+  if (
+    !mediaTitleId ||
+    !resolvedRating ||
+    !candidate ||
+    resolvedRating.providerSource === input.selectedProviderSource ||
+    (input.selectedProviderSource !== undefined &&
+      (input.selectedConfidence ?? 0) < LOW_CONFIDENCE_THRESHOLD)
+  ) {
+    return false;
+  }
+
+  try {
+    await prisma.$transaction((tx) => upsertProviderMediaMetadata(tx, candidate, {
+      linkConfidence: 1,
+      linkSource: "SEARCH_MATCH",
+      mediaTitleId
+    }));
+    return true;
+  } catch {
+    // Rating enrichment is best-effort and must not change a completed release match.
+    return false;
+  }
+}
+
 function releaseYearIncompatible(
   mediaType: MediaType,
   expectedYear?: number,
@@ -755,9 +949,12 @@ function snapshotParsedRelease(release: ParsedReleaseSnapshot): ParsedReleaseSna
     providerSearchTitles: release.providerSearchTitles,
     year: release.year,
     mediaType: release.mediaType,
+    tvUnitType: release.tvUnitType,
     season: release.season,
     episode: release.episode,
     episodeEnd: release.episodeEnd,
+    specialNumber: release.specialNumber,
+    episodePart: release.episodePart,
     resolution: release.resolution,
     quality: release.quality,
     source: release.source,
@@ -782,9 +979,12 @@ async function parsedReleaseSnapshotStillCurrent(
       providerSearchTitles: true,
       year: true,
       mediaType: true,
+      tvUnitType: true,
       season: true,
       episode: true,
       episodeEnd: true,
+      specialNumber: true,
+      episodePart: true,
       resolution: true,
       quality: true,
       source: true,
@@ -810,9 +1010,12 @@ function parsedReleaseSnapshotsMatch(
     stringArraysEqual(expected.providerSearchTitles, current.providerSearchTitles),
     expected.year === current.year,
     expected.mediaType === current.mediaType,
+    expected.tvUnitType === current.tvUnitType,
     expected.season === current.season,
     expected.episode === current.episode,
     expected.episodeEnd === current.episodeEnd,
+    expected.specialNumber === current.specialNumber,
+    expected.episodePart === current.episodePart,
     expected.resolution === current.resolution,
     expected.quality === current.quality,
     expected.source === current.source,
@@ -868,7 +1071,7 @@ export async function manuallyMatchParsedReleaseWithProvider(input: {
     mediaType: input.mediaType
   });
 
-  return prisma.$transaction(async (tx) => {
+  const persistedMatch = await prisma.$transaction(async (tx) => {
     await lockParsedReleaseMatchWrites(tx, {
       tenantId: input.tenantId,
       parsedReleaseId: item.parsedRelease!.id
@@ -902,8 +1105,50 @@ export async function manuallyMatchParsedReleaseWithProvider(input: {
       reason: "manual_provider_identity"
     });
 
-    return next;
+    return { match: next, mediaTitleId: providerMetadata.mediaTitle.id };
   });
+
+  void enrichPreferredRatingForMediaTitle({
+    config: input.config,
+    tenantId: input.tenantId,
+    mediaTitleId: persistedMatch.mediaTitleId,
+    mediaType: selected.mediaType,
+    title: item.parsedRelease.title,
+    titleCandidates: item.parsedRelease.providerSearchTitles,
+    year: item.parsedRelease.year ?? undefined,
+    season: item.parsedRelease.season ?? undefined,
+    episode: item.parsedRelease.episode ?? undefined,
+    selectedProviderSource: selected.providerSource
+  });
+  return persistedMatch.match;
+}
+
+async function enrichPreferredRatingForMediaTitle(input: {
+  config: AppConfig;
+  tenantId: string;
+  mediaTitleId: string;
+  mediaType: MediaType;
+  title: string;
+  titleCandidates?: string[];
+  year?: number;
+  season?: number;
+  episode?: number;
+  selectedProviderSource: ProviderSource;
+}) {
+  try {
+    const ratingProviderSource = (await getActiveRatingProviderSources(
+      input.tenantId,
+      [input.mediaType]
+    ))[input.mediaType];
+    if (!ratingProviderSource || ratingProviderSource === input.selectedProviderSource) return false;
+    return enrichMediaTitleRating({
+      ...input,
+      ratingProviderSource,
+      selectedConfidence: 1
+    });
+  } catch {
+    return false;
+  }
 }
 
 export async function upsertProviderMediaMetadata(
@@ -912,11 +1157,18 @@ export async function upsertProviderMediaMetadata(
   input: {
     linkConfidence: number;
     linkSource: "MANUAL" | "PROVIDER_CROSSREF" | "SEARCH_MATCH" | "IMPORT";
+    mediaTitleId?: string;
   }
 ) {
   const payload = toPrismaJson(result.payload);
   const payloadHash = hashJson(payload);
-  const mediaTitle = await upsertMediaTitleFromMetadata(tx, result);
+  const mediaTitle = input.mediaTitleId
+    ? await db(tx).mediaTitle.findUnique({ where: { id: input.mediaTitleId } })
+    : await upsertMediaTitleFromMetadata(tx, result);
+  if (!mediaTitle) throw notFound("Media title");
+  if (mediaTitle.mediaType !== result.mediaType) {
+    throw conflict("MEDIA_TYPE_MISMATCH", "Provider metadata media type must match canonical title");
+  }
   const identity = await db(tx).mediaProviderIdentity.upsert({
     where: {
       provider_providerId_mediaType: {
@@ -1454,7 +1706,8 @@ async function runProviderSearch(
     year?: number;
     season?: number;
     episode?: number;
-  }
+  },
+  logger?: ProviderSearchLogger
 ) {
   try {
     const normalizedProviderSource = canonicalProviderSource(providerSource) ?? providerSource;
@@ -1462,7 +1715,7 @@ async function runProviderSearch(
     if (!providerRuntimeAvailable(runtime)) {
       throw new Error(`${normalizedProviderSource.toUpperCase()} API key is not configured`);
     }
-    return await runProviderSearchWithRuntime(normalizedProviderSource, runtime, input);
+    return await runProviderSearchWithRuntime(normalizedProviderSource, runtime, input, logger);
   } catch (error) {
     throw providerError(error);
   }
@@ -1478,20 +1731,28 @@ async function runProviderSearchWithRuntime(
     year?: number;
     season?: number;
     episode?: number;
-  }
+  },
+  logger?: ProviderSearchLogger
 ) {
   const normalizedProviderSource = canonicalProviderSource(providerSource) ?? providerSource;
-  const results = await getMetadataProvider(adapterIdForProviderSource(normalizedProviderSource)).search(
+  const results = await executeProviderSearch(
     {
-      title: input.title,
-      titleSource: input.titleSource,
+      providerSource: normalizedProviderSource,
       mediaType: input.mediaType,
-      year: input.year,
-      season: input.season,
-      episode: input.episode,
-      providerSource: normalizedProviderSource
+      logger
     },
-    { runtime }
+    (signal) => getMetadataProvider(adapterIdForProviderSource(normalizedProviderSource)).search(
+      {
+        title: input.title,
+        titleSource: input.titleSource,
+        mediaType: input.mediaType,
+        year: input.year,
+        season: input.season,
+        episode: input.episode,
+        providerSource: normalizedProviderSource
+      },
+      { runtime, signal }
+    )
   );
   return results.map((result) => normalizeProviderResult(result, normalizedProviderSource));
 }
@@ -1499,24 +1760,22 @@ async function runProviderSearchWithRuntime(
 async function searchProviderTargets(
   config: AppConfig,
   tenantId: string,
-  targets: Array<{ providerSource: ProviderSource; title: string; mediaType: MediaType; year?: number; season?: number; episode?: number }>
+  targets: Array<{ providerSource: ProviderSource; title: string; mediaType: MediaType; year?: number; season?: number; episode?: number }>,
+  logger?: ProviderSearchLogger
 ) {
-  const results: ProviderMetadataCandidate[] = [];
-  const errors: unknown[] = [];
-
-  for (const target of targets) {
-    try {
-      results.push(...await runProviderSearch(config, tenantId, target.providerSource, {
+  const settled = await Promise.allSettled(
+    targets.map((target) =>
+      runProviderSearch(config, tenantId, target.providerSource, {
         title: target.title,
         mediaType: target.mediaType,
         year: target.year,
         season: target.season,
         episode: target.episode
-      }));
-    } catch (error) {
-      errors.push(error);
-    }
-  }
+      }, logger)
+    )
+  );
+  const results = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  const errors = settled.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
 
   if (results.length === 0 && errors.length === targets.length && errors.length > 0) {
     throw providerError(errors[0]);
@@ -1763,31 +2022,19 @@ function assertMatchShape(input: {
   }
 }
 
-async function preloadPresentationOrders(
-  tenantId: string,
-  mediaTypes: Array<"MOVIE" | "TV_SERIES"> = ["MOVIE", "TV_SERIES"]
-): Promise<PresentationOrders> {
-  const unique = [...new Set(mediaTypes)];
-  return Object.fromEntries(
-    await Promise.all(unique.map(async (mediaType) => [
-      mediaType,
-      await getPresentationProviderOrder(tenantId, mediaType)
-    ]))
-  );
-}
-
 function concreteMediaTypeList(mediaType?: string | null): Array<"MOVIE" | "TV_SERIES"> | undefined {
   return mediaType === "MOVIE" || mediaType === "TV_SERIES" ? [mediaType] : undefined;
 }
 
-function serializeMediaTitle(media: any, presentationOrders: PresentationOrders = {}) {
+function serializeMediaTitle(
+  media: any,
+  presentationPreferences: PresentationPreferences = EMPTY_PRESENTATION_PREFERENCES
+) {
   const presentation = serializeMediaPresentation({
     mediaTitle: media,
     providerMetadata: media.selectedProviderMetadata,
     providerIdentities: media.providerIdentities
-  }, {
-    providerOrder: providerOrderForMediaType(presentationOrders, media.mediaType)
-  });
+  }, presentationOptionsForMediaType(presentationPreferences, media.mediaType));
 
   return {
     id: media.id,
@@ -1811,9 +2058,18 @@ function serializeMediaTitle(media: any, presentationOrders: PresentationOrders 
   };
 }
 
-function serializeItem(item: any, presentationOrders: PresentationOrders = {}) {
-  const providerOrder = providerOrderForMediaType(presentationOrders, item.parsedRelease?.mediaType);
-  const activeMatch = selectReleaseMatchForPresentation(item.parsedRelease?.matches, providerOrder);
+function serializeItem(
+  item: any,
+  presentationPreferences: PresentationPreferences = EMPTY_PRESENTATION_PREFERENCES
+) {
+  const releaseOptions = presentationOptionsForMediaType(
+    presentationPreferences,
+    item.parsedRelease?.mediaType
+  );
+  const activeMatch = selectReleaseMatchForPresentation(
+    item.parsedRelease?.matches,
+    releaseOptions.providerOrder
+  );
   return {
     id: item.id,
     feed: item.feed ? { id: item.feed.id, name: item.feed.name } : undefined,
@@ -1829,12 +2085,10 @@ function serializeItem(item: any, presentationOrders: PresentationOrders = {}) {
       release: item.parsedRelease,
       rawTitle: item.rawTitle,
       downloadJobs: item.downloadJobs
-    }, {
-      providerOrder: providerOrderForMediaType(
-        presentationOrders,
-        activeMatch?.mediaType ?? activeMatch?.mediaTitle?.mediaType ?? item.parsedRelease?.mediaType
-      )
-    }),
+    }, presentationOptionsForMediaType(
+      presentationPreferences,
+      activeMatch?.mediaType ?? activeMatch?.mediaTitle?.mediaType ?? item.parsedRelease?.mediaType
+    )),
     downloadJobs: item.downloadJobs?.map((job: any) => ({
       id: job.id,
       status: job.status,
@@ -1859,9 +2113,12 @@ function serializeParsedRelease(release: any) {
     year: release.year,
     kind: legacyKindFromMediaType(release.mediaType),
     mediaType: release.mediaType,
+    tvUnitType: release.tvUnitType,
     season: release.season,
     episode: release.episode,
     episodeEnd: release.episodeEnd,
+    specialNumber: release.specialNumber,
+    episodePart: release.episodePart,
     resolution: release.resolution,
     quality: release.quality,
     source: release.source,
@@ -1922,7 +2179,7 @@ function providerRatingType(ratingType?: string) {
 }
 
 function toPrismaJson(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
+  return toJsonStorageValue(value) as Prisma.InputJsonValue;
 }
 
 function hashJson(value: unknown) {

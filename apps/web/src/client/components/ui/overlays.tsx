@@ -4,46 +4,59 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import clsx from "clsx";
 import { Check } from "lucide-react";
 import type { ReactNode } from "react";
+import type { SelectOption } from "./forms.js";
 
-export type MenuOption = {
-  label: string;
-  icon?: ReactNode;
-  disabled?: boolean;
-  onSelect: () => void;
-};
-
-export function MenuButton({
+export function IconSelectMenu({
   label,
   icon,
-  items,
+  value,
+  options,
+  onValueChange,
   align = "end",
+  side = "bottom",
   className
 }: {
-  label: ReactNode;
-  icon?: ReactNode;
-  items: MenuOption[];
+  label: string;
+  icon: ReactNode;
+  value: string;
+  options: SelectOption[];
+  onValueChange: (value: string) => void;
   align?: "start" | "center" | "end";
+  side?: "top" | "right" | "bottom" | "left";
   className?: string;
 }) {
   return (
     <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger className={clsx("menu-trigger", className)} type="button">
+      <DropdownMenuPrimitive.Trigger
+        aria-label={label}
+        className={clsx("menu-trigger", className)}
+        title={label}
+        type="button"
+      >
         {icon}
-        {label}
+        <span className="sr-only">{label}</span>
       </DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content className="menu-content" align={align} sideOffset={6}>
-          {items.map((item) => (
-            <DropdownMenuPrimitive.Item
-              className="menu-item"
-              disabled={item.disabled}
-              key={item.label}
-              onSelect={item.onSelect}
-            >
-              {item.icon}
-              {item.label}
-            </DropdownMenuPrimitive.Item>
-          ))}
+        <DropdownMenuPrimitive.Content
+          className="menu-content"
+          align={align}
+          side={side}
+          sideOffset={6}
+        >
+          <DropdownMenuPrimitive.RadioGroup value={value} onValueChange={onValueChange}>
+            {options.map((option) => (
+              <DropdownMenuPrimitive.RadioItem
+                className="menu-item"
+                key={option.value}
+                value={option.value}
+              >
+                <span>{option.label}</span>
+                <DropdownMenuPrimitive.ItemIndicator className="menu-item-indicator">
+                  <Check size={14} />
+                </DropdownMenuPrimitive.ItemIndicator>
+              </DropdownMenuPrimitive.RadioItem>
+            ))}
+          </DropdownMenuPrimitive.RadioGroup>
         </DropdownMenuPrimitive.Content>
       </DropdownMenuPrimitive.Portal>
     </DropdownMenuPrimitive.Root>
@@ -127,4 +140,3 @@ export function StatTile({
     </article>
   );
 }
-

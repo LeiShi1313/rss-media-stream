@@ -2755,6 +2755,102 @@ describe("parseReleaseTitle", () => {
     expect(cjkPureRelease.variant).toBe("PURE");
   });
 
+  it("parses strict post-episode parts, variants, and specials without changing title parsing", () => {
+    const partRelease = parseReleaseTitle(
+      "Stand-up.Comedy.And.Friends.S02E05.Part03.2025.2160p.WEB-DL.H265.AAC-OurTV.mp4"
+    );
+    const plusPartRelease = parseReleaseTitle(
+      "Stand-up.Comedy.S01E01.PlusB.2022.1080p.WEB-DL.H264.AAC-TJUPT.mp4"
+    );
+    const extraPartRelease = parseReleaseTitle(
+      "Stand-up.Comedy.S01E01.EX1.20240818.2160p.WEB-DL.H265.EDR.AAC-CHDWEB.mkv"
+    );
+    const specialRelease = parseReleaseTitle(
+      "Stand-up.Comedy.And.Friends.S01SP6.2024.2160p.WEB-DL.H265.AAC-TJUPT.mp4"
+    );
+
+    expect(partRelease).toMatchObject({
+      title: "Stand up Comedy And Friends",
+      mediaType: "TV_SERIES",
+      season: 2,
+      episode: 5,
+      episodePart: "3",
+      year: 2025
+    });
+    expect(plusPartRelease).toMatchObject({
+      title: "Stand up Comedy",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 1,
+      episodePart: "B",
+      variant: "PLUS",
+      year: 2022
+    });
+    expect(extraPartRelease).toMatchObject({
+      title: "Stand up Comedy",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 1,
+      episodePart: "1",
+      variant: "EXTRA"
+    });
+    expect(specialRelease).toMatchObject({
+      title: "Stand up Comedy And Friends",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: undefined,
+      tvUnitType: "SPECIAL",
+      specialNumber: 6,
+      year: 2024
+    });
+  });
+
+  it("parses combined part and variant tokens as separate dimensions", () => {
+    const purePartRelease = parseReleaseTitle(
+      "Stand-up.Comedy.And.Friends.S01E01.PartA.Pure.2024.2160p.WEB-DL.H265.AAC-TJUPT.mp4"
+    );
+    const extraVersionRelease = parseReleaseTitle(
+      "Stand-up.Comedy.2024.S01E02.Extra.Version.2160p.WEB-DL.HEVC.DDP.2Audios-QHstudIo.mp4"
+    );
+
+    expect(purePartRelease).toMatchObject({
+      title: "Stand up Comedy And Friends",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 1,
+      episodePart: "A",
+      variant: "PURE",
+      year: 2024
+    });
+    expect(extraVersionRelease).toMatchObject({
+      title: "Stand up Comedy",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 2,
+      variant: "EXTRA",
+      year: 2024
+    });
+    expect(extraVersionRelease).not.toHaveProperty("episodePart");
+  });
+
+  it("keeps post-episode variant parsing limited to allowlisted strict TV tokens with technical metadata", () => {
+    expect(parseReleaseTitle("Stand-Up Comedy S03E01 Pure").variant).toBeUndefined();
+    expect(parseReleaseTitle("Stand-Up Comedy EP01 Plus 1080p WEB-DL H264-GRP").variant).toBeUndefined();
+    expect(parseReleaseTitle("Stand-Up Comedy S01 Plus 1080p WEB-DL H264-GRP").variant).toBeUndefined();
+
+    const randomRelease = parseReleaseTitle(
+      "Stand-Up Comedy S01E01 Random 1080p WEB-DL H264-GRP"
+    );
+    const missingMetadataRelease = parseReleaseTitle(
+      "Stand-Up Comedy S01E01 PlusA"
+    );
+
+    expect(randomRelease).not.toHaveProperty("episodePart");
+    expect(randomRelease.variant).toBeUndefined();
+    expect(missingMetadataRelease).not.toHaveProperty("episodePart");
+    expect(missingMetadataRelease.variant).toBeUndefined();
+  });
+
   it("keeps diary words that are part of a title token", () => {
     const release = parseReleaseTitle(
       "[动漫]Koala Enikki S01E01 2026 1080p WEB-DL H264 AAC-GRP[考拉绘日记 無尾熊繪日記 コアラ絵日記 | 第01集][300 MB]"

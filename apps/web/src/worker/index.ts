@@ -4,6 +4,7 @@ import { prisma } from "../server/db.js";
 import { matchParsedReleaseForItem } from "../server/modules/media/media.service.js";
 import { evaluateAutoDownloadsForItem } from "../server/modules/subscriptions/subscriptions.service.js";
 import { pollDueFeeds } from "./feedWorker.js";
+import { backfillMissingRatings } from "./ratingBackfill.js";
 
 const config = loadConfig();
 let running = false;
@@ -14,6 +15,7 @@ async function tick() {
   try {
     await pollDueFeeds(config);
     await enrichRecentUnmatchedItems();
+    await backfillMissingRatings(config);
   } catch (error) {
     console.error(error);
   } finally {

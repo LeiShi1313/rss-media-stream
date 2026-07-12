@@ -9,6 +9,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
+    allowedHosts: ["rsszug.leishi.xyz"],
     proxy: {
       "^/api(?:/|$)": apiProxyTarget,
       "^/events(?:/|$)": apiProxyTarget

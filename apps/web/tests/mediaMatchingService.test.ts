@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../src/server/config.js";
 import { AppError } from "../src/server/core/errors.js";
 
@@ -96,7 +96,9 @@ const mocks = vi.hoisted(() => {
     }
   };
 
-  return { prisma, provider, tvdbProvider, ptgenProvider, runtime };
+  const getActiveRatingProviderSources = vi.fn();
+
+  return { prisma, provider, tvdbProvider, ptgenProvider, runtime, getActiveRatingProviderSources };
 });
 
 vi.mock("../src/server/db.js", () => ({
@@ -128,6 +130,10 @@ vi.mock("../src/server/integrations/providers/policy.js", () => ({
     { providerSource: "tvdb_api", mediaType: "TV_SERIES" }
   ]),
   getPresentationProviderOrder: vi.fn(() => ["tmdb_api", "tvdb_api"])
+}));
+
+vi.mock("../src/server/integrations/providers/ratingPreference.js", () => ({
+  getActiveRatingProviderSources: mocks.getActiveRatingProviderSources
 }));
 
 vi.mock("../src/server/integrations/providers/runtime.js", () => ({
@@ -175,7 +181,15 @@ const config = {
   nodeEnv: "test"
 } satisfies AppConfig;
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
+  mocks.getActiveRatingProviderSources.mockResolvedValue({
+    MOVIE: "ptgen_douban",
+    TV_SERIES: "ptgen_douban"
+  });
   mocks.runtime.tmdb = {
     tenantId: "tenant-1",
     provider: "tmdb",
@@ -308,6 +322,136 @@ describe("smartSearchExternalMedia", () => {
       mocks.provider.search.mock.invocationCallOrder[0]
     ).toBeLessThan(mocks.tvdbProvider.search.mock.invocationCallOrder[0]);
     expect(results.map((result) => result.provider)).toEqual(["tmdb", "tvdb"]);
+  });
+
+  it("starts enabled provider searches concurrently while preserving policy result order", async () => {
+    let resolveTmdb!: (results: ReturnType<typeof providerResult>[]) => void;
+    mocks.provider.search.mockImplementation(() => new Promise((resolve) => {
+      resolveTmdb = resolve;
+    }));
+    mocks.tvdbProvider.search.mockResolvedValue([providerResult({
+      provider: "tvdb",
+      providerEntityType: "tvdb_series",
+      providerId: "200",
+      mediaType: "TV_SERIES",
+      title: "Concurrent Series",
+      normalizedTitle: "concurrent series",
+      releaseYear: 2026
+    })]);
+
+    const search = searchExternalMedia(config, "tenant-1", {
+      q: "Concurrent Series",
+      mediaType: "TV_SERIES",
+      kind: "TV"
+    });
+    await vi.waitFor(() => expect(mocks.provider.search).toHaveBeenCalled());
+    const tvdbStartedBeforeTmdbCompleted = mocks.tvdbProvider.search.mock.calls.length > 0;
+
+    resolveTmdb([providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_tv",
+      providerId: "300",
+      mediaType: "TV_SERIES",
+      title: "Concurrent Series",
+      normalizedTitle: "concurrent series",
+      releaseYear: 2026
+    })]);
+
+    await expect(search).resolves.toEqual([
+      expect.objectContaining({ provider: "tmdb" }),
+      expect.objectContaining({ provider: "tvdb" })
+    ]);
+    expect(tvdbStartedBeforeTmdbCompleted).toBe(true);
+  });
+
+  it("returns partial results after aborting a timed-out provider and logs each outcome", async () => {
+    vi.useFakeTimers();
+    let tmdbSignal: AbortSignal | undefined;
+    mocks.provider.search.mockImplementation((_input, context) => {
+      tmdbSignal = context.signal;
+      return new Promise<never>((_resolve, reject) => {
+        context.signal?.addEventListener("abort", () => reject(context.signal?.reason), { once: true });
+      });
+    });
+    mocks.tvdbProvider.search.mockResolvedValue([providerResult({
+      provider: "tvdb",
+      providerEntityType: "tvdb_series",
+      providerId: "200",
+      mediaType: "TV_SERIES",
+      title: "Recovered Series",
+      normalizedTitle: "recovered series",
+      releaseYear: 2026
+    })]);
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    const search = searchExternalMedia(config, "tenant-1", {
+      q: "Recovered Series",
+      mediaType: "TV_SERIES",
+      kind: "TV"
+    }, logger);
+    const guardedResult = Promise.race([
+      search.then((results) => ({ status: "completed" as const, results })),
+      new Promise<{ status: "guard" }>((resolve) => {
+        setTimeout(() => resolve({ status: "guard" }), 5_001);
+      })
+    ]);
+
+    await vi.advanceTimersByTimeAsync(5_001);
+
+    await expect(guardedResult).resolves.toEqual({
+      status: "completed",
+      results: [expect.objectContaining({ provider: "tvdb", providerId: "200" })]
+    });
+    expect(tmdbSignal?.aborted).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({
+      event: "provider_search_finished",
+      providerSource: "tmdb_api",
+      mediaType: "TV_SERIES",
+      outcome: "timeout",
+      durationMs: 5_000,
+      errorCode: "OPERATION_TIMEOUT"
+    }), "provider search finished");
+    expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({
+      event: "provider_search_finished",
+      providerSource: "tvdb_api",
+      mediaType: "TV_SERIES",
+      outcome: "success",
+      resultCount: 1
+    }), "provider search finished");
+    expect(logger.warn.mock.calls[0]?.[0]).not.toHaveProperty("title");
+    expect(logger.warn.mock.calls[0]?.[0]).not.toHaveProperty("query");
+  });
+
+  it("redacts provider failure details in structured search logs", async () => {
+    mocks.provider.search.mockRejectedValue(
+      new Error("TMDB search failed for https://example.test/search?api_key=secret-value")
+    );
+    mocks.tvdbProvider.search.mockResolvedValue([providerResult({
+      provider: "tvdb",
+      providerEntityType: "tvdb_series",
+      providerId: "200",
+      mediaType: "TV_SERIES",
+      title: "Recovered Series",
+      normalizedTitle: "recovered series",
+      releaseYear: 2026
+    })]);
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    await expect(searchExternalMedia(config, "tenant-1", {
+      q: "Recovered Series",
+      mediaType: "TV_SERIES",
+      kind: "TV"
+    }, logger)).resolves.toEqual([
+      expect.objectContaining({ provider: "tvdb", providerId: "200" })
+    ]);
+
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({
+      event: "provider_search_finished",
+      providerSource: "tmdb_api",
+      outcome: "error",
+      errorCode: "Error",
+      errorMessage: "TMDB search failed for https://example.test/search?api_key=[REDACTED]"
+    }), "provider search finished");
   });
 
   it("exact-fetches explicit TVDB movie IDs", async () => {
@@ -910,6 +1054,247 @@ describe("matchParsedReleaseForItem", () => {
         providerMediaMetadataId: providerMediaMetadataId("tvdb_api", mediaProviderIdentityId("tvdb", "169"))
       })
     }));
+  });
+
+  it("searches a different rating source concurrently and links its rating to the matched media title", async () => {
+    mockItemRelease({ mediaType: "MOVIE", title: "The Matrix", year: 1999 });
+    mocks.getActiveRatingProviderSources.mockResolvedValue({ MOVIE: "ptgen_douban" });
+    let resolveTmdb!: (results: any[]) => void;
+    mocks.provider.search.mockImplementation(() => new Promise((resolve) => {
+      resolveTmdb = resolve;
+    }));
+    mocks.ptgenProvider.search.mockResolvedValue([providerResult({
+      provider: "ptgen",
+      providerEntityType: "ptgen_douban",
+      providerId: "douban-1291843",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      ratingValue: 8.8,
+      ratingScale: 10,
+      ratingVoteCount: 912345,
+      ratingType: "user_score",
+      matchConfidence: 1
+    })]);
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.findUnique.mockResolvedValue({
+      id: "media-title-matrix",
+      mediaType: "MOVIE"
+    });
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-matrix",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      titleKey: "the matrix",
+      releaseYear: 1999
+    });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({
+      id: "match-matrix",
+      status: "MATCHED"
+    });
+
+    const matching = matchParsedReleaseForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    });
+    await vi.waitFor(() => {
+      expect(mocks.provider.search).toHaveBeenCalled();
+      expect(mocks.ptgenProvider.search).toHaveBeenCalled();
+    });
+
+    resolveTmdb([providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      matchConfidence: 0.98
+    })]);
+
+    await expect(matching).resolves.toMatchObject({ status: "MATCHED" });
+    expect(mocks.prisma.mediaProviderIdentity.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        mediaTitleId: "media-title-matrix",
+        provider: "douban",
+        providerId: "1291843",
+        linkSource: "SEARCH_MATCH"
+      })
+    }));
+    expect(mocks.prisma.providerMediaMetadata.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        providerSource: "ptgen_douban",
+        ratingValue: 8.8,
+        ratingScale: 10,
+        ratingVoteCount: 912345
+      })
+    }));
+  });
+
+  it("reuses one provider search when matching and rating select the same source", async () => {
+    mockItemRelease({ mediaType: "MOVIE", title: "The Matrix", year: 1999 });
+    mocks.getActiveRatingProviderSources.mockResolvedValue({ MOVIE: "tmdb_api" });
+    mocks.provider.search.mockResolvedValue([providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      ratingValue: 8.7,
+      ratingScale: 10,
+      ratingVoteCount: 25000,
+      ratingType: "user_score",
+      matchConfidence: 0.98
+    })]);
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-matrix",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      titleKey: "the matrix",
+      releaseYear: 1999
+    });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({
+      id: "match-matrix",
+      status: "MATCHED"
+    });
+
+    await matchParsedReleaseForItem({ tenantId: "tenant-1", itemId: "item-1", config });
+
+    expect(mocks.provider.search).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.providerMediaMetadata.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a successful release match when rating enrichment fails", async () => {
+    mockItemRelease({ mediaType: "MOVIE", title: "The Matrix", year: 1999 });
+    mocks.getActiveRatingProviderSources.mockResolvedValue({ MOVIE: "ptgen_douban" });
+    mocks.provider.search.mockResolvedValue([providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      matchConfidence: 0.98
+    })]);
+    mocks.ptgenProvider.search.mockRejectedValue(new Error("rating backend unavailable"));
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-matrix",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      titleKey: "the matrix",
+      releaseYear: 1999
+    });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({
+      id: "match-matrix",
+      status: "MATCHED"
+    });
+
+    await expect(matchParsedReleaseForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).resolves.toMatchObject({ status: "MATCHED" });
+    expect(mocks.prisma.parsedReleaseMatch.create).toHaveBeenCalled();
+    expect(mocks.ptgenProvider.search).toHaveBeenCalled();
+    expect(mocks.prisma.providerMediaMetadata.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a committed release match without waiting for a slow rating source", async () => {
+    mockItemRelease({ mediaType: "MOVIE", title: "The Matrix", year: 1999 });
+    mocks.getActiveRatingProviderSources.mockResolvedValue({ MOVIE: "ptgen_douban" });
+    mocks.provider.search.mockResolvedValue([providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      matchConfidence: 0.98
+    })]);
+    let resolveRating!: (results: any[]) => void;
+    mocks.ptgenProvider.search.mockImplementation(() => new Promise((resolve) => {
+      resolveRating = resolve;
+    }));
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-matrix",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      titleKey: "the matrix",
+      releaseYear: 1999
+    });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({
+      id: "match-matrix",
+      status: "MATCHED"
+    });
+
+    const matching = matchParsedReleaseForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    });
+    const outcome = await Promise.race([
+      matching.then(() => "matched" as const),
+      new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 50))
+    ]);
+    resolveRating([]);
+    await matching;
+
+    expect(outcome).toBe("matched");
+  });
+
+  it("does not cross-link rating metadata through a low-confidence automatic match", async () => {
+    mockItemRelease({ mediaType: "MOVIE", title: "The Matrix", year: 1999 });
+    mocks.getActiveRatingProviderSources.mockResolvedValue({ MOVIE: "ptgen_douban" });
+    mocks.provider.search.mockResolvedValue([providerResult({
+      provider: "tmdb",
+      providerEntityType: "tmdb_movie",
+      providerId: "603",
+      mediaType: "MOVIE",
+      title: "The Matrix Reloaded",
+      normalizedTitle: "the matrix reloaded",
+      releaseYear: 1999,
+      matchConfidence: 0.5
+    })]);
+    mocks.ptgenProvider.search.mockResolvedValue([providerResult({
+      provider: "ptgen",
+      providerEntityType: "ptgen_douban",
+      providerId: "douban-1291843",
+      mediaType: "MOVIE",
+      title: "The Matrix",
+      normalizedTitle: "the matrix",
+      releaseYear: 1999,
+      ratingValue: 8.8,
+      ratingScale: 10,
+      ratingType: "user_score",
+      matchConfidence: 1
+    })]);
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-low-confidence",
+      mediaType: "MOVIE",
+      title: "The Matrix Reloaded",
+      titleKey: "the matrix reloaded",
+      releaseYear: 1999
+    });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({
+      id: "match-low-confidence",
+      status: "MATCHED"
+    });
+
+    await matchParsedReleaseForItem({ tenantId: "tenant-1", itemId: "item-1", config });
+
+    expect(mocks.ptgenProvider.search).toHaveBeenCalled();
+    expect(mocks.prisma.providerMediaMetadata.upsert).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to PTGen when TMDB and TVDB credentials are missing", async () => {
@@ -1780,6 +2165,59 @@ describe("matchParsedReleaseForItem", () => {
 });
 
 describe("media presentation provider selection", () => {
+  it("falls through an empty preferred source to the next configured metadata source", () => {
+    const presentation = serializeMediaPresentation({
+      mediaTitle: {
+        id: "media-1",
+        mediaType: "MOVIE",
+        title: "Obsession",
+        releaseYear: 2025,
+        providerIdentities: [
+          {
+            provider: "tmdb",
+            providerId: "1436161",
+            mediaType: "MOVIE",
+            metadata: [{
+              providerSource: "tmdb_api",
+              title: "Obsession",
+              releaseYear: 2025,
+              payload: {
+                overview: "",
+                posterPath: null,
+                backdropPath: null
+              }
+            }]
+          },
+          {
+            provider: "douban",
+            providerId: "37450627",
+            mediaType: "MOVIE",
+            metadata: [{
+              providerSource: "ptgen_douban",
+              title: "Obsession",
+              originalTitle: "痴迷",
+              releaseYear: 2025,
+              payload: {
+                overview: "A supernatural wish becomes an obsession.",
+                posterPath: "https://ptgen.example/posters/obsession"
+              }
+            }]
+          }
+        ]
+      }
+    }, {
+      providerOrder: ["tmdb_api", "ptgen_douban"]
+    });
+
+    expect(presentation.displaySource).toMatchObject({
+      provider: "douban",
+      providerSource: "ptgen_douban",
+      providerId: "37450627"
+    });
+    expect(presentation.overview).toBe("A supernatural wish becomes an obsession.");
+    expect(presentation.posterUrl).toBe("https://ptgen.example/posters/obsession");
+  });
+
   it("chooses the active matched release row from presentation provider order", () => {
     const imdbMatch = {
       id: "imdb-match",
@@ -1970,6 +2408,102 @@ describe("media presentation provider selection", () => {
         { providerTitle: older }
       ]
     })?.provider).toBe("customa");
+  });
+
+  it("selects rating metadata independently from display metadata", () => {
+    const presentation = serializeMediaPresentation({
+      mediaTitle: {
+        id: "media-1",
+        mediaType: "MOVIE",
+        title: "Canonical Movie",
+        releaseYear: 1999,
+        providerIdentities: [
+          {
+            provider: "tmdb",
+            providerId: "603",
+            mediaType: "MOVIE",
+            metadata: [{
+              providerSource: "tmdb_api",
+              title: "The Matrix",
+              releaseYear: 1999,
+              payload: { posterPath: "/matrix.jpg" },
+              ratingValue: 7.2,
+              ratingScale: 10,
+              ratingVoteCount: 1200,
+              ratingType: "USER_SCORE",
+              fetchedAt: new Date("2026-07-01T10:00:00Z")
+            }]
+          },
+          {
+            provider: "douban",
+            providerId: "1291843",
+            mediaType: "MOVIE",
+            metadata: [{
+              providerSource: "ptgen_douban",
+              title: "The Matrix",
+              releaseYear: 1999,
+              payload: {},
+              ratingValue: 8.8,
+              ratingScale: 10,
+              ratingVoteCount: 912345,
+              ratingType: "USER_SCORE",
+              fetchedAt: new Date("2026-07-02T10:00:00Z")
+            }]
+          }
+        ]
+      }
+    }, {
+      providerOrder: ["tmdb_api"],
+      ratingProviderSource: "ptgen_douban"
+    });
+
+    expect(presentation.title).toBe("The Matrix");
+    expect(presentation.displaySource).toMatchObject({
+      provider: "tmdb",
+      providerSource: "tmdb_api",
+      providerId: "603"
+    });
+    expect(presentation.rating).toEqual({
+      provider: "douban",
+      providerSource: "ptgen_douban",
+      providerId: "1291843",
+      providerLabel: "Douban",
+      providerSourceLabel: "PTGen Douban",
+      value: 8.8,
+      scale: 10,
+      voteCount: 912345,
+      type: "user_score",
+      fetchedAt: "2026-07-02T10:00:00.000Z"
+    });
+    expect(presentation.rating).not.toHaveProperty("normalized");
+  });
+
+  it("does not fall back when the selected rating source has no valid rating", () => {
+    const presentation = serializeMediaPresentation({
+      mediaTitle: {
+        id: "media-1",
+        mediaType: "MOVIE",
+        title: "Canonical Movie",
+        providerIdentities: [{
+          provider: "tmdb",
+          providerId: "603",
+          mediaType: "MOVIE",
+          metadata: [{
+            providerSource: "tmdb_api",
+            title: "The Matrix",
+            payload: {},
+            ratingValue: 7.2,
+            ratingScale: 10,
+            ratingType: "USER_SCORE"
+          }]
+        }]
+      }
+    }, {
+      providerOrder: ["tmdb_api"],
+      ratingProviderSource: "ptgen_douban"
+    });
+
+    expect(presentation.rating).toBeUndefined();
   });
 });
 

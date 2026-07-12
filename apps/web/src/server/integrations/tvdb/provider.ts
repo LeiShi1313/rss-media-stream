@@ -18,7 +18,8 @@ export const tvdbProvider: MetadataProvider = {
         {
           apiKey: context.runtime.credential?.secrets.apiKey,
           pin: context.runtime.credential?.secrets.pin,
-          language: context.runtime.metadataLanguage
+          language: context.runtime.metadataLanguage,
+          signal: context.signal
         }
       );
     }
@@ -36,7 +37,8 @@ export const tvdbProvider: MetadataProvider = {
       {
         apiKey: context.runtime.credential?.secrets.apiKey,
         pin: context.runtime.credential?.secrets.pin,
-        language: context.runtime.metadataLanguage
+        language: context.runtime.metadataLanguage,
+        signal: context.signal
       }
     );
   },
@@ -86,7 +88,8 @@ export const tvdbProvider: MetadataProvider = {
         {
           apiKey: context.runtime.credential?.secrets.apiKey,
           pin: context.runtime.credential?.secrets.pin,
-          language: context.runtime.metadataLanguage
+          language: context.runtime.metadataLanguage,
+          signal: context.signal
         }
       );
     }
@@ -104,7 +107,8 @@ export const tvdbProvider: MetadataProvider = {
       {
         apiKey: context.runtime.credential?.secrets.apiKey,
         pin: context.runtime.credential?.secrets.pin,
-        language: context.runtime.metadataLanguage
+        language: context.runtime.metadataLanguage,
+        signal: context.signal
       }
     );
   },

@@ -89,6 +89,7 @@ const en = {
     refreshDashboard: "Refresh dashboard"
   },
   nav: {
+    primary: "Primary navigation",
     overview: "Overview",
     rss: "RSS",
     downloaders: "Downloaders",
@@ -164,6 +165,13 @@ const en = {
       downloadingEmpty: "No active downloads right now",
       attention: "Needs attention",
       attentionEmpty: "No releases need attention"
+    },
+    rating: {
+      scoreLabel: "{{provider}} rating {{score}}",
+      source: "Source",
+      score: "Score",
+      votes: "Votes",
+      fetchedAt: "Fetched"
     },
     inspector: {
       noOverview: "No provider overview is available for this release yet.",
@@ -331,6 +339,7 @@ const en = {
     betterQuality: "Better quality",
     preferredGroupUpgrade: "Preferred group",
     allowCrossSeed: "Allow cross-seed",
+    separateVariants: "Keep variants separate",
     seasonPackAllowed: "Allow season packs",
     fixedFeeds: "Fixed feeds",
     allFeeds: "All feeds",
@@ -406,6 +415,8 @@ const en = {
     providerPriority: "Provider priority",
     providerEnabled: "Provider enabled",
     providerDisabled: "Disabled",
+    ratingProviderSource: "Rating source",
+    ratingProviderDisabled: "Selected source disabled",
     saveProvider: "Save provider",
     savePolicy: "Save order",
     removeWorkspaceCredential: "Remove workspace credential",
@@ -548,6 +559,7 @@ const zh = {
     refreshDashboard: "刷新仪表盘"
   },
   nav: {
+    primary: "主导航",
     overview: "总览",
     rss: "RSS",
     downloaders: "下载器",
@@ -623,6 +635,13 @@ const zh = {
       downloadingEmpty: "当前没有活跃下载",
       attention: "需要处理",
       attentionEmpty: "没有需要处理的发布"
+    },
+    rating: {
+      scoreLabel: "{{provider}} 评分 {{score}}",
+      source: "来源",
+      score: "评分",
+      votes: "评分人数",
+      fetchedAt: "获取时间"
     },
     inspector: {
       noOverview: "该发布暂时没有提供方简介。",
@@ -790,6 +809,7 @@ const zh = {
     betterQuality: "更高质量",
     preferredGroupUpgrade: "优先发布组",
     allowCrossSeed: "允许辅种",
+    separateVariants: "区分变体",
     seasonPackAllowed: "允许整季包",
     fixedFeeds: "指定 Feed",
     allFeeds: "全部 Feed",
@@ -865,6 +885,8 @@ const zh = {
     providerPriority: "提供方优先级",
     providerEnabled: "启用提供方",
     providerDisabled: "已禁用",
+    ratingProviderSource: "评分来源",
+    ratingProviderDisabled: "所选来源已禁用",
     saveProvider: "保存提供方",
     savePolicy: "保存顺序",
     removeWorkspaceCredential: "移除工作区凭据",

@@ -20,6 +20,10 @@ _Avoid_: Provider source, adapter
 A stable identity for one media work according to one real-world metadata provider, independent of locale-specific metadata and fetch source. One provider identity belongs to one active media title at a time.
 _Avoid_: Provider title link, provider metadata row
 
+**Provider Identity Resolution**:
+An evidence-backed decision that a Media Provider Identity belongs to a Media Title. Trusted cross-provider identifiers or exact title, year, and Platform Media Type evidence may resolve an identity; ambiguous evidence leaves it unresolved.
+_Avoid_: Rating match, fuzzy title link
+
 **Provider Source**:
 A concrete adapter or data source that supplies metadata for exactly one media provider, such as a TMDB API client or a PTGen-backed Douban source. Provider source is provenance, fetch policy, and configuration scope; it is not identity.
 _Avoid_: Provider, identity provider
@@ -29,12 +33,36 @@ An internal implementation backend used by a provider source, such as a search A
 _Avoid_: Provider source, media provider
 
 **Provider Source Configuration**:
-Workspace/user settings for a provider source, including whether it is enabled and any credentials or source-specific fetch options.
+A Workspace's settings for a Provider Source, including its workspace-wide enablement, credentials, and source-specific fetch options. Disabling a source makes all of its capabilities unavailable in that Workspace without deleting its preferences.
 _Avoid_: Provider identity configuration
 
+**Provider Source Capability**:
+A declared kind of Provider Media Metadata that a Provider Source can supply for a Platform Media Type, such as descriptive metadata or a user rating. Capability is independent of Workspace configuration and preference.
+_Avoid_: Feature flag, provider setting
+
 **Provider Source Preference**:
-A workspace/user preference that controls which provider sources are used first for matching and presentation within a platform media type.
+A Workspace policy that selects or orders Provider Sources for one purpose within a Platform Media Type. Matching, metadata presentation, and rating presentation use independent preferences, with no per-user override.
 _Avoid_: Provider identity priority
+
+**Metadata Presentation Preference**:
+A Provider Source Preference that orders Provider Sources for titles, artwork, descriptions, and other non-rating Provider Media Metadata. Presentation may fall back through that order when a source lacks usable metadata.
+_Avoid_: Metadata provider, display provider
+
+**Rating Presentation Preference**:
+A Provider Source Preference that selects exactly one Provider Source used to present a Provider Rating for a Platform Media Type. A Workspace may select different sources for movies and TV series; if the selected source has no Provider Rating, no rating is presented and no fallback source is used.
+_Avoid_: Rating provider, metadata presentation preference
+
+**Provider Rating**:
+A score attributed to a Media Provider and supplied by a named Provider Source as Provider Media Metadata, including its native scale and type plus an optional vote count. Its provenance identifies both the rating authority and the concrete source; ratings from different providers represent different audiences or methodologies and are not interchangeable, normalized, averaged, or directly compared. Match confidence and provider search relevance are not Provider Ratings.
+_Avoid_: Rating, score, match confidence
+
+**Media Enrichment**:
+Post-parse provider work for a Parsed Release, including media identity resolution and prefetching source-specific metadata and ratings. Metadata and rating outcomes are independent; missing rating data does not invalidate a Release Match.
+_Avoid_: Parsing, release matching
+
+**Rating Backfill**:
+Low-priority Media Enrichment of existing Media Titles after a Workspace changes its Rating Presentation Preference. It yields to ingestion and new-title enrichment, and historical ratings may remain absent while it progresses.
+_Avoid_: Item reprocessing, blocking migration
 
 **Provider Media Metadata**:
 Locale-scoped metadata supplied by a provider source for a media provider identity, including titles, title aliases, artwork, descriptions, ratings, and raw provider payload.

@@ -7,9 +7,12 @@ export type PersistedParsedReleaseSnapshot = {
   providerSearchTitles: string[];
   year: number | null;
   mediaType: ParsedRelease["mediaType"];
+  tvUnitType: ParsedRelease["tvUnitType"] | null;
   season: number | null;
   episode: number | null;
   episodeEnd: number | null;
+  specialNumber: number | null;
+  episodePart: string | null;
   resolution: number | null;
   quality: string | null;
   source: string | null;
@@ -34,10 +37,13 @@ export type ParserChangeKind =
   | "title_changed"
   | "provider_search_titles_changed"
   | "media_type_changed"
+  | "tv_unit_type_changed"
   | "year_changed"
   | "season_changed"
   | "episode_changed"
   | "episode_end_changed"
+  | "special_number_changed"
+  | "episode_part_changed"
   | "resolution_changed"
   | "quality_changed"
   | "source_changed"
@@ -113,10 +119,13 @@ export function compareParsedRelease(
     "provider_search_titles_changed"
   );
   pushIf(changes, previous.mediaType !== next.mediaType, "media_type_changed");
+  pushIf(changes, (previous.tvUnitType ?? null) !== (next.tvUnitType ?? null), "tv_unit_type_changed");
   pushIf(changes, previous.year !== (next.year ?? null), "year_changed");
   pushIf(changes, previous.season !== (next.season ?? null), "season_changed");
   pushIf(changes, previous.episode !== (next.episode ?? null), "episode_changed");
   pushIf(changes, previous.episodeEnd !== (next.episodeEnd ?? null), "episode_end_changed");
+  pushIf(changes, previous.specialNumber !== (next.specialNumber ?? null), "special_number_changed");
+  pushIf(changes, (previous.episodePart ?? null) !== (next.episodePart ?? null), "episode_part_changed");
   pushIf(changes, previous.resolution !== (next.resolution ?? null), "resolution_changed");
   pushIf(changes, previous.quality !== (next.quality ?? null), "quality_changed");
   pushIf(changes, previous.source !== (next.source ?? null), "source_changed");
@@ -197,10 +206,13 @@ function emptyChangesByKind(): Record<ParserChangeKind, number> {
     title_changed: 0,
     provider_search_titles_changed: 0,
     media_type_changed: 0,
+    tv_unit_type_changed: 0,
     year_changed: 0,
     season_changed: 0,
     episode_changed: 0,
     episode_end_changed: 0,
+    special_number_changed: 0,
+    episode_part_changed: 0,
     resolution_changed: 0,
     quality_changed: 0,
     source_changed: 0,

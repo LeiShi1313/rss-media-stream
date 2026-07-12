@@ -80,6 +80,7 @@ export const subscriptionRuleSchema = z
     episodeEnd: z.number().int().optional(),
     upgradePolicy: upgradePolicySchema.default("none"),
     allowCrossSeed: z.boolean().default(false),
+    separateVariants: z.boolean().default(false),
     seasonPackAllowed: z.boolean().default(true)
   })
   .refine(

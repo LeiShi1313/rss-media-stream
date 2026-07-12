@@ -7,12 +7,16 @@ const mocks = vi.hoisted(() => ({
       findMany: vi.fn()
     }
   },
-  getPresentationProviderOrder: vi.fn()
+  getPresentationProviderOrder: vi.fn(),
+  getActiveRatingProviderSources: vi.fn()
 }));
 
 vi.mock("../src/server/db.js", () => ({ prisma: mocks.prisma }));
 vi.mock("../src/server/integrations/providers/policy.js", () => ({
   getPresentationProviderOrder: mocks.getPresentationProviderOrder
+}));
+vi.mock("../src/server/integrations/providers/ratingPreference.js", () => ({
+  getActiveRatingProviderSources: mocks.getActiveRatingProviderSources
 }));
 
 const { listItems } = await import("../src/server/modules/items/items.service.js");
@@ -20,6 +24,7 @@ const { listItems } = await import("../src/server/modules/items/items.service.js
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getPresentationProviderOrder.mockResolvedValue(["tmdb_api"]);
+  mocks.getActiveRatingProviderSources.mockResolvedValue({ MOVIE: "ptgen_douban" });
 });
 
 describe("items service pagination", () => {

@@ -11,6 +11,7 @@ const YEAR_RE = /\b(19\d{2}|20\d{2})\b/;
 const YEAR_GLOBAL_RE = /\b(19\d{2}|20\d{2})\b/g;
 const TV_RE = /\bS(\d{1,4})[ ._-]?E(\d{1,3})(?:(?:[- ._]+E?|E)(\d{1,3}))*\b/i;
 const LONG_TV_RE = /\bS(\d{1,2})[ ._-]?E(\d{4})(?:(?:[-_]+E?|[ .]+E|E)(\d{4}))?\b/i;
+const TV_SPECIAL_RE = /\bS(\d{1,4})[ ._-]?SP(\d{1,3})\b/i;
 const EPISODE_ONLY_RE = /\bEP?(\d{1,3})(?:[- ._]?EP?(\d{1,3}))?\b/i;
 const LONG_EPISODE_ONLY_RE = /\bEP?(\d{4})(?:[- ._]?EP?(\d{4}))?\b/i;
 const SEASON_PACK_RE = /\bS(\d{1,2})(?:\b|[- .])(?!E\d)/i;
@@ -68,6 +69,14 @@ const CJK_TRAILING_WHOLE_SERIES_RE = /(?:(?:[2-9]\d{0,2})|(?:十|[二三四五�
 const CJK_COMPLETE_SERIES_LABEL_RE = /全集/u;
 const CJK_COMPLETE_STATUS_LABEL_RE = /(?:^|[\s[\]({【「『|｜:：,，;；/])(?:完结|完結|完结撒花|完結撒花)(?=$|[\s\])}】」』|｜:：,，;；/])/u;
 const CJK_COMPLETE_EPISODE_RANGE_RE = /\d{1,4}\s*[-~至到－—]\s*\d{1,4}\s*(?:集|话|話)\s*(?:全|完|完结|完結)/u;
+const COMPACT_DATE_RE = /^(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?=$|[\s._-])/;
+const PART_TOKEN_RE = /^part(?:0*(\d{1,3})|([a-z]))(?=$|[\s._-])/iu;
+const PLUS_PART_TOKEN_RE = /^plus(?:0*(\d{1,3})|([a-z]))(?=$|[\s._-])/iu;
+const EXTRA_CODE_TOKEN_RE = /^ex(?:0*(\d{1,3})|([a-z]))(?=$|[\s._-])/iu;
+const EXTRA_PART_TOKEN_RE = /^extra[\s._-]+part(?:0*(\d{1,3})|([a-z]))(?=$|[\s._-])/iu;
+const EXTRA_VERSION_TOKEN_RE = /^extra[\s._-]+version(?=$|[\s._-])/iu;
+const EXTRA_VARIANT_RE = /^(?:extra|特别加更|特別加更)(?=$|[\s._-])/iu;
+const PLUS_VARIANT_RE = /^(?:plus|加更版?|加更)(?=$|[\s._-])/iu;
 const PURE_VARIANT_RE = /^(?:pure|纯享版?|純享版?)(?=$|[\s._-])/iu;
 const EMPTY_BRACKET_DISC_MARKER_RE = /(?:^|[^\p{L}\p{N}])DISC\s*\d{1,3}\s*\[\]/iu;
 const NORMALIZED_DISC_MARKER_RE = /(?:^|[.\s])DISC[.\s]*\d{1,3}\b/i;
@@ -121,8 +130,10 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
 
   const tvMatch = normalized.match(TV_RE) ?? normalized.match(LONG_TV_RE);
   const tv = usableTvMatch(normalized, tvMatch) ? tvMatch : undefined;
-  const episodeOnly = tv ? undefined : normalized.match(EPISODE_ONLY_RE);
-  const longEpisodeOnly = tv || episodeOnly || !hasLongEpisodeOnlyTvEvidence(rawTitle)
+  const tvSpecialMatch = tv ? undefined : normalized.match(TV_SPECIAL_RE);
+  const tvSpecial = usableTvMatch(normalized, tvSpecialMatch ?? null) ? tvSpecialMatch : undefined;
+  const episodeOnly = tv || tvSpecial ? undefined : normalized.match(EPISODE_ONLY_RE);
+  const longEpisodeOnly = tv || tvSpecial || episodeOnly || !hasLongEpisodeOnlyTvEvidence(rawTitle)
     ? undefined
     : normalized.match(LONG_EPISODE_ONLY_RE);
   const seasonPack = normalized.match(SEASON_PACK_RE) ?? normalized.match(SEASON_WORD_PACK_RE);
@@ -132,7 +143,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     : movieMediaCategory
       ? undefined
       : findChineseSeason(rawTitle, "raw"));
-  const rawChineseEpisode = tv || episodeOnly || seasonPack || chineseSeason
+  const rawChineseEpisode = tv || tvSpecial || episodeOnly || seasonPack || chineseSeason
     ? findChineseEpisode(rawTitle, "raw")
     : undefined;
   const chineseEpisode = parseInputHasBrackets
@@ -140,13 +151,14 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     : findChineseEpisode(normalized, "normalized") ?? rawChineseEpisode;
   const tvMarkerIndex = firstDefinedIndex(
     tv?.index,
+    tvSpecial?.index,
     episodeOnly?.index,
     longEpisodeOnly?.index,
     seasonPack?.index,
     normalizedChineseSeason?.index,
     chineseEpisode?.source === "normalized" ? chineseEpisode.index : undefined
   );
-  const hasTvContext = Boolean(tv || episodeOnly || longEpisodeOnly || seasonPack || chineseSeason || chineseEpisode || stackedAnimationTvEpisode || categorySeriesEvidence);
+  const hasTvContext = Boolean(tv || tvSpecial || episodeOnly || longEpisodeOnly || seasonPack || chineseSeason || chineseEpisode || stackedAnimationTvEpisode || categorySeriesEvidence);
   const yearMatch = findReleaseYearMatch(normalized, {
     tvMarkerIndex,
     rawTitle,
@@ -190,6 +202,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
 
   const titleStop = firstDefinedIndex(
     tv?.index,
+    tvSpecial?.index,
     episodeOnly?.index,
     longEpisodeOnly?.index,
     seasonPack?.index,
@@ -208,7 +221,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const romanSeasonSuffix = inferRegionalRomanSeasonSuffix({
     fallbackTitle,
     hasEpisodeOnlyMarker: Boolean(episodeOnly || longEpisodeOnly || chineseEpisode),
-    hasExplicitSeasonMarker: Boolean(tv || seasonPack || chineseSeason),
+    hasExplicitSeasonMarker: Boolean(tv || tvSpecial || seasonPack || chineseSeason),
     strippedRegionalTvBroadcastPrefix
   });
   const mediaType = unsupportedMediaCategory
@@ -218,7 +231,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     : year || movieCategoryTechnicalEvidence
       ? "MOVIE"
       : "UNKNOWN";
-  const season = tv ? Number(tv[1]) : seasonPack ? Number(seasonPack[1]) : chineseSeason?.season ?? romanSeasonSuffix?.season ?? (episodeOnly || longEpisodeOnly || chineseEpisode ? 1 : undefined);
+  const season = tv ? Number(tv[1]) : tvSpecial ? Number(tvSpecial[1]) : seasonPack ? Number(seasonPack[1]) : chineseSeason?.season ?? romanSeasonSuffix?.season ?? (episodeOnly || longEpisodeOnly || chineseEpisode ? 1 : undefined);
   const titleInfo = deriveTitleInfo({
     rawTitle,
     rawName: romanSeasonSuffix?.title ?? rawName,
@@ -228,7 +241,9 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const title = titleInfo.title;
   const episode = tv ? Number(tv[2]) : episodeOnly ? Number(episodeOnly[1]) : longEpisodeOnly ? Number(longEpisodeOnly[1]) : chineseEpisode?.episode ?? stackedAnimationTvEpisode?.episode;
   const episodeEnd = tv?.[3] ? Number(tv[3]) : episodeOnly?.[2] ? Number(episodeOnly[2]) : longEpisodeOnly?.[2] ? Number(longEpisodeOnly[2]) : chineseEpisode?.episodeEnd ?? stackedAnimationTvEpisode?.episodeEnd;
-  const variant = findKnownPostEpisodeVariant(normalized, tv ?? episodeOnly ?? longEpisodeOnly ?? undefined);
+  const specialNumber = tvSpecial ? Number(tvSpecial[2]) : undefined;
+  const tvUnitType = tvSpecial ? "SPECIAL" : tv ? "EPISODE" : undefined;
+  const postTvUnitDetails = findPostTvUnitDetails(normalized, tv ?? undefined);
   const parseConfidence = scoreConfidence({
     title,
     mediaType,
@@ -244,39 +259,136 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     primarySearchTitle: titleInfo.primarySearchTitle,
     year,
     mediaType,
+    ...(tvUnitType ? { tvUnitType } : {}),
     season,
     episode,
     episodeEnd,
+    ...(specialNumber != null ? { specialNumber } : {}),
+    ...(postTvUnitDetails.episodePart ? { episodePart: postTvUnitDetails.episodePart } : {}),
     resolution,
     quality,
     source,
     codec,
     audio,
     releaseGroup,
-    variant,
+    ...(postTvUnitDetails.variant ? { variant: postTvUnitDetails.variant } : {}),
     parseConfidence
   };
 }
 
-function findKnownPostEpisodeVariant(
+function findPostTvUnitDetails(
   normalized: string,
   episodeMatch: RegExpMatchArray | undefined
-): string | undefined {
-  if (!episodeMatch || episodeMatch.index == null) return undefined;
+): Pick<ParsedRelease, "episodePart" | "variant"> {
+  if (!episodeMatch || episodeMatch.index == null) return {};
 
   const tail = normalized
     .slice(episodeMatch.index + episodeMatch[0].length)
     .replace(/^[\s._-]+/u, "");
-  const match = tail.match(PURE_VARIANT_RE);
-  if (!match?.[0]) return undefined;
+  if (!tail) return {};
 
-  const afterVariant = tail.slice(match[0].length).replace(/^[\s._-]+/u, "");
-  if (!afterVariant || technicalMetadataTailStarts(afterVariant)) return "PURE";
-  return undefined;
+  const firstPart = consumePartToken(tail);
+  if (firstPart) {
+    const variant = consumeVariantToken(stripPostTvUnitSeparator(firstPart.remaining));
+    const remaining = variant?.remaining ?? firstPart.remaining;
+    if (technicalMetadataTailStarts(stripPostTvUnitSeparator(remaining))) {
+      return {
+        episodePart: firstPart.episodePart,
+        variant: variant?.variant
+      };
+    }
+    return {};
+  }
+
+  const firstVariant = consumeVariantToken(tail);
+  if (!firstVariant) return {};
+
+  const part = firstVariant.episodePart
+    ? undefined
+    : consumePartToken(stripPostTvUnitSeparator(firstVariant.remaining));
+  const remaining = part?.remaining ?? firstVariant.remaining;
+  if (!technicalMetadataTailStarts(stripPostTvUnitSeparator(remaining))) return {};
+
+  return {
+    episodePart: firstVariant.episodePart ?? part?.episodePart,
+    variant: firstVariant.variant
+  };
+}
+
+function consumePartToken(value: string) {
+  const match = value.match(PART_TOKEN_RE);
+  if (!match?.[0]) return undefined;
+  return {
+    episodePart: normalizeEpisodePart(match[1] ?? match[2]),
+    remaining: value.slice(match[0].length)
+  };
+}
+
+function consumeVariantToken(value: string) {
+  const plusPart = value.match(PLUS_PART_TOKEN_RE);
+  if (plusPart?.[0]) {
+    return {
+      variant: "PLUS",
+      episodePart: normalizeEpisodePart(plusPart[1] ?? plusPart[2]),
+      remaining: value.slice(plusPart[0].length)
+    };
+  }
+
+  const extraCode = value.match(EXTRA_CODE_TOKEN_RE);
+  if (extraCode?.[0]) {
+    return {
+      variant: "EXTRA",
+      episodePart: normalizeEpisodePart(extraCode[1] ?? extraCode[2]),
+      remaining: value.slice(extraCode[0].length)
+    };
+  }
+
+  const extraPart = value.match(EXTRA_PART_TOKEN_RE);
+  if (extraPart?.[0]) {
+    return {
+      variant: "EXTRA",
+      episodePart: normalizeEpisodePart(extraPart[1] ?? extraPart[2]),
+      remaining: value.slice(extraPart[0].length)
+    };
+  }
+
+  const extraVersion = value.match(EXTRA_VERSION_TOKEN_RE);
+  if (extraVersion?.[0]) {
+    return {
+      variant: "EXTRA",
+      remaining: value.slice(extraVersion[0].length)
+    };
+  }
+
+  const variant = value.match(PURE_VARIANT_RE)
+    ? { variant: "PURE", token: value.match(PURE_VARIANT_RE)![0] }
+    : value.match(PLUS_VARIANT_RE)
+      ? { variant: "PLUS", token: value.match(PLUS_VARIANT_RE)![0] }
+      : value.match(EXTRA_VARIANT_RE)
+        ? { variant: "EXTRA", token: value.match(EXTRA_VARIANT_RE)![0] }
+        : undefined;
+  if (!variant) return undefined;
+
+  return {
+    variant: variant.variant,
+    remaining: value.slice(variant.token.length)
+  };
+}
+
+function normalizeEpisodePart(value: string | undefined) {
+  if (!value) return undefined;
+  return /^\d+$/u.test(value)
+    ? String(Number(value))
+    : value.toUpperCase();
+}
+
+function stripPostTvUnitSeparator(value: string) {
+  return value.replace(/^[\s._-]+/u, "");
 }
 
 function technicalMetadataTailStarts(value: string) {
-  return technicalPatternStarts(YEAR_RE, value) ||
+  return technicalPatternStarts(COMPACT_DATE_RE, value) ||
+    technicalPatternStarts(YEAR_RE, value) ||
     technicalPatternStarts(QUALITY_RE, value) ||
     technicalPatternStarts(DIMENSION_RE, value) ||
     technicalPatternStarts(SOURCE_RE, value) ||
@@ -354,6 +466,7 @@ function structuredBracketNoYearTitle(segments: string[]) {
       const normalized = normalizeReleaseText(title);
       const hasTvMarker = TV_RE.test(normalized) ||
         LONG_TV_RE.test(normalized) ||
+        TV_SPECIAL_RE.test(normalized) ||
         EPISODE_ONLY_RE.test(normalized) ||
         LONG_EPISODE_ONLY_RE.test(normalized) ||
         SEASON_PACK_RE.test(normalized) ||
@@ -759,6 +872,7 @@ function hasExplicitTvContextInInput(input: string) {
   const normalized = normalizeReleaseText(input);
   return TV_RE.test(normalized) ||
     LONG_TV_RE.test(normalized) ||
+    TV_SPECIAL_RE.test(normalized) ||
     EPISODE_ONLY_RE.test(normalized) ||
     LONG_EPISODE_ONLY_RE.test(normalized) ||
     SEASON_PACK_RE.test(normalized) ||
@@ -780,6 +894,7 @@ function stripRegionalTvBroadcastPrefix(input: string, rawTitle: string): string
   const titleStop = firstDefinedIndex(
     normalizedRest.search(TV_RE),
     normalizedRest.search(LONG_TV_RE),
+    normalizedRest.search(TV_SPECIAL_RE),
     normalizedRest.search(EPISODE_ONLY_RE),
     normalizedRest.search(LONG_EPISODE_ONLY_RE),
     normalizedRest.search(SEASON_PACK_RE),
@@ -802,6 +917,7 @@ function hasTvContextAfterBroadcastPrefix(rest: string, rawTitle: string) {
   return hasStrongTvLeadingMediaCategory(rawTitle) ||
     TV_RE.test(normalizedRest) ||
     LONG_TV_RE.test(normalizedRest) ||
+    TV_SPECIAL_RE.test(normalizedRest) ||
     EPISODE_ONLY_RE.test(normalizedRest) ||
     LONG_EPISODE_ONLY_RE.test(normalizedRest) ||
     SEASON_PACK_RE.test(normalizedRest) ||
@@ -858,7 +974,7 @@ function titleSegments(rawTitle: string) {
 function scoreReleaseLikeSegment(segment: string): number {
   if (!segment || SIZE_SEGMENT_RE.test(segment) || categorySegment(segment) || unsupportedMediaCategorySegment(segment)) return 0;
   let score = 0;
-  if (TV_RE.test(segment)) score += 5;
+  if (TV_RE.test(segment) || TV_SPECIAL_RE.test(segment)) score += 5;
   if (SEASON_PACK_RE.test(segment) || SEASON_WORD_PACK_RE.test(segment)) score += 3;
   if (YEAR_RE.test(segment)) score += 3;
   if (QUALITY_RE.test(segment) || DIMENSION_RE.test(segment)) score += 2;
@@ -879,11 +995,12 @@ function isReleaseLikeSegment(segment: string) {
     SOURCE_RE.test(segment) &&
     Boolean(extractReleaseGroup(segment)) &&
     (segment.match(/[._]/g) ?? []).length >= 1;
-  const looksLikeEpisodeFilename = TV_RE.test(segment) &&
+  const hasStrictTvMarker = TV_RE.test(segment) || TV_SPECIAL_RE.test(segment);
+  const looksLikeEpisodeFilename = hasStrictTvMarker &&
     YEAR_RE.test(segment) &&
     (segment.match(/[._]/g) ?? []).length >= 2;
   const hasIdentitySignal = YEAR_RE.test(segment) ||
-    TV_RE.test(segment) ||
+    hasStrictTvMarker ||
     SEASON_PACK_RE.test(segment) ||
     SEASON_WORD_PACK_RE.test(segment) ||
     Boolean(extractReleaseGroup(segment)) ||
@@ -1464,6 +1581,7 @@ function releasePrefixAliasTitleCandidate(value: string) {
   const stop = firstDefinedIndex(
     normalized.search(TV_RE),
     normalized.search(LONG_TV_RE),
+    normalized.search(TV_SPECIAL_RE),
     normalized.search(SEASON_PACK_RE),
     normalized.search(SEASON_WORD_PACK_RE),
     normalized.search(YEAR_RE),

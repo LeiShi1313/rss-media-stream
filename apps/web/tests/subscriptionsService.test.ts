@@ -198,6 +198,141 @@ describe("evaluateAutoDownloadsForItem", () => {
       })
     });
   });
+
+  it("deduplicates parsed episode parts independently from the base episode", async () => {
+    mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
+      parsedRelease: parsedRelease({ matches: [matchedMedia()], episodePart: "A" })
+    }));
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      subscription({
+        id: "subscription-tv",
+        mediaTitleId: "media-title-1",
+        rule: rule({
+          mode: "MEDIA_TITLE",
+          mediaTitleId: "media-title-1",
+          mediaType: "TV_SERIES",
+          season: 3,
+          minResolution: 2160
+        })
+      })
+    ]);
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).resolves.toEqual(["job-1"]);
+
+    expect(mocks.prisma.subscriptionAcquisition.findUnique).toHaveBeenCalledWith({
+      where: {
+        tenantId_contentKey: {
+          tenantId: "tenant-1",
+          contentKey: "tv:media-title-1:s03:e01:part:A"
+        }
+      }
+    });
+    expect(mocks.prisma.subscriptionAcquisition.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        contentKey: "tv:media-title-1:s03:e01:part:A",
+        unitType: "TV_EPISODE",
+        episodePart: "A"
+      })
+    }));
+  });
+
+  it("uses separate variant acquisition keys only when the rule opts in", async () => {
+    mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
+      parsedRelease: parsedRelease({
+        matches: [matchedMedia()],
+        variant: "PLUS",
+        episodePart: "B"
+      })
+    }));
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      subscription({
+        id: "subscription-tv",
+        mediaTitleId: "media-title-1",
+        rule: rule({
+          mode: "MEDIA_TITLE",
+          mediaTitleId: "media-title-1",
+          mediaType: "TV_SERIES",
+          season: 3,
+          minResolution: 2160,
+          criteriaJson: { separateVariants: true }
+        })
+      })
+    ]);
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).resolves.toEqual(["job-1"]);
+
+    expect(mocks.prisma.subscriptionAcquisition.findUnique).toHaveBeenCalledWith({
+      where: {
+        tenantId_contentKey: {
+          tenantId: "tenant-1",
+          contentKey: "tv:media-title-1:s03:e01:variant:PLUS:part:B"
+        }
+      }
+    });
+    expect(mocks.prisma.subscriptionAcquisition.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        contentKey: "tv:media-title-1:s03:e01:variant:PLUS:part:B",
+        variant: "PLUS",
+        episodePart: "B"
+      })
+    }));
+  });
+
+  it("deduplicates parsed TV specials separately from season packs", async () => {
+    mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
+      rawTitle: "Stand-up Comedy And Friends S01SP6 2024 2160p WEB-DL H265 AAC-TJUPT",
+      parsedRelease: parsedRelease({
+        matches: [matchedMedia()],
+        season: 1,
+        episode: null,
+        tvUnitType: "SPECIAL",
+        specialNumber: 6
+      })
+    }));
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      subscription({
+        id: "subscription-tv",
+        mediaTitleId: "media-title-1",
+        rule: rule({
+          mode: "MEDIA_TITLE",
+          mediaTitleId: "media-title-1",
+          mediaType: "TV_SERIES",
+          season: 1,
+          minResolution: 2160
+        })
+      })
+    ]);
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).resolves.toEqual(["job-1"]);
+
+    expect(mocks.prisma.subscriptionAcquisition.findUnique).toHaveBeenCalledWith({
+      where: {
+        tenantId_contentKey: {
+          tenantId: "tenant-1",
+          contentKey: "tv:media-title-1:s01:sp:6"
+        }
+      }
+    });
+    expect(mocks.prisma.subscriptionAcquisition.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        contentKey: "tv:media-title-1:s01:sp:6",
+        unitType: "TV_SPECIAL",
+        specialNumber: 6
+      })
+    }));
+  });
 });
 
 function rssItem(input: {
@@ -219,8 +354,12 @@ function parsedRelease(input: {
   matches: any[];
   mediaType?: string;
   season?: number;
-  episode?: number;
+  episode?: number | null;
   episodeEnd?: number;
+  tvUnitType?: "EPISODE" | "SPECIAL";
+  specialNumber?: number;
+  episodePart?: string;
+  variant?: string;
   resolution?: number;
   source?: string;
   releaseGroup?: string;
@@ -229,15 +368,19 @@ function parsedRelease(input: {
     title: "TV Stand-up Comedy",
     year: undefined,
     mediaType: input.mediaType ?? "TV_SERIES",
+    tvUnitType: input.tvUnitType,
     season: input.season ?? 3,
-    episode: input.episode ?? 1,
+    episode: input.episode === null ? undefined : input.episode ?? 1,
     episodeEnd: input.episodeEnd,
+    specialNumber: input.specialNumber,
+    episodePart: input.episodePart,
     resolution: input.resolution ?? 2160,
     quality: undefined,
     source: input.source ?? "WEB-DL",
     codec: "H.265",
     audio: undefined,
     releaseGroup: input.releaseGroup ?? "GROUP",
+    variant: input.variant,
     parseConfidence: 0.95,
     matches: input.matches
   };

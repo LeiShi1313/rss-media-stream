@@ -28,4 +28,31 @@ describe("buildReleaseSignature", () => {
       parseConfidence: 0
     })).toBeUndefined();
   });
+
+  it("includes parsed TV specials, parts, and variants when present", () => {
+    expect(buildReleaseSignature({
+      title: "Stand up Comedy",
+      mediaType: "TV_SERIES",
+      season: 1,
+      tvUnitType: "SPECIAL",
+      specialNumber: 6,
+      quality: "2160p",
+      parseConfidence: 0.98
+    })).toBe(
+      "title=stand up comedy|mediaType=tv_series|year=|season=1|episode=|episodeEnd=|tvUnitType=special|specialNumber=6|quality=2160p|source=|codec=|audio=|group=|size="
+    );
+
+    expect(buildReleaseSignature({
+      title: "Stand up Comedy",
+      mediaType: "TV_SERIES",
+      season: 1,
+      episode: 1,
+      episodePart: "A",
+      variant: "PURE",
+      quality: "2160p",
+      parseConfidence: 0.98
+    })).toBe(
+      "title=stand up comedy|mediaType=tv_series|year=|season=1|episode=1|episodeEnd=|episodePart=a|variant=pure|quality=2160p|source=|codec=|audio=|group=|size="
+    );
+  });
 });

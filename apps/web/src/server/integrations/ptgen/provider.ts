@@ -18,7 +18,8 @@ export const ptgenProvider: MetadataProvider = {
         source: ptgenSourceFromProviderSource(context.runtime.providerSource)
       },
       {
-        language: context.runtime.metadataLanguage
+        language: context.runtime.metadataLanguage,
+        signal: context.signal
       }
     );
   },

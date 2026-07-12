@@ -274,6 +274,7 @@ function SubscriptionEditorModal({
   const [episodeEnd, setEpisodeEnd] = useState(rule?.episodeEnd?.toString() ?? "");
   const [upgradePolicy, setUpgradePolicy] = useState<UpgradePolicy>(rule?.upgradePolicy ?? "none");
   const [allowCrossSeed, setAllowCrossSeed] = useState(rule?.allowCrossSeed ?? false);
+  const [separateVariants, setSeparateVariants] = useState(rule?.separateVariants ?? false);
   const [seasonPackAllowed, setSeasonPackAllowed] = useState(rule?.seasonPackAllowed ?? true);
   const canChooseMode = !subscription;
   const selectedRuleType = selectedMedia?.mediaType ?? mediaTypeForKind(kind);
@@ -376,6 +377,7 @@ function SubscriptionEditorModal({
       episodeEnd,
       upgradePolicy,
       allowCrossSeed,
+      separateVariants,
       seasonPackAllowed
     }));
 
@@ -427,6 +429,7 @@ function SubscriptionEditorModal({
       episodeEnd,
       upgradePolicy,
       allowCrossSeed,
+      separateVariants,
       seasonPackAllowed
     }));
 
@@ -524,6 +527,7 @@ function SubscriptionEditorModal({
         </div>
         <div className="form-grid">
           <CheckboxField className="checkbox-row" checked={allowCrossSeed} onCheckedChange={setAllowCrossSeed} label={t("subscriptions.allowCrossSeed")} />
+          <CheckboxField className="checkbox-row" checked={separateVariants} onCheckedChange={setSeparateVariants} label={t("subscriptions.separateVariants")} />
           <CheckboxField className="checkbox-row" checked={seasonPackAllowed} onCheckedChange={setSeasonPackAllowed} label={t("subscriptions.seasonPackAllowed")} />
           <CheckboxField className="checkbox-row" checked={autoDownload} onCheckedChange={setAutoDownload} label={t("common.autoDownload")} />
           <CheckboxField className="checkbox-row" checked={enabled} onCheckedChange={setEnabled} label={t("common.enabled")} />
@@ -964,6 +968,7 @@ function subscriptionRulePayload(input: {
   feedIds: string[];
   upgradePolicy: UpgradePolicy;
   allowCrossSeed: boolean;
+  separateVariants: boolean;
   seasonPackAllowed: boolean;
 }) {
   return {
@@ -990,6 +995,7 @@ function subscriptionRulePayload(input: {
     feedIds: input.feedIds,
     upgradePolicy: input.upgradePolicy,
     allowCrossSeed: input.allowCrossSeed,
+    separateVariants: input.separateVariants,
     seasonPackAllowed: input.seasonPackAllowed
   };
 }

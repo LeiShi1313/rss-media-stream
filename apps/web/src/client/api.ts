@@ -79,6 +79,7 @@ export type ProviderSettings = {
   provider: string;
   label: string;
   supportedMediaTypes: Array<"MOVIE" | "TV_SERIES">;
+  ratingSupportedMediaTypes: Array<"MOVIE" | "TV_SERIES">;
   authFields: ProviderAuthField[];
   supportsMetadataLanguage: boolean;
   supportsRegion: boolean;
@@ -112,6 +113,7 @@ export type MediaProviderPolicy = {
 export type MediaProviderPoliciesResponse = {
   mediaTypes: Array<{
     mediaType: "MOVIE" | "TV_SERIES";
+    ratingProviderSource: ProviderSettings["id"];
     policies: MediaProviderPolicy[];
   }>;
 };
@@ -129,11 +131,14 @@ export type ProviderRefDto = {
 };
 
 export type RatingDto = ProviderRefDto & {
+  providerSource: string;
+  providerLabel: string;
+  providerSourceLabel: string;
   value: number;
   scale: number;
-  normalized: number;
-  voteCount?: number;
+  voteCount?: number | null;
   type: "user_score" | "critic_score" | "popularity";
+  fetchedAt?: string;
 };
 
 export type ProviderIdentityFilter = {
@@ -193,9 +198,12 @@ export type ParsedRelease = {
   title: string;
   year?: number;
   kind: "MOVIE" | "TV" | "UNKNOWN";
+  tvUnitType?: "EPISODE" | "SPECIAL";
   season?: number;
   episode?: number;
   episodeEnd?: number;
+  specialNumber?: number;
+  episodePart?: string;
   resolution?: number;
   quality?: string;
   source?: string;
@@ -368,6 +376,7 @@ export type Subscription = {
     episodeEnd?: number;
     upgradePolicy?: "none" | "better_quality" | "preferred_release_group";
     allowCrossSeed?: boolean;
+    separateVariants?: boolean;
     seasonPackAllowed?: boolean;
   };
   createdAt: string;

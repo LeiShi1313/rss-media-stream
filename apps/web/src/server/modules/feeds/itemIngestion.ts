@@ -10,6 +10,7 @@ import {
 } from "@rss-media/shared/rss";
 import { buildReleaseSignature } from "@rss-media/shared/releaseSignature";
 import { parseReleaseTitle } from "@rss-media/shared/releaseParser";
+import { stringifyJsonStorageValue } from "@rss-media/shared/json";
 import { redactSecrets } from "@rss-media/shared/redact";
 import { prisma } from "../../db.js";
 import { encryptAead, hmacSecret } from "../../secrets.js";
@@ -192,7 +193,7 @@ export function chooseDedupeKey(
 }
 
 export function safeRawPayload(raw: unknown) {
-  const json = JSON.stringify(toPrismaJson(raw));
+  const json = stringifyJsonStorageValue(raw);
   return {
     rawJsonEncrypted: encryptAead(json),
     rawJsonRedacted: JSON.parse(redactSecrets(json)) as Prisma.InputJsonValue
@@ -266,9 +267,12 @@ function parsedReleaseData(release: ReturnType<typeof parseReleaseTitle>) {
     providerSearchTitles: release.providerSearchTitles ?? [],
     year: release.year ?? null,
     mediaType: release.mediaType,
+    tvUnitType: release.tvUnitType ?? null,
     season: release.season ?? null,
     episode: release.episode ?? null,
     episodeEnd: release.episodeEnd ?? null,
+    specialNumber: release.specialNumber ?? null,
+    episodePart: release.episodePart ?? null,
     resolution: release.resolution ?? null,
     quality: release.quality ?? null,
     source: release.source ?? null,
@@ -288,9 +292,12 @@ function parsedReleaseComparisonSelect() {
     providerSearchTitles: true,
     year: true,
     mediaType: true,
+    tvUnitType: true,
     season: true,
     episode: true,
     episodeEnd: true,
+    specialNumber: true,
+    episodePart: true,
     resolution: true,
     quality: true,
     source: true,
@@ -311,9 +318,12 @@ function parsedReleaseChanged(
     !stringArraysEqual(previous.providerSearchTitles, next.providerSearchTitles ?? []),
     previous.year !== (next.year ?? null),
     previous.mediaType !== next.mediaType,
+    (previous.tvUnitType ?? null) !== (next.tvUnitType ?? null),
     previous.season !== (next.season ?? null),
     previous.episode !== (next.episode ?? null),
     previous.episodeEnd !== (next.episodeEnd ?? null),
+    previous.specialNumber !== (next.specialNumber ?? null),
+    (previous.episodePart ?? null) !== (next.episodePart ?? null),
     previous.resolution !== (next.resolution ?? null),
     previous.quality !== (next.quality ?? null),
     previous.source !== (next.source ?? null),
@@ -330,8 +340,4 @@ function stringArraysEqual(left: string[] | null | undefined, right: string[] | 
   const rightValues = right ?? [];
   return leftValues.length === rightValues.length &&
     leftValues.every((value, index) => value === rightValues[index]);
-}
-
-function toPrismaJson(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
