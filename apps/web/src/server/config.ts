@@ -16,39 +16,42 @@ export type AppConfig = {
   tvdbPin?: string;
   apiHost: string;
   apiPort: number;
-  clientOrigin: string;
+  clientOrigins: string[];
   pollIntervalSeconds: number;
   nodeEnv: string;
 };
 
-export function loadConfig(): AppConfig {
+export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
-    databaseUrl: required("DATABASE_URL"),
-    appSecret: requiredSecret("APP_SECRET", "dev-app-secret-change-me-please-32chars"),
-    jwtSecret: requiredSecret("JWT_SECRET", "dev-jwt-secret-change-me-please-32chars"),
-    tmdbApiKey: process.env.TMDB_API_KEY || undefined,
-    tvdbApiKey: process.env.TVDB_API_KEY || undefined,
-    tvdbPin: process.env.TVDB_PIN || undefined,
-    apiHost: process.env.API_HOST ?? "0.0.0.0",
-    apiPort: Number(process.env.API_PORT ?? 4000),
-    clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
-    pollIntervalSeconds: Number(process.env.POLL_INTERVAL_SECONDS ?? 600),
-    nodeEnv: process.env.NODE_ENV ?? "development"
+    databaseUrl: required(environment, "DATABASE_URL"),
+    appSecret: requiredSecret(environment, "APP_SECRET", "dev-app-secret-change-me-please-32chars"),
+    jwtSecret: requiredSecret(environment, "JWT_SECRET", "dev-jwt-secret-change-me-please-32chars"),
+    tmdbApiKey: environment.TMDB_API_KEY || undefined,
+    tvdbApiKey: environment.TVDB_API_KEY || undefined,
+    tvdbPin: environment.TVDB_PIN || undefined,
+    apiHost: environment.API_HOST ?? "0.0.0.0",
+    apiPort: Number(environment.API_PORT ?? 4000),
+    clientOrigins: (environment.CLIENT_ORIGINS ?? "http://rss.localhost:5173")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+    pollIntervalSeconds: Number(environment.POLL_INTERVAL_SECONDS ?? 600),
+    nodeEnv: environment.NODE_ENV ?? "development"
   };
 }
 
-function required(name: string): string {
-  const value = process.env[name];
+function required(environment: NodeJS.ProcessEnv, name: string): string {
+  const value = environment[name];
   if (!value) {
     throw new Error(`${name} is required`);
   }
   return value;
 }
 
-function requiredSecret(name: string, fallback: string): string {
-  const value = process.env[name];
+function requiredSecret(environment: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const value = environment[name];
   if (value) return value;
-  if (process.env.NODE_ENV === "production") {
+  if (environment.NODE_ENV === "production") {
     throw new Error(`${name} is required in production`);
   }
   return fallback;
