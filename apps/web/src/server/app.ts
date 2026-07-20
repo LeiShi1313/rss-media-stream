@@ -23,7 +23,7 @@ export async function buildApp(config: AppConfig) {
   registerErrorHandler(app);
 
   await app.register(fastifyCors, {
-    origin: config.clientOrigin,
+    origin: config.clientOrigins,
     credentials: true
   });
   await app.register(fastifyCookie);

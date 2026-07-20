@@ -30,13 +30,13 @@ docker compose up --build
 ```
 
 The dashboard and API are both served through `nginxproxy/nginx-proxy` on
-`http://localhost:8090` by default. Compose runs Vite, the Fastify API, the
+`http://rss.localhost:8090` by default. Compose runs Vite, the Fastify API, the
 worker, Postgres, and Adminer. The proxy routes `/` to the frontend dev server,
 `/api` plus `/events` to the API dev server, and `/adminer/` to Adminer for
 database access.
 Override the host port with `APP_PORT=80 docker compose up --build`.
 
-Adminer is available at `http://localhost:8090/adminer/`. Use system
+Adminer is available at `http://rss.localhost:8090/adminer/`. Use system
 `PostgreSQL`, server `postgres`, username `rss`, database `rss_media`, and the
 Postgres password from `docker-compose.yml` (`media` by default).
 

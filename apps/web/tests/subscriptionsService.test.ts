@@ -42,7 +42,7 @@ const config = {
   jwtSecret: "test-jwt-secret-32-characters-long",
   apiHost: "127.0.0.1",
   apiPort: 4000,
-  clientOrigin: "http://localhost:5173",
+  clientOrigins: ["http://rss.localhost:5173"],
   pollIntervalSeconds: 600,
   nodeEnv: "test"
 } satisfies AppConfig;
