@@ -24,8 +24,9 @@ const SIZE_SEGMENT_RE = /^\d+(?:\.\d+)?\s*(?:gib|gb|mib|mb|tib|tb)$/i;
 const SIZE_ALIAS_RE = /^\d+(?:\s+\d{1,2})?\s*(?:gib|gb|mib|mb|tib|tb|g|m)$/i;
 const CATEGORY_SEGMENT_RE = /^(?:(?:movies?|movie|tv(?:\s*(?:series|shows?))?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花))(?:\s+(?:(?:movies?|movie|tv(?:\s*(?:series|shows?))?|series|animations?|animation|anime|sports|documentaries?|documentary|hd|sd|uhd)|(?:电影|剧集|电视剧|纪录片|动漫|动画|音乐|综艺|连载|完结|完结撒花)))*$/i;
 const MIXED_CATEGORY_SEGMENT_RE = /^(?:(?:documentaries?|documentary)\s*(?:纪录片|紀錄片)|(?:tv\s*shows?|tv\s*series|series)\s*(?:综艺|綜藝|剧集|劇集)|(?:movies?|movie)\s*(?:电影|電影)|(?:animations?|animation|anime)\s*(?:动漫|動漫|动画|動畫))$/iu;
-const UNSUPPORTED_BARE_MEDIA_CATEGORY_SEGMENT_RE = /^(?:music(?:s)?(?:\s+(?:videos?|mv|lossless))?(?:\s*\([^)]*\))?(?:\s*\/\s*音乐\s*mv)?|sports?(?:\s*\/?\s*体育)?(?:\s+\d{3,4}[pi])?|体育(?:\s*\([^)]*\))?(?:\s*\/\s*sports?)?(?:\s+\d{3,4}[pi])?|音乐\s*(?:cd|mv|短片)?(?:\s*\([^)]*\))?)$/iu;
-const UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE = /^(?:music(?:s)?(?:\s+(?:videos?|mv|lossless))?(?:\s*\([^)]*\))?(?:\s*\/\s*音乐\s*mv)?|sports?(?:\s*\/?\s*体育)?(?:\s+\d{3,4}[pi])?|体育(?:\s*\([^)]*\))?(?:\s*\/\s*sports?)?(?:\s+\d{3,4}[pi])?|音乐\s*(?:cd|mv|短片)?(?:\s*\([^)]*\))?|hq\s*audio(?:\s*\/?\s*(?:无损音乐|無損音樂|音乐|音樂))?|(?:(?:pc\s*)?games?|pcgame|游戏|遊戲|software|applications?|软件|軟件|应用软件|應用軟體|ebooks?|电子书|電子書|auibook|audiobooks?|有声书|有聲書|有声读物|有聲讀物)(?:\s*\([^)]*\))?|资料|資料|h-?comic|iv(?:\s*\/\s*video\s+collection)?|av(?:\([^)]*\))?(?:\s*\/\s*(?:hd|sd|blu[- .]?ray)(?:\s+(?:un)?censored)?)?|(?:hd|sd|blu[- .]?ray)\s+(?:un)?censored)$/iu;
+const UNSUPPORTED_BARE_MEDIA_CATEGORY_SEGMENT_SOURCE = String.raw`music(?:s)?(?:\s+(?:videos?|mv|lossless))?(?:\s*\([^)]*\))?(?:\s*\/\s*音乐\s*mv)?|sports?(?:\s*\/?\s*体育)?(?:\s+\d{3,4}[pi])?|体育(?:\s*\([^)]*\))?(?:\s*\/\s*sports?)?(?:\s+\d{3,4}[pi])?|音乐\s*(?:cd|mv|短片)?(?:\s*\([^)]*\))?`;
+const UNSUPPORTED_BARE_MEDIA_CATEGORY_SEGMENT_RE = new RegExp(`^(?:${UNSUPPORTED_BARE_MEDIA_CATEGORY_SEGMENT_SOURCE})$`, "iu");
+const UNSUPPORTED_MEDIA_CATEGORY_SEGMENT_RE = new RegExp(`^(?:${UNSUPPORTED_BARE_MEDIA_CATEGORY_SEGMENT_SOURCE}|${String.raw`hq\s*audio(?:\s*\/?\s*(?:无损音乐|無損音樂|音乐|音樂))?|(?:(?:pc\s*)?games?|pcgame|游戏|遊戲|software|applications?|软件|軟件|应用软件|應用軟體|ebooks?|电子书|電子書|auibook|audiobooks?|有声书|有聲書|有声读物|有聲讀物)(?:\s*\([^)]*\))?|资料|資料|h-?comic|iv(?:\s*\/\s*video\s+collection)?|av(?:\([^)]*\))?(?:\s*\/\s*(?:hd|sd|blu[- .]?ray)(?:\s+(?:un)?censored)?)?|(?:hd|sd|blu[- .]?ray)\s+(?:un)?censored`})$`, "iu");
 const TECHNICAL_MEDIA_WRAPPER_RE = /^(?:(?:4k|8k|2160p|1080p|720p|480p)\s*)?(?:电影|電影|movie|movies|电视剧|電視劇|剧集|劇集|tv\s*series|series)(?:\s*(?:4k|8k|2160p|1080p|720p|480p))?$/iu;
 const LANGUAGE_METADATA_SEGMENT_RE = /^(?:英语|英語|日语|日語|国语|國語|粤语|粵語|韩语|韓語|汉语普通话|普通话|多语|多語|中字|简中|繁中|简繁|簡繁)$/iu;
 const EXTRA_INFO_RE = /类型|主演|类别|字幕|国语|中字|导演|演员|简繁|第\d|全\d|日语|英语|粤语|内封|内嵌|\|/i;
@@ -44,8 +45,9 @@ const BROADCAST_CAPTURE_PREFIX_RE = /^(?:ZJTV[- .]?4K|GDTV[- .]?4K|JSWS[- .]?4K|
 const CCTV_4K_BROADCAST_PREFIX_RE = /^CCTV[- .]?4K[ ._-]+/i;
 const TV_SHOWS_BROADCAST_CAPTURE_PREFIX_RE = /^(?:CCTV[- .]?\d+|HunanTV|DragonTV|PhoenixTV|JSTV|ZJTV|SZTV|SHANGHAI[- .]?4K)[ ._-]+/i;
 const BROADCASTER_METADATA_PREFIX_RE = /^(?:(?:中央电视台|央视|北京卫视|浙江卫视|广东卫视|湖南卫视|江苏卫视|山东卫视)[^ ]*(?:频道)?|中国广电重温经典频道)\s+/u;
-const BROADCASTER_METADATA_FIELD_RE = /^(?:(?:翡翠台|明珠台)(?:\s*4K)?|中视经典HD|中視經典HD|华视HD|華視HD|台视HD|台視HD|民视HD|民視HD|公视HD|公視HD|TVB(?:\s+(?:Jade|Pearl|Plus))?|ViuTV|Jade|Pearl|CTV|CTS|TTV|FTV|PTS)$/iu;
-const BROADCASTER_METADATA_FIELD_PREFIX_RE = /^(?:(?:翡翠台|明珠台)(?:\s*4K)?|中视经典HD|中視經典HD|华视HD|華視HD|台视HD|台視HD|民视HD|民視HD|公视HD|公視HD|TVB(?:\s+(?:Jade|Pearl|Plus))?|ViuTV|Jade|Pearl|CTV|CTS|TTV|FTV|PTS)\s+/iu;
+const BROADCASTER_METADATA_FIELD_SOURCE = String.raw`(?:翡翠台|明珠台)(?:\s*4K)?|中视经典HD|中視經典HD|华视HD|華視HD|台视HD|台視HD|民视HD|民視HD|公视HD|公視HD|TVB(?:\s+(?:Jade|Pearl|Plus))?|ViuTV|Jade|Pearl|CTV|CTS|TTV|FTV|PTS`;
+const BROADCASTER_METADATA_FIELD_RE = new RegExp(`^(?:${BROADCASTER_METADATA_FIELD_SOURCE})$`, "iu");
+const BROADCASTER_METADATA_FIELD_PREFIX_RE = new RegExp(`^(?:${BROADCASTER_METADATA_FIELD_SOURCE})\\s+`, "iu");
 const REGIONAL_TV_BROADCAST_PREFIX_RE = /^(TVB[ ._-]+(?:Jade|Pearl|Plus)|ViuTV|Jade|Pearl|JUHD|CTV|CTS|TTV|FTV|PTS|BRTV|CCTV[- .]?\d+)[ ._-]+/iu;
 const ORIGINAL_RECORDING_METADATA_FIELD_RE = /^(?:(?:台剧|台劇|港剧|港劇)?(?:原创录制|原創錄製)(?:第\d+部)?)(?:\s+(?:翡翠台|明珠台|中视经典HD|中視經典HD|华视HD|華視HD|台视HD|台視HD|民视HD|民視HD|公视HD|公視HD))?$/u;
 const CJK_VARIETY_SECTION_LABEL_RE = /\s+(?:(?:正片|纯享|純享|加更|日记|日記|私藏日记|私藏日記|萌娃当家|副本存档中|同学录|同學錄|直播回看|少年的挑战|少年的挑戰|抢先逛|搶先逛|整活局)(?:版)?\s*)+$/u;
@@ -64,6 +66,18 @@ const SLASH_NUMERIC_TITLE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const CHINESE_SEASON_RE = /(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|([一二三四五六七八九十两\d]{1,3})\s*季)/u;
 const CHINESE_SEASON_ONLY_RE = /(?:^|[\s[({【「『|｜:：,，;；/])(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*季|([一二三四五六七八九十两\d]{1,3})\s*季)/u;
 const CHINESE_EPISODE_RE = /第\s*([一二三四五六七八九十两\d]{1,4})(?:\s*[-~至到－—]\s*([一二三四五六七八九十两\d]{1,4}))?\s*(?:集|话|話)/u;
+const CJK_NUMERAL_SOURCE = String.raw`[一二三四五六七八九十两\d]{1,4}`;
+const CJK_EPISODE_RANGE_SOURCE = String.raw`第\s*${CJK_NUMERAL_SOURCE}(?:\s*[-~至到－—]\s*${CJK_NUMERAL_SOURCE})?\s*`;
+const CJK_EPISODE_ONLY_METADATA_FIELD_RE = new RegExp(`^${CJK_EPISODE_RANGE_SOURCE}(?:集|话|話|期)$`, "u");
+const CJK_SEASON_EPISODE_METADATA_FIELD_RE = new RegExp(String.raw`^第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)\s*${CJK_EPISODE_RANGE_SOURCE}(?:集|话|話|期)$`, "u");
+const CJK_PARSED_SEASON_EPISODE_SUFFIX_RE = new RegExp(String.raw`^(.+?)(\d{1,2})\s+(?:${CJK_EPISODE_RANGE_SOURCE}(?:集|话|話|期)|全\s*[一二三四五六七八九十两\d]{1,4}\s*(?:集|话|話))`, "u");
+const CJK_SEASON_THEN_EPISODE_PERIOD_TITLE_RE = new RegExp(String.raw`^(.+?)\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*季\s+.+?${CJK_EPISODE_RANGE_SOURCE}期`, "u");
+const CJK_SEASON_EPISODE_PERIOD_TAIL_RE = new RegExp(String.raw`\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)\s*${CJK_EPISODE_RANGE_SOURCE}期.*$`, "u");
+const CJK_EPISODE_PERIOD_TAIL_RE = new RegExp(String.raw`\s*${CJK_EPISODE_RANGE_SOURCE}期.*$`, "u");
+const CJK_EPISODE_UNIT_TAIL_RE = new RegExp(String.raw`\s*${CJK_EPISODE_RANGE_SOURCE}(?:集|话|話).*$`, "u");
+const CJK_SEASON_EPISODE_INFO_FIELD_RE = new RegExp(String.raw`^(?:第\s*)?[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)\s+${CJK_EPISODE_RANGE_SOURCE}(?:集|话|話)$`, "u");
+const WHOLE_SERIES_COUNT_YEAR_ALIAS_RE = new RegExp(String.raw`^全\s*${CJK_NUMERAL_SOURCE}\s*(?:集|话|話|期)\s*(?:19|20)\d{2}$`, "u");
+const SEASON_WHOLE_SERIES_COUNT_YEAR_ALIAS_RE = new RegExp(String.raw`^第\s*${CJK_NUMERAL_SOURCE}\s*(?:季|部)\s*全\s*${CJK_NUMERAL_SOURCE}\s*(?:集|话|話|期)\s*(?:19|20)\d{2}$`, "u");
 const WHOLE_SERIES_EPISODE_RE = /全\s*(?!0*1\s*(?:集|话|話)|一\s*(?:集|话|話))[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)/u;
 const CJK_TRAILING_WHOLE_SERIES_RE = /(?:(?:[2-9]\d{0,2})|(?:十|[二三四五六七八九两][一二三四五六七八九十]?))\s*(?:集|话|話)\s*全/u;
 const CJK_COMPLETE_SERIES_LABEL_RE = /全集/u;
@@ -198,7 +212,6 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   const emptyBracketDiscIndex = emptyBracketDiscSeriesEvidence
     ? normalized.search(NORMALIZED_DISC_MARKER_RE)
     : -1;
-  const hasTvEvidence = hasTvContext;
 
   const titleStop = firstDefinedIndex(
     tv?.index,
@@ -226,7 +239,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
   });
   const mediaType = unsupportedMediaCategory
     ? "UNKNOWN"
-    : hasTvEvidence
+    : hasTvContext
     ? "TV_SERIES"
     : year || movieCategoryTechnicalEvidence
       ? "MOVIE"
@@ -249,7 +262,7 @@ export function parseReleaseTitle(rawTitle: string): ParsedRelease {
     mediaType,
     hasYear: Boolean(year),
     hasQuality: Boolean(quality),
-    hasTv: hasTvEvidence
+    hasTv: hasTvContext
   });
 
   return {
@@ -324,55 +337,27 @@ function consumePartToken(value: string) {
   };
 }
 
+const VARIANT_TOKEN_MATCHERS: Array<{ regex: RegExp; variant: string; capturesEpisodePart: boolean }> = [
+  { regex: PLUS_PART_TOKEN_RE, variant: "PLUS", capturesEpisodePart: true },
+  { regex: EXTRA_CODE_TOKEN_RE, variant: "EXTRA", capturesEpisodePart: true },
+  { regex: EXTRA_PART_TOKEN_RE, variant: "EXTRA", capturesEpisodePart: true },
+  { regex: EXTRA_VERSION_TOKEN_RE, variant: "EXTRA", capturesEpisodePart: false },
+  { regex: PURE_VARIANT_RE, variant: "PURE", capturesEpisodePart: false },
+  { regex: PLUS_VARIANT_RE, variant: "PLUS", capturesEpisodePart: false },
+  { regex: EXTRA_VARIANT_RE, variant: "EXTRA", capturesEpisodePart: false }
+];
+
 function consumeVariantToken(value: string) {
-  const plusPart = value.match(PLUS_PART_TOKEN_RE);
-  if (plusPart?.[0]) {
+  for (const { regex, variant, capturesEpisodePart } of VARIANT_TOKEN_MATCHERS) {
+    const match = value.match(regex);
+    if (!match?.[0]) continue;
     return {
-      variant: "PLUS",
-      episodePart: normalizeEpisodePart(plusPart[1] ?? plusPart[2]),
-      remaining: value.slice(plusPart[0].length)
+      variant,
+      episodePart: capturesEpisodePart ? normalizeEpisodePart(match[1] ?? match[2]) : undefined,
+      remaining: value.slice(match[0].length)
     };
   }
-
-  const extraCode = value.match(EXTRA_CODE_TOKEN_RE);
-  if (extraCode?.[0]) {
-    return {
-      variant: "EXTRA",
-      episodePart: normalizeEpisodePart(extraCode[1] ?? extraCode[2]),
-      remaining: value.slice(extraCode[0].length)
-    };
-  }
-
-  const extraPart = value.match(EXTRA_PART_TOKEN_RE);
-  if (extraPart?.[0]) {
-    return {
-      variant: "EXTRA",
-      episodePart: normalizeEpisodePart(extraPart[1] ?? extraPart[2]),
-      remaining: value.slice(extraPart[0].length)
-    };
-  }
-
-  const extraVersion = value.match(EXTRA_VERSION_TOKEN_RE);
-  if (extraVersion?.[0]) {
-    return {
-      variant: "EXTRA",
-      remaining: value.slice(extraVersion[0].length)
-    };
-  }
-
-  const variant = value.match(PURE_VARIANT_RE)
-    ? { variant: "PURE", token: value.match(PURE_VARIANT_RE)![0] }
-    : value.match(PLUS_VARIANT_RE)
-      ? { variant: "PLUS", token: value.match(PLUS_VARIANT_RE)![0] }
-      : value.match(EXTRA_VARIANT_RE)
-        ? { variant: "EXTRA", token: value.match(EXTRA_VARIANT_RE)![0] }
-        : undefined;
-  if (!variant) return undefined;
-
-  return {
-    variant: variant.variant,
-    remaining: value.slice(variant.token.length)
-  };
+  return undefined;
 }
 
 function normalizeEpisodePart(value: string | undefined) {
@@ -569,18 +554,10 @@ function cleanStructuredBracketTitleSegment(segment: string) {
 function stripLeadingCategoryWrappers(rawTitle: string) {
   const stripped = rawTitle.trimStart();
   const match = stripped.match(/^\[([^\]]+)\]\s*/u);
-  if (!match?.[1] || !categoryWrapperSegment(match[1])) return stripped;
+  if (!match?.[1] || !supportedMediaCategorySegment(match[1])) return stripped;
 
   const afterWrapper = stripped.slice(match[0].length).trimStart();
   return afterWrapper.startsWith("[") ? stripped : afterWrapper;
-}
-
-function categoryWrapperSegment(segment: string) {
-  const normalized = segment.trim();
-  return movieMediaCategorySegment(normalized) ||
-    animationMediaCategorySegment(normalized) ||
-    strongTvMediaCategorySegment(normalized) ||
-    documentaryMediaCategorySegment(normalized);
 }
 
 function categorySegment(segment: string) {
@@ -1008,16 +985,19 @@ function isReleaseLikeSegment(segment: string) {
   return looksLikeSceneFilename || looksLikeEpisodeFilename || (hasQuality && hasTech && hasIdentitySignal);
 }
 
+function leadingBracketSegment(rawTitle: string) {
+  return rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+}
+
 function hasUnsupportedLeadingMediaCategory(rawTitle: string) {
-  const trimmed = rawTitle.trim();
-  const bracketed = trimmed.match(/^\[([^\]]+)\]/)?.[1];
+  const bracketed = leadingBracketSegment(rawTitle);
   if (bracketed && unsupportedMediaCategorySegment(bracketed)) return true;
-  const leadingWord = trimmed.match(/^([^\s[\]:：]+)/u)?.[1];
+  const leadingWord = rawTitle.trim().match(/^([^\s[\]:：]+)/u)?.[1];
   return Boolean(leadingWord && unsupportedBareMediaCategorySegment(leadingWord));
 }
 
 function hasMovieLeadingMediaCategory(rawTitle: string) {
-  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  const bracketed = leadingBracketSegment(rawTitle);
   return Boolean(bracketed && movieMediaCategorySegment(bracketed));
 }
 
@@ -1032,17 +1012,17 @@ function hasMovieCategorySeasonMetadataEvidence(rawTitle: string) {
 }
 
 function hasStrongTvLeadingMediaCategory(rawTitle: string) {
-  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  const bracketed = leadingBracketSegment(rawTitle);
   return Boolean(bracketed && strongTvMediaCategorySegment(bracketed));
 }
 
 function hasTvShowsLeadingMediaCategory(rawTitle: string) {
-  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1]?.trim();
+  const bracketed = leadingBracketSegment(rawTitle)?.trim();
   return /^(?:tv\s*shows?|tvshow)(?:\b|[\s(/]|\p{Script=Han})/iu.test(bracketed ?? "");
 }
 
 function hasDocumentaryLeadingMediaCategory(rawTitle: string) {
-  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  const bracketed = leadingBracketSegment(rawTitle);
   return Boolean(bracketed && documentaryMediaCategorySegment(bracketed));
 }
 
@@ -1071,12 +1051,12 @@ function hasAnimationSeriesEvidence(rawTitle: string) {
 }
 
 function hasAnimationLeadingMediaCategory(rawTitle: string) {
-  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  const bracketed = leadingBracketSegment(rawTitle);
   return Boolean(bracketed && animationMediaCategorySegment(bracketed));
 }
 
 function hasAudiobookLeadingMediaCategory(rawTitle: string) {
-  const bracketed = rawTitle.trim().match(/^\[([^\]]+)\]/)?.[1];
+  const bracketed = leadingBracketSegment(rawTitle);
   return /^(?:有声书|有聲書|有声读物|有聲讀物|audiobooks?)(?:$|\b|[\s(/]|\p{Script=Han})/iu.test(bracketed ?? "");
 }
 
@@ -1751,11 +1731,19 @@ function ptpDisplayTitleCandidate(value: string) {
   return cleaned;
 }
 
-function ptpDisplayPrefixTitleVariant(prefixCandidates: string[], releaseTitleCandidates: string[]) {
+function anyTitlePairMatches(
+  prefixCandidates: string[],
+  releaseTitleCandidates: string[],
+  predicate: (prefixCandidate: string, candidate: string) => boolean
+) {
   if (prefixCandidates.length === 0 || releaseTitleCandidates.length === 0) return false;
   return releaseTitleCandidates.some((candidate) =>
-    prefixCandidates.some((prefixCandidate) => titleKeyPrefixVariant(prefixCandidate, candidate))
+    prefixCandidates.some((prefixCandidate) => predicate(prefixCandidate, candidate))
   );
+}
+
+function ptpDisplayPrefixTitleVariant(prefixCandidates: string[], releaseTitleCandidates: string[]) {
+  return anyTitlePairMatches(prefixCandidates, releaseTitleCandidates, titleKeyPrefixVariant);
 }
 
 function titleKeyPrefixVariant(left: string, right: string) {
@@ -1768,26 +1756,22 @@ function titleKeyPrefixVariant(left: string, right: string) {
 }
 
 function ptpDisplayTitleCompatible(prefixCandidates: string[], releaseTitleCandidates: string[]) {
-  if (prefixCandidates.length === 0 || releaseTitleCandidates.length === 0) return false;
-  return releaseTitleCandidates.some((candidate) =>
-    prefixCandidates.some((prefixCandidate) => compatibleTitleKey(prefixCandidate, candidate))
-  );
+  return anyTitlePairMatches(prefixCandidates, releaseTitleCandidates, compatibleTitleKey);
 }
 
 function ptpDisplayTitleExactMatch(prefixCandidates: string[], releaseTitleCandidates: string[]) {
-  if (prefixCandidates.length === 0 || releaseTitleCandidates.length === 0) return false;
-  return releaseTitleCandidates.some((candidate) =>
-    prefixCandidates.some((prefixCandidate) => equivalentTitleKey(prefixCandidate) === equivalentTitleKey(candidate))
+  return anyTitlePairMatches(
+    prefixCandidates,
+    releaseTitleCandidates,
+    (prefixCandidate, candidate) => equivalentTitleKey(prefixCandidate) === equivalentTitleKey(candidate)
   );
 }
 
 function compatibleTitleKey(left: string, right: string) {
+  if (titleKeyPrefixVariant(left, right)) return true;
   const leftKey = equivalentTitleKey(left);
   const rightKey = equivalentTitleKey(right);
   if (!leftKey || !rightKey) return false;
-  if (leftKey === rightKey) return true;
-  if (leftKey.length < 5 || rightKey.length < 5) return false;
-  if (leftKey.startsWith(rightKey) || rightKey.startsWith(leftKey)) return true;
   return Math.min(leftKey.length, rightKey.length) >= 8 &&
     levenshteinDistance(leftKey, rightKey) / Math.max(leftKey.length, rightKey.length) <= 0.12;
 }
@@ -1878,10 +1862,14 @@ function nativeParsedSeasonSeparatedEpisodeBaseTitleCandidate(
     : undefined;
 }
 
-function nativeParsedSeasonCompactBaseTitleCandidate(field: string, parsedSeason: number | undefined) {
-  if (!parsedSeason || parsedSeason < 2 || parsedSeason > 99) return undefined;
+function cleanNativeMetadataField(
+  field: string,
+  options?: { stripLeadingYear?: boolean; stripTrailingCompactDateRange?: boolean }
+) {
   let cleaned = cleanHumanTitleCandidate(field);
-  cleaned = cleaned.replace(/^(?:19|20)\d{2}\s*年?\s*/u, "");
+  if (options?.stripLeadingYear) {
+    cleaned = cleaned.replace(/^(?:19|20)\d{2}\s*年?\s*/u, "");
+  }
   while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
     cleaned = cleaned.replace(METADATA_TITLE_PREFIX_RE, "");
   }
@@ -1890,14 +1878,17 @@ function nativeParsedSeasonCompactBaseTitleCandidate(field: string, parsedSeason
     .replace(TV_CATEGORY_WRAPPER_FIELD_RE, " ")
     .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
     .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
-    .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
+    .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ");
+  if (options?.stripTrailingCompactDateRange) {
+    cleaned = cleaned.replace(/\s+(?:19|20)\d{6}(?:\s*[-~至到－—]\s*(?:19|20)\d{6})?\b.*$/u, " ");
+  }
+  return cleaned
     .replace(/\s+/g, " ")
     .trim();
-  const match = cleaned.match(/^(.+?)(\d{1,2})$/u);
-  const suffixSeason = match?.[2] ? Number(match[2]) : undefined;
-  if (!suffixSeason || suffixSeason !== parsedSeason) return undefined;
+}
 
-  const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
+function validNativeBaseTitleCandidate(value: string | undefined) {
+  const candidate = cleanHumanTitleCandidate(value ?? "");
   if (!candidate || !hasNativeScript(candidate)) return undefined;
   if (/[A-Za-z]/u.test(candidate)) return undefined;
   if (/[\/|]/u.test(candidate)) return undefined;
@@ -1906,33 +1897,31 @@ function nativeParsedSeasonCompactBaseTitleCandidate(field: string, parsedSeason
   return candidate;
 }
 
+function nativeParsedSeasonCompactBaseTitleCandidate(field: string, parsedSeason: number | undefined) {
+  if (!parsedSeason || parsedSeason < 2 || parsedSeason > 99) return undefined;
+  const cleaned = cleanNativeMetadataField(field, { stripLeadingYear: true });
+  const match = cleaned.match(/^(.+?)(\d{1,2})$/u);
+  const suffixSeason = match?.[2] ? Number(match[2]) : undefined;
+  if (!suffixSeason || suffixSeason !== parsedSeason) return undefined;
+
+  return validNativeBaseTitleCandidate(match?.[1]);
+}
+
 function episodeOnlyMetadataField(field: string) {
   const cleaned = cleanHumanTitleCandidate(field).replace(/\s+/g, " ").trim();
-  return /^第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話|期)$/u.test(cleaned) ||
+  return CJK_EPISODE_ONLY_METADATA_FIELD_RE.test(cleaned) ||
     /^全\s*[一二三四五六七八九十两\d]{1,4}\s*(?:集|话|話)$/u.test(cleaned);
 }
 
 function seasonEpisodeMetadataField(field: string, parsedSeason: number | undefined) {
   if (!parsedSeason) return false;
   const cleaned = cleanHumanTitleCandidate(field).replace(/\s+/g, " ").trim();
-  const match = cleaned.match(/^第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)\s*第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話|期)$/u);
+  const match = cleaned.match(CJK_SEASON_EPISODE_METADATA_FIELD_RE);
   return parseChineseNumber(match?.[1]) === parsedSeason;
 }
 
 function nativeYearlyTitleCandidate(field: string) {
-  let cleaned = cleanHumanTitleCandidate(field);
-  while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
-    cleaned = cleaned.replace(METADATA_TITLE_PREFIX_RE, "");
-  }
-  cleaned = cleaned
-    .replace(/【[^】]*】/gu, " ")
-    .replace(TV_CATEGORY_WRAPPER_FIELD_RE, " ")
-    .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
-    .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
-    .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
-    .replace(/\s+(?:19|20)\d{6}(?:\s*[-~至到－—]\s*(?:19|20)\d{6})?\b.*$/u, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleaned = cleanNativeMetadataField(field, { stripTrailingCompactDateRange: true });
   const match = cleaned.match(NATIVE_YEARLY_TITLE_RE);
   const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
   if (!candidate || !hasNativeScript(candidate) || !YEAR_RE.test(candidate)) return undefined;
@@ -1954,90 +1943,35 @@ function wholeSeriesCountYearAlias(candidate: string) {
     .replace(/[()（）]/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
-  const cjkNumber = "[一二三四五六七八九十两\\d]{1,4}";
-  return new RegExp(`^全\\s*${cjkNumber}\\s*(?:集|话|話|期)\\s*(?:19|20)\\d{2}$`, "u").test(cleaned) ||
-    new RegExp(`^第\\s*${cjkNumber}\\s*(?:季|部)\\s*全\\s*${cjkNumber}\\s*(?:集|话|話|期)\\s*(?:19|20)\\d{2}$`, "u").test(cleaned);
+  return WHOLE_SERIES_COUNT_YEAR_ALIAS_RE.test(cleaned) ||
+    SEASON_WHOLE_SERIES_COUNT_YEAR_ALIAS_RE.test(cleaned);
 }
 
 function nativeSeasonEpisodeBaseTitleCandidate(field: string) {
-  let cleaned = cleanHumanTitleCandidate(field);
-  cleaned = cleaned.replace(/^(?:19|20)\d{2}\s*年?\s*/u, "");
-  while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
-    cleaned = cleaned.replace(METADATA_TITLE_PREFIX_RE, "");
-  }
-  cleaned = cleaned
-    .replace(/【[^】]*】/gu, " ")
-    .replace(TV_CATEGORY_WRAPPER_FIELD_RE, " ")
-    .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
-    .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
-    .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const match = cleaned.match(/^(.+?)\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*季\s+.+?第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*期/u) ??
+  const cleaned = cleanNativeMetadataField(field, { stripLeadingYear: true });
+  const match = cleaned.match(CJK_SEASON_THEN_EPISODE_PERIOD_TITLE_RE) ??
     cleaned.match(/^(.+?)\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*季\s+[^|/]{1,40}[:：]/u);
-  const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
-  if (!candidate || !hasNativeScript(candidate)) return undefined;
-  if (/[A-Za-z]/u.test(candidate)) return undefined;
-  if (/[\/|]/u.test(candidate)) return undefined;
-  if (/\s/u.test(candidate)) return undefined;
-  if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
-  return candidate;
+  return validNativeBaseTitleCandidate(match?.[1]);
 }
 
 function nativeCompactSeasonSuffixBaseTitleCandidate(field: string) {
-  let cleaned = cleanHumanTitleCandidate(field);
-  cleaned = cleaned.replace(/^(?:19|20)\d{2}\s*年?\s*/u, "");
-  while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
-    cleaned = cleaned.replace(METADATA_TITLE_PREFIX_RE, "");
-  }
-  cleaned = cleaned
-    .replace(/【[^】]*】/gu, " ")
-    .replace(TV_CATEGORY_WRAPPER_FIELD_RE, " ")
-    .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
-    .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
-    .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleaned = cleanNativeMetadataField(field, { stripLeadingYear: true });
   const match = cleaned.match(/^(.+?)(\d{1,2})\s+(?:第\s*([一二三四五六七八九十两\d]{1,3})\s*(?:季|部)|S0?(\d{1,2})\b|Season\s*(\d{1,2})\b)/iu);
   const suffixSeason = match?.[2] ? Number(match[2]) : undefined;
   const markerSeason = parseChineseNumber(match?.[3] ?? match?.[4] ?? match?.[5]);
   if (!suffixSeason || !markerSeason || suffixSeason !== markerSeason) return undefined;
 
-  const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
-  if (!candidate || !hasNativeScript(candidate)) return undefined;
-  if (/[A-Za-z]/u.test(candidate)) return undefined;
-  if (/[\/|]/u.test(candidate)) return undefined;
-  if (/\s/u.test(candidate)) return undefined;
-  if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
-  return candidate;
+  return validNativeBaseTitleCandidate(match?.[1]);
 }
 
 function nativeParsedSeasonEpisodeBaseTitleCandidate(field: string, parsedSeason: number | undefined) {
   if (!parsedSeason || parsedSeason < 2 || parsedSeason > 99) return undefined;
-  let cleaned = cleanHumanTitleCandidate(field);
-  cleaned = cleaned.replace(/^(?:19|20)\d{2}\s*年?\s*/u, "");
-  while (METADATA_TITLE_PREFIX_RE.test(cleaned)) {
-    cleaned = cleaned.replace(METADATA_TITLE_PREFIX_RE, "");
-  }
-  cleaned = cleaned
-    .replace(/【[^】]*】/gu, " ")
-    .replace(TV_CATEGORY_WRAPPER_FIELD_RE, " ")
-    .replace(SHORT_DRAMA_METADATA_PREFIX_RE, " ")
-    .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
-    .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const match = cleaned.match(/^(.+?)(\d{1,2})\s+(?:第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話|期)|全\s*[一二三四五六七八九十两\d]{1,4}\s*(?:集|话|話))/u);
+  const cleaned = cleanNativeMetadataField(field, { stripLeadingYear: true });
+  const match = cleaned.match(CJK_PARSED_SEASON_EPISODE_SUFFIX_RE);
   const suffixSeason = match?.[2] ? Number(match[2]) : undefined;
   if (!suffixSeason || suffixSeason !== parsedSeason) return undefined;
 
-  const candidate = cleanHumanTitleCandidate(match?.[1] ?? "");
-  if (!candidate || !hasNativeScript(candidate)) return undefined;
-  if (/[A-Za-z]/u.test(candidate)) return undefined;
-  if (/[\/|]/u.test(candidate)) return undefined;
-  if (/\s/u.test(candidate)) return undefined;
-  if (metadataInfoField(candidate) || PROVIDER_ALIAS_NOISE_RE.test(candidate)) return undefined;
-  return candidate;
+  return validNativeBaseTitleCandidate(match?.[1]);
 }
 
 function hasParenthesizedRegionalVariant(value: string) {
@@ -2199,9 +2133,9 @@ function cleanMetadataTitleField(field: string) {
     .replace(/\s*(?:转自|轉自|转载自|轉載自).+$/u, " ")
     .replace(BROADCASTER_METADATA_PREFIX_RE, " ")
     .replace(BROADCASTER_METADATA_FIELD_PREFIX_RE, " ")
-    .replace(/\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)\s*第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*期.*$/u, " ")
-    .replace(/\s*第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*期.*$/u, " ")
-    .replace(/\s*第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話).*$/u, " ")
+    .replace(CJK_SEASON_EPISODE_PERIOD_TAIL_RE, " ")
+    .replace(CJK_EPISODE_PERIOD_TAIL_RE, " ")
+    .replace(CJK_EPISODE_UNIT_TAIL_RE, " ")
     .replace(/\s+第\s*[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)(?=\s|$)/u, " ")
     .replace(/\s+(?:日记|日記)\s+.+(?:日记|日記)\s*$/u, " ")
     .replace(CJK_VARIETY_SECTION_SUBTITLE_RE, " ")
@@ -2241,7 +2175,7 @@ function metadataInfoField(value: string) {
   if (/^(?:s|season\s*)\d{1,2}$/i.test(cleaned)) return true;
   if (/^\d{1,2}(?:st|nd|rd|th)\s+season$/i.test(cleaned)) return true;
   if (/^(?:第\s*)?[一二三四五六七八九十两\d]{1,4}\s*(?:[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話)$/u.test(cleaned)) return true;
-  if (/^(?:第\s*)?[一二三四五六七八九十两\d]{1,3}\s*(?:季|部)\s+第\s*[一二三四五六七八九十两\d]{1,4}(?:\s*[-~至到－—]\s*[一二三四五六七八九十两\d]{1,4})?\s*(?:集|话|話)$/u.test(cleaned)) return true;
+  if (CJK_SEASON_EPISODE_INFO_FIELD_RE.test(cleaned)) return true;
   if (/^全\s*[一二三四五六七八九十两\d]{1,3}\s*(?:集|话|話)$/u.test(cleaned)) return true;
   return false;
 }

@@ -4,6 +4,7 @@ import type { MediaType, ProviderSource } from "@rss-media/shared/types";
 import type { FastifyBaseLogger } from "fastify";
 
 export const PROVIDER_SEARCH_TIMEOUT_MS = 5_000;
+export const PROVIDER_SEARCH_RESULT_LIMIT = 8;
 
 export type ProviderSearchLogger = Pick<FastifyBaseLogger, "info" | "warn">;
 

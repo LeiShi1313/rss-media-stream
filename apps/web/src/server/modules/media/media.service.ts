@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ParsedReleaseMatchStatus, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { toJsonStorageValue } from "@rss-media/shared/json";
 import { redactSecrets } from "@rss-media/shared/redact";
 import { normalizeTitleKey } from "@rss-media/shared/titleNormalization";
@@ -7,10 +7,17 @@ import type { MediaProvider, MediaType, ParsedMediaType, ProviderSource, Provide
 import type { AppConfig } from "../../config.js";
 import { AppError, badRequest, conflict, notFound, badGateway } from "../../core/errors.js";
 import { prisma } from "../../db.js";
+import { db } from "../../core/dbClient.js";
 import {
   getMetadataProviders,
   getMetadataProvider
 } from "../../integrations/providers/index.js";
+import {
+  getProviderSourceDefinition,
+  isProviderSource,
+  providerSourceForLegacyProvider,
+  providerSourceForLegacyProviderEntity
+} from "../../integrations/providers/sources.js";
 import {
   getBroadSearchTargets,
   getMatchingProviderOrder
@@ -28,11 +35,14 @@ import type {
 } from "../../integrations/providers/types.js";
 import {
   legacyKindFromMediaType,
-  selectReleaseMatchForPresentation,
   serializeMediaPresentation,
-  serializeProviderTitleSearchResult,
-  serializeReleaseMatch
+  serializeProviderTitleSearchResult
 } from "./presentation.js";
+import {
+  parsedReleaseMatchInclude,
+  type ActiveParsedReleaseMatch
+} from "./parsedReleaseMatchInclude.js";
+import { itemRelations, serializeItem } from "../items/items.service.js";
 import { LOW_CONFIDENCE_THRESHOLD } from "./matchingPolicy.js";
 import {
   EMPTY_PRESENTATION_PREFERENCES,
@@ -80,18 +90,8 @@ type TrendingMediaRow = {
   qualities: string[];
   releaseGroups: string[];
 };
-type ActiveParsedReleaseMatch = Prisma.ParsedReleaseMatchGetPayload<{
-  include: {
-    mediaTitle: {
-      include: { providerIdentities: { include: { metadata: true } } };
-    };
-    mediaProviderIdentity: true;
-    providerMediaMetadata: { include: { mediaProviderIdentity: true } };
-    providerTitle: true;
-  };
-}>;
-
 export type { ProviderMetadataCandidate } from "../../integrations/providers/types.js";
+export type { ActiveParsedReleaseMatch } from "./parsedReleaseMatchInclude.js";
 const MIN_AUTO_MATCH_CONFIDENCE = 0.3;
 type ParsedReleaseSnapshot = Pick<
   Prisma.ParsedReleaseGetPayload<{}>,
@@ -229,7 +229,7 @@ export async function resolveProviderMediaTitle(
   );
   const presentationPreferences = await loadPresentationPreferences(
     tenantId,
-    [resolved.mediaTitle.mediaType]
+    concreteMediaTypeList(resolved.mediaTitle.mediaType)
   );
   const presentation = serializeMediaPresentation({
     mediaTitle: resolved.mediaTitle,
@@ -539,7 +539,7 @@ export async function listMediaItems(tenantId: string, mediaTitleId: string) {
       }
     },
     orderBy: { firstSeenAt: "desc" },
-    include: itemRelations()
+    include: itemRelations
   });
 
   return items.map((item) => serializeItem(item, presentationPreferences));
@@ -569,13 +569,7 @@ export async function matchParsedReleaseForItem(input: {
   const releaseSnapshot = snapshotParsedRelease(release);
   if (release.mediaType === "UNKNOWN") {
     return prisma.$transaction(async (tx) => {
-      await lockParsedReleaseMatchWrites(tx, {
-        tenantId: input.tenantId,
-        parsedReleaseId: releaseSnapshot.id
-      });
-      if (!(await parsedReleaseSnapshotStillCurrent(tx, releaseSnapshot))) {
-        throwStaleParsedReleaseSnapshot();
-      }
+      await lockAndAssertParsedReleaseSnapshotCurrent(tx, releaseSnapshot);
 
       return createUnmatchedParsedReleaseMatch(tx, {
         tenantId: input.tenantId,
@@ -611,13 +605,7 @@ export async function matchParsedReleaseForItem(input: {
 
   if (!selected.result) {
     return prisma.$transaction(async (tx) => {
-      await lockParsedReleaseMatchWrites(tx, {
-        tenantId: input.tenantId,
-        parsedReleaseId: releaseSnapshot.id
-      });
-      if (!(await parsedReleaseSnapshotStillCurrent(tx, releaseSnapshot))) {
-        throwStaleParsedReleaseSnapshot();
-      }
+      await lockAndAssertParsedReleaseSnapshotCurrent(tx, releaseSnapshot);
 
       return createUnmatchedParsedReleaseMatch(tx, {
         tenantId: input.tenantId,
@@ -628,13 +616,7 @@ export async function matchParsedReleaseForItem(input: {
   }
 
   const persistedMatch = await prisma.$transaction(async (tx) => {
-    await lockParsedReleaseMatchWrites(tx, {
-      tenantId: input.tenantId,
-      parsedReleaseId: releaseSnapshot.id
-    });
-    if (!(await parsedReleaseSnapshotStillCurrent(tx, releaseSnapshot))) {
-      throwStaleParsedReleaseSnapshot();
-    }
+    await lockAndAssertParsedReleaseSnapshotCurrent(tx, releaseSnapshot);
 
     const providerMetadata = await upsertProviderMediaMetadata(tx, selected.result, {
       linkConfidence: selected.result.matchConfidence ?? 0,
@@ -648,7 +630,8 @@ export async function matchParsedReleaseForItem(input: {
       mediaTitleId: providerMetadata.mediaTitle.id,
       mediaProviderIdentityId: providerMetadata.identity.id,
       providerMediaMetadataId: providerMetadata.metadata.id,
-      mediaType: providerMetadata.mediaTitle.mediaType,
+      // upsertProviderMediaMetadata guarantees mediaTitle.mediaType === selected.result.mediaType
+      mediaType: selected.result.mediaType,
       source: "AUTO",
       confidence,
       reason: confidence < LOW_CONFIDENCE_THRESHOLD
@@ -680,7 +663,6 @@ async function selectProviderTitleCandidate(input: {
 }) {
   let configured = 0;
   let missingReleaseYear = false;
-  let providerFailed = false;
   let bestLowConfidenceResult: ProviderMetadataCandidate | undefined;
   const searchTitles = matchingSearchTitles(input.title, input.titleCandidates);
   const providerSourceOrder = await getMatchingProviderOrder(input.tenantId, input.mediaType);
@@ -707,7 +689,6 @@ async function selectProviderTitleCandidate(input: {
           episode: input.episode
         });
       } catch {
-        providerFailed = true;
         break;
       }
 
@@ -745,8 +726,6 @@ async function selectProviderTitleCandidate(input: {
       ? "provider_not_configured"
       : missingReleaseYear
         ? "missing_release_year_for_auto_match"
-        : providerFailed
-          ? "no_result"
         : "no_result"
   };
 }
@@ -1041,6 +1020,19 @@ function throwStaleParsedReleaseSnapshot(): never {
   );
 }
 
+async function lockAndAssertParsedReleaseSnapshotCurrent(
+  tx: Transaction,
+  snapshot: ParsedReleaseSnapshot
+) {
+  await lockParsedReleaseMatchWrites(tx, {
+    tenantId: snapshot.tenantId,
+    parsedReleaseId: snapshot.id
+  });
+  if (!(await parsedReleaseSnapshotStillCurrent(tx, snapshot))) {
+    throwStaleParsedReleaseSnapshot();
+  }
+}
+
 export async function manuallyMatchParsedReleaseWithProvider(input: {
   tenantId: string;
   itemId: string;
@@ -1099,7 +1091,8 @@ export async function manuallyMatchParsedReleaseWithProvider(input: {
       mediaTitleId: providerMetadata.mediaTitle.id,
       mediaProviderIdentityId: providerMetadata.identity.id,
       providerMediaMetadataId: providerMetadata.metadata.id,
-      mediaType: providerMetadata.mediaTitle.mediaType,
+      // upsertProviderMediaMetadata guarantees mediaTitle.mediaType === selected.mediaType
+      mediaType: selected.mediaType,
       source: "MANUAL",
       confidence: 1,
       reason: "manual_provider_identity"
@@ -1277,140 +1270,6 @@ export async function upsertMediaTitleFromMetadata(
   });
 }
 
-export async function upsertProviderTitle(tx: Transaction, result: ProviderTitleResult) {
-  const payload = toPrismaJson(result.payload);
-  const payloadHash = hashJson(payload);
-
-  return db(tx).providerTitle.upsert({
-    where: {
-      provider_providerEntityType_providerId: {
-        provider: result.provider,
-        providerEntityType: result.providerEntityType,
-        providerId: result.providerId
-      }
-    },
-    create: {
-      provider: result.provider,
-      providerEntityType: result.providerEntityType,
-      providerId: result.providerId,
-      mediaType: result.mediaType,
-      title: result.title,
-      normalizedTitle: result.normalizedTitle || normalizeTitle(result.title),
-      originalTitle: result.originalTitle,
-      releaseYear: result.releaseYear,
-      endYear: result.endYear,
-      language: result.language,
-      region: result.region,
-      payload,
-      payloadHash,
-      ratingValue: result.ratingValue,
-      ratingScale: result.ratingScale,
-      ratingVoteCount: result.ratingVoteCount,
-      ratingType: providerRatingType(result.ratingType)
-    },
-    update: {
-      mediaType: result.mediaType,
-      title: result.title,
-      normalizedTitle: result.normalizedTitle || normalizeTitle(result.title),
-      originalTitle: result.originalTitle,
-      releaseYear: result.releaseYear,
-      endYear: result.endYear,
-      language: result.language,
-      region: result.region,
-      payload,
-      payloadHash,
-      ratingValue: result.ratingValue,
-      ratingScale: result.ratingScale,
-      ratingVoteCount: result.ratingVoteCount,
-      ratingType: providerRatingType(result.ratingType),
-      fetchedAt: new Date()
-    }
-  });
-}
-
-export async function upsertMediaTitleFromProviderTitle(
-  tx: Transaction,
-  providerTitle: Prisma.ProviderTitleGetPayload<{}>
-) {
-  const existingLink = await db(tx).mediaTitleProviderLink.findUnique({
-    where: { providerTitleId: providerTitle.id },
-    include: { mediaTitle: true }
-  });
-  if (existingLink?.mediaTitle) return existingLink.mediaTitle;
-
-  const normalizedTitle = providerTitle.normalizedTitle || normalizeTitle(providerTitle.title);
-  if (providerTitle.releaseYear != null) {
-    await lockKnownYearMediaTitleWrites(tx, {
-      mediaType: providerTitle.mediaType,
-      normalizedTitle,
-      releaseYear: providerTitle.releaseYear
-    });
-  }
-
-  const existing = await db(tx).mediaTitle.findFirst({
-    where: {
-      mediaType: providerTitle.mediaType,
-      titleKey: normalizedTitle,
-      releaseYear: providerTitle.releaseYear ?? null
-    },
-    orderBy: { createdAt: "asc" }
-  });
-  if (existing) return existing;
-
-  return db(tx).mediaTitle.create({
-    data: {
-      mediaType: providerTitle.mediaType,
-      title: providerTitle.title,
-      titleKey: normalizedTitle,
-      releaseYear: providerTitle.releaseYear,
-      endYear: providerTitle.endYear
-    }
-  });
-}
-
-export async function confirmMediaTitleProviderLink(
-  tx: Transaction,
-  input: {
-    mediaTitleId: string;
-    providerTitleId: string;
-    confidence: number;
-    source: "MANUAL" | "PROVIDER_CROSSREF" | "SEARCH_MATCH" | "IMPORT";
-  }
-) {
-  const [mediaTitle, providerTitle] = await Promise.all([
-    db(tx).mediaTitle.findUnique({ where: { id: input.mediaTitleId } }),
-    db(tx).providerTitle.findUnique({ where: { id: input.providerTitleId } })
-  ]);
-  if (!mediaTitle || !providerTitle) throw notFound("Media/provider title");
-  if (mediaTitle.mediaType !== providerTitle.mediaType) {
-    throw conflict("MEDIA_TYPE_MISMATCH", "Provider title media type must match canonical title");
-  }
-
-  const existing = await db(tx).mediaTitleProviderLink.findUnique({
-    where: { providerTitleId: input.providerTitleId }
-  });
-  if (existing && existing.mediaTitleId !== input.mediaTitleId) {
-    throw conflict("PROVIDER_TITLE_ALREADY_LINKED", "Provider title is already linked to another media title");
-  }
-
-  return db(tx).mediaTitleProviderLink.upsert({
-    where: { providerTitleId: input.providerTitleId },
-    create: {
-      mediaTitleId: input.mediaTitleId,
-      providerTitleId: input.providerTitleId,
-      mediaType: mediaTitle.mediaType,
-      confidence: input.confidence,
-      source: input.source,
-      confirmedAt: new Date()
-    },
-    update: {
-      confidence: input.confidence,
-      source: input.source,
-      confirmedAt: new Date()
-    }
-  });
-}
-
 export async function findActiveParsedReleaseMatch(
   tx: Transaction,
   input: { tenantId: string; parsedReleaseId: string }
@@ -1422,14 +1281,7 @@ export async function findActiveParsedReleaseMatch(
       status: { in: [...ACTIVE_STATUSES] },
       invalidatedAt: null
     },
-    include: {
-      mediaTitle: {
-        include: { providerIdentities: { include: { metadata: true } } }
-      },
-      mediaProviderIdentity: true,
-      providerMediaMetadata: { include: { mediaProviderIdentity: true } },
-      providerTitle: true
-    },
+    include: parsedReleaseMatchInclude,
     orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
   });
 }
@@ -1450,36 +1302,6 @@ export async function invalidateActiveReleaseDecisions(
       staleReason: input.staleReason
     }
   });
-}
-
-async function rejectActiveMatchedParsedReleaseMatches(
-  tx: Transaction,
-  input: { tenantId: string; parsedReleaseId: string; reason: string }
-) {
-  await lockParsedReleaseMatchWrites(tx, input);
-
-  const activeMatches = await db(tx).parsedReleaseMatch.findMany({
-    where: {
-      tenantId: input.tenantId,
-      parsedReleaseId: input.parsedReleaseId,
-      status: "MATCHED",
-      invalidatedAt: null
-    },
-    select: { id: true }
-  });
-  const ids = activeMatches.map((match: { id: string }) => match.id);
-  if (ids.length === 0) return ids;
-
-  await db(tx).parsedReleaseMatch.updateMany({
-    where: { id: { in: ids } },
-    data: {
-      status: "REJECTED",
-      reason: input.reason,
-      rejectedAt: new Date()
-    }
-  });
-
-  return ids;
 }
 
 export async function createUnmatchedParsedReleaseMatch(
@@ -1505,14 +1327,7 @@ export async function createUnmatchedParsedReleaseMatch(
       source: "AUTO",
       reason: input.reason
     },
-    include: {
-      mediaTitle: {
-        include: { providerIdentities: { include: { metadata: true } } }
-      },
-      mediaProviderIdentity: true,
-      providerMediaMetadata: { include: { mediaProviderIdentity: true } },
-      providerTitle: true
-    }
+    include: parsedReleaseMatchInclude
   });
 }
 
@@ -1535,7 +1350,7 @@ export async function createMatchedParsedReleaseMatch(
   await lockParsedReleaseMatchWrites(tx, input);
 
   const active = await findActiveParsedReleaseMatch(tx, input);
-  if (activeParsedReleaseMatchEquivalent(active, input)) {
+  if (active && activeParsedReleaseMatchEquivalent(active, input)) {
     return active;
   }
 
@@ -1587,14 +1402,7 @@ export async function createMatchedParsedReleaseMatch(
       reason: input.reason,
       matchedAt: new Date()
     },
-    include: {
-      mediaTitle: {
-        include: { providerIdentities: { include: { metadata: true } } }
-      },
-      mediaProviderIdentity: true,
-      providerMediaMetadata: { include: { mediaProviderIdentity: true } },
-      providerTitle: true
-    }
+    include: parsedReleaseMatchInclude
   });
 }
 
@@ -1637,14 +1445,7 @@ async function findEquivalentActiveParsedReleaseMatch(
       reason: input.reason,
       invalidatedAt: null
     },
-    include: {
-      mediaTitle: {
-        include: { providerIdentities: { include: { metadata: true } } }
-      },
-      mediaProviderIdentity: true,
-      providerMediaMetadata: { include: { mediaProviderIdentity: true } },
-      providerTitle: true
-    },
+    include: parsedReleaseMatchInclude,
     orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
   });
 }
@@ -1894,40 +1695,30 @@ function normalizeProviderResult(
 }
 
 function canonicalProviderSource(value?: string | null): ProviderSource | undefined {
-  if (value === "tmdb_api" || value === "tvdb_api" || value === "ptgen_imdb" || value === "ptgen_douban") {
-    return value;
-  }
-  if (value === "tmdb") return "tmdb_api";
-  if (value === "tvdb") return "tvdb_api";
-  if (value === "ptgen") return "ptgen_imdb";
-  return undefined;
+  if (!value) return undefined;
+  if (isProviderSource(value)) return value;
+  return providerSourceForLegacyProvider(value);
 }
 
 function providerSourceForProbe(provider?: string | null, providerEntityType?: string | null): ProviderSource | undefined {
-  if (provider === "ptgen" && providerEntityType === "ptgen_douban") return "ptgen_douban";
-  if (provider === "ptgen" && providerEntityType === "ptgen_imdb") return "ptgen_imdb";
-  return canonicalProviderSource(provider);
+  if (!provider) return undefined;
+  return providerSourceForLegacyProviderEntity(provider, providerEntityType) ?? canonicalProviderSource(provider);
 }
 
 function adapterIdForProviderSource(providerSource: ProviderSource) {
-  if (providerSource === "tmdb_api") return "tmdb";
-  if (providerSource === "tvdb_api") return "tvdb";
-  return "ptgen";
+  return getProviderSourceDefinition(providerSource).adapterId;
 }
 
 function providerForProviderSource(providerSource: ProviderSource): MediaProvider {
-  if (providerSource === "tmdb_api") return "tmdb";
-  if (providerSource === "tvdb_api") return "tvdb";
-  if (providerSource === "ptgen_douban") return "douban";
-  return "imdb";
+  return getProviderSourceDefinition(providerSource).provider;
 }
 
 function defaultLanguageForProviderSource(providerSource: ProviderSource) {
-  return providerSource === "ptgen_douban" ? "zh-CN" : "en-US";
+  return getProviderSourceDefinition(providerSource).defaultMetadataLanguage ?? "en-US";
 }
 
-function supportedMediaTypesForProviderSource(_providerSource: ProviderSource): readonly MediaType[] {
-  return ["MOVIE", "TV_SERIES"];
+function supportedMediaTypesForProviderSource(providerSource: ProviderSource): readonly MediaType[] {
+  return getProviderSourceDefinition(providerSource).supportedMediaTypes;
 }
 
 function normalizeProviderIdForSource(providerSource: ProviderSource, providerId: string) {
@@ -2058,119 +1849,6 @@ function serializeMediaTitle(
   };
 }
 
-function serializeItem(
-  item: any,
-  presentationPreferences: PresentationPreferences = EMPTY_PRESENTATION_PREFERENCES
-) {
-  const releaseOptions = presentationOptionsForMediaType(
-    presentationPreferences,
-    item.parsedRelease?.mediaType
-  );
-  const activeMatch = selectReleaseMatchForPresentation(
-    item.parsedRelease?.matches,
-    releaseOptions.providerOrder
-  );
-  return {
-    id: item.id,
-    feed: item.feed ? { id: item.feed.id, name: item.feed.name } : undefined,
-    rawTitle: item.rawTitle,
-    publishDate: item.publishDate?.toISOString?.() ?? item.publishDate,
-    firstSeenAt: item.firstSeenAt?.toISOString?.() ?? item.firstSeenAt,
-    sizeBytes: item.sizeBytes?.toString?.(),
-    dedupeKeyType: item.dedupeKeyType,
-    parsedRelease: item.parsedRelease ? serializeParsedRelease(item.parsedRelease) : undefined,
-    enrichmentState: releaseEnrichmentState(item.parsedRelease, activeMatch),
-    match: serializeReleaseMatch({
-      match: activeMatch,
-      release: item.parsedRelease,
-      rawTitle: item.rawTitle,
-      downloadJobs: item.downloadJobs
-    }, presentationOptionsForMediaType(
-      presentationPreferences,
-      activeMatch?.mediaType ?? activeMatch?.mediaTitle?.mediaType ?? item.parsedRelease?.mediaType
-    )),
-    downloadJobs: item.downloadJobs?.map((job: any) => ({
-      id: job.id,
-      status: job.status,
-      error: job.error,
-      clientHash: job.clientHash,
-      createdAt: job.createdAt?.toISOString?.() ?? job.createdAt
-    }))
-  };
-}
-
-function releaseEnrichmentState(release: any, activeMatch: any) {
-  if (!release) return "UNPARSED";
-  if (activeMatch?.status === "MATCHED") return "MATCHED";
-  if (activeMatch?.status === "UNMATCHED") return "UNMATCHED";
-  return "PENDING";
-}
-
-function serializeParsedRelease(release: any) {
-  return {
-    id: release.id,
-    title: release.title,
-    year: release.year,
-    kind: legacyKindFromMediaType(release.mediaType),
-    mediaType: release.mediaType,
-    tvUnitType: release.tvUnitType,
-    season: release.season,
-    episode: release.episode,
-    episodeEnd: release.episodeEnd,
-    specialNumber: release.specialNumber,
-    episodePart: release.episodePart,
-    resolution: release.resolution,
-    quality: release.quality,
-    source: release.source,
-    codec: release.codec,
-    audio: release.audio,
-    releaseGroup: release.releaseGroup,
-    variant: release.variant,
-    confidence: release.parseConfidence,
-    parseConfidence: release.parseConfidence,
-    parsedAt: release.parsedAt?.toISOString?.() ?? release.parsedAt
-  };
-}
-
-function itemRelations() {
-  return {
-    feed: { select: { id: true, name: true } },
-    parsedRelease: {
-      include: {
-        matches: {
-          where: {
-            OR: [
-              { status: ParsedReleaseMatchStatus.MATCHED },
-              { status: ParsedReleaseMatchStatus.UNMATCHED }
-            ],
-            invalidatedAt: null
-          },
-          include: {
-            mediaTitle: {
-              include: { providerIdentities: { include: { metadata: true } } }
-            },
-            mediaProviderIdentity: true,
-            providerMediaMetadata: { include: { mediaProviderIdentity: true } },
-            providerTitle: true
-          },
-          orderBy: [{ matchedAt: "desc" as const }, { updatedAt: "desc" as const }],
-        }
-      }
-    },
-    downloadJobs: {
-      orderBy: { createdAt: "desc" as const },
-      take: 3,
-      select: {
-        id: true,
-        status: true,
-        error: true,
-        clientHash: true,
-        createdAt: true
-      }
-    }
-  };
-}
-
 function providerRatingType(ratingType?: string) {
   if (ratingType === "user_score") return "USER_SCORE";
   if (ratingType === "critic_score") return "CRITIC_SCORE";
@@ -2188,8 +1866,4 @@ function hashJson(value: unknown) {
 
 function normalizeTitle(value: string) {
   return normalizeTitleKey(value);
-}
-
-function db(tx?: Transaction) {
-  return (tx ?? prisma) as any;
 }

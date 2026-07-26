@@ -1,5 +1,4 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import * as TabsPrimitive from "@radix-ui/react-tabs";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import clsx from "clsx";
 import { Check } from "lucide-react";
@@ -60,35 +59,6 @@ export function IconSelectMenu({
         </DropdownMenuPrimitive.Content>
       </DropdownMenuPrimitive.Portal>
     </DropdownMenuPrimitive.Root>
-  );
-}
-
-export type TabOption = {
-  value: string;
-  label: string;
-  count?: number;
-};
-
-export function SegmentedTabs({
-  value,
-  onValueChange,
-  tabs
-}: {
-  value: string;
-  onValueChange: (value: string) => void;
-  tabs: TabOption[];
-}) {
-  return (
-    <TabsPrimitive.Root value={value} onValueChange={onValueChange}>
-      <TabsPrimitive.List className="segmented-tabs">
-        {tabs.map((tab) => (
-          <TabsPrimitive.Trigger className="segmented-tab" key={tab.value} value={tab.value}>
-            {tab.label}
-            {tab.count !== undefined && <span>{tab.count}</span>}
-          </TabsPrimitive.Trigger>
-        ))}
-      </TabsPrimitive.List>
-    </TabsPrimitive.Root>
   );
 }
 

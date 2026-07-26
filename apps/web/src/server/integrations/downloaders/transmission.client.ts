@@ -14,7 +14,8 @@ export class TransmissionClient implements DownloaderClient {
 
   async test() {
     const body = await this.rpc("session-get", {});
-    return { ok: true as const, version: body.arguments?.version };
+    const version = body.arguments?.version;
+    return { ok: true as const, version: typeof version === "string" ? version : undefined };
   }
 
   async addTorrent(
@@ -27,7 +28,8 @@ export class TransmissionClient implements DownloaderClient {
       "download-dir": options.savePath || undefined,
       labels: tags ? tags.split(",").map((tag) => tag.trim()).filter(Boolean) : undefined
     });
-    return { hash: body.arguments?.["torrent-added"]?.hashString };
+    const added = body.arguments?.["torrent-added"] as { hashString?: string } | undefined;
+    return { hash: added?.hashString };
   }
 
   async listTorrents() {
@@ -57,7 +59,7 @@ export class TransmissionClient implements DownloaderClient {
   private async rpc(
     method: string,
     args: Record<string, unknown>
-  ): Promise<{ result: string; arguments?: Record<string, any> }> {
+  ): Promise<{ result: string; arguments?: Record<string, unknown> }> {
     const password = this.downloader.encryptedPassword
       ? decryptSecret(this.downloader.encryptedPassword, this.config.appSecret)
       : "";
@@ -85,7 +87,7 @@ export class TransmissionClient implements DownloaderClient {
         redactSecrets(`Transmission RPC failed with ${response.status}: ${await response.text()}`)
       );
     }
-    const body = (await response.json()) as { result: string; arguments?: Record<string, any> };
+    const body = (await response.json()) as { result: string; arguments?: Record<string, unknown> };
     if (body.result !== "success") throw new Error(`Transmission RPC failed: ${body.result}`);
     return body;
   }

@@ -15,7 +15,7 @@ import {
   type WorkspaceSettings,
   type WorkspaceMember
 } from "./api.js";
-import { FieldLabel, FormInput, UiButton } from "./ui.js";
+import { FieldLabel, FormInput, UiButton } from "./components/ui/index.js";
 import { ActivityPage } from "./pages/activity.js";
 import { DownloadersPage } from "./pages/downloaders.js";
 import { OverviewPage } from "./pages/overview.js";
@@ -24,7 +24,7 @@ import { SettingsPage } from "./pages/settings.js";
 import { SubscriptionsPage } from "./pages/subscriptions.js";
 import { WorkspacePage } from "./pages/workspace.js";
 import { pageIds, type ActionResult, type PageId, type RunAction, type TimelinePoint } from "./types.js";
-import { relativeTime } from "./lib/format.js";
+import { errorMessage, relativeTime } from "./lib/format.js";
 import { applyUiLanguage, normalizeUiLanguage } from "./i18n.js";
 import { AppSidebar } from "./components/layout/app-sidebar.js";
 
@@ -52,7 +52,7 @@ export function App() {
     } catch (err) {
       setSetupRequired(false);
       setUser(null);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     }
   }
 
@@ -113,7 +113,7 @@ function AuthScreen({
       });
       onDone(session);
     } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
+      onError(errorMessage(err));
     }
   }
 
@@ -232,7 +232,6 @@ function Dashboard({
       totalItems: items.length,
       matched: items.filter((item) => item.match?.status === "MATCHED" && !item.match.attention.required).length,
       feeds: feeds.filter((feed) => feed.enabled).length,
-      jobs: jobs.length,
       failedJobs: jobs.filter((job) => job.status === "FAILED").length,
       subscriptions: subscriptions.filter((subscription) => subscription.enabled).length,
       downloaders: downloaders.filter((downloader) => downloader.enabled).length
@@ -364,6 +363,3 @@ function applyResult<T>(
   if (result.status === "fulfilled") setter(result.value);
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}

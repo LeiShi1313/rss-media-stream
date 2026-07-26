@@ -7,6 +7,7 @@ import { CheckboxField, FieldLabel, FormInput, UiButton } from "../components/ui
 import { Empty } from "../components/common/feedback.js";
 import { Modal } from "../components/common/surfaces.js";
 import { relativeTime } from "../lib/format.js";
+import { filterByQuery } from "../lib/forms.js";
 
 const defaultPollIntervalSeconds = 600;
 
@@ -23,15 +24,10 @@ export function RssPage({
   const [feedModal, setFeedModal] = useState<Feed | "new" | null>(null);
   const [deleteFeed, setDeleteFeed] = useState<Feed | null>(null);
   const [query, setQuery] = useState("");
-  const filteredFeeds = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return feeds;
-    return feeds.filter((feed) =>
-      [feed.name, feed.urlPreview]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedQuery))
-    );
-  }, [feeds, query]);
+  const filteredFeeds = useMemo(
+    () => filterByQuery(feeds, query, (feed) => [feed.name, feed.urlPreview]),
+    [feeds, query]
+  );
 
   return (
     <div className="rss-feed-workbench">

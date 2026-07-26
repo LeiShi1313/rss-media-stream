@@ -211,10 +211,10 @@ function mergeMissingDefaultPolicies(
 }
 
 async function disabledProviderSources(tenantId: string) {
-  const rows: Array<{ providerSource: string }> = await ((prisma as any).tenantProviderSourceConfig?.findMany?.({
+  const rows = await prisma.tenantProviderSourceConfig.findMany({
     where: { tenantId, enabled: false },
     select: { providerSource: true }
-  }) ?? []);
+  });
   const disabled = new Set(rows.map((row) => row.providerSource as ProviderSource));
 
   const legacyRows = await prisma.tenantProviderConfig.findMany({

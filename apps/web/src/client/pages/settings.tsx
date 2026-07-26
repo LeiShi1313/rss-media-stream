@@ -23,6 +23,16 @@ type ProviderDraft = {
   secrets: Record<string, string>;
 };
 
+function draftFromProvider(provider: ProviderSettings): ProviderDraft {
+  return {
+    enabled: provider.enabled,
+    metadataLanguage: provider.metadataLanguage ?? "en-US",
+    region: provider.region ?? "",
+    baseUrl: provider.baseUrl ?? provider.baseUrlOptions[0]?.value ?? "",
+    secrets: {}
+  };
+}
+
 export function SettingsPage({
   busy,
   runAction,
@@ -46,13 +56,7 @@ export function SettingsPage({
     setProviderSettings(nextProviders.providers);
     setProviderDrafts(Object.fromEntries(nextProviders.providers.map((provider) => [
       provider.id,
-      {
-        enabled: provider.enabled,
-        metadataLanguage: provider.metadataLanguage ?? "en-US",
-        region: provider.region ?? "",
-        baseUrl: provider.baseUrl ?? provider.baseUrlOptions[0]?.value ?? "",
-        secrets: {}
-      }
+      draftFromProvider(provider)
     ])));
     setPolicies(nextPolicies.mediaTypes);
   }
@@ -61,7 +65,7 @@ export function SettingsPage({
     void loadSettings();
   }, []);
 
-  async function saveProviderSettings(provider: ProviderSettings) {
+  async function saveProvider(provider: ProviderSettings, { clearSecrets = false } = {}) {
     const draft = providerDrafts[provider.id];
     const secrets = Object.fromEntries(
       Object.entries(draft?.secrets ?? {}).filter(([, value]) => value.trim())
@@ -74,24 +78,9 @@ export function SettingsPage({
           ...(provider.supportsMetadataLanguage ? { metadataLanguage: draft.metadataLanguage || null } : {}),
           ...(provider.supportsRegion ? { region: draft.region || null } : {}),
           ...(provider.baseUrlOptions.length > 0 ? { baseUrl: draft.baseUrl || null } : {}),
-          ...(Object.keys(secrets).length > 0 ? { secrets } : {})
-        })
-      })
-    );
-    if (result.ok) await loadSettings();
-  }
-
-  async function clearProviderCredential(provider: ProviderSettings) {
-    const draft = providerDrafts[provider.id];
-    const result = await runAction(() =>
-      api<ProviderSettingsResponse>(`/api/settings/providers/${provider.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          enabled: draft.enabled,
-          clearSecrets: true,
-          ...(provider.supportsMetadataLanguage ? { metadataLanguage: draft.metadataLanguage || null } : {}),
-          ...(provider.supportsRegion ? { region: draft.region || null } : {}),
-          ...(provider.baseUrlOptions.length > 0 ? { baseUrl: draft.baseUrl || null } : {})
+          ...(clearSecrets
+            ? { clearSecrets: true }
+            : Object.keys(secrets).length > 0 ? { secrets } : {})
         })
       })
     );
@@ -123,9 +112,9 @@ export function SettingsPage({
               busy={busy}
               draft={providerDrafts[provider.id]}
               key={provider.id}
-              onClearCredential={() => void clearProviderCredential(provider)}
+              onClearCredential={() => void saveProvider(provider, { clearSecrets: true })}
               onDraftChange={(draft) => setProviderDrafts((current) => ({ ...current, [provider.id]: draft }))}
-              onSave={() => void saveProviderSettings(provider)}
+              onSave={() => void saveProvider(provider)}
               ownerOnly={ownerOnly}
               provider={provider}
               languageOptions={mediaLanguageOptions}
@@ -186,13 +175,7 @@ function ProviderCard({
   provider: ProviderSettings;
   t: TFunction;
 }) {
-  const current = draft ?? {
-    enabled: provider.enabled,
-    metadataLanguage: provider.metadataLanguage ?? "en-US",
-    region: provider.region ?? "",
-    baseUrl: provider.baseUrl ?? provider.baseUrlOptions[0]?.value ?? "",
-    secrets: {}
-  };
+  const current = draft ?? draftFromProvider(provider);
 
   function update(patch: Partial<ProviderDraft>) {
     onDraftChange({ ...current, ...patch });

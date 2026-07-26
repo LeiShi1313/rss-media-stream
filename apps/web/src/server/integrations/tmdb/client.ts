@@ -1,4 +1,6 @@
 import type { MediaType, TmdbTitleResult } from "@rss-media/shared/types";
+import { fetchJson } from "../http.js";
+import { PROVIDER_SEARCH_RESULT_LIMIT } from "../providers/searchExecution.js";
 import { tmdbTitleSupportsSeasonEvidence, toTitleResult } from "./mapper.js";
 import type {
   TmdbResult,
@@ -74,14 +76,11 @@ async function fetchTmdbSearch(input: {
     params.set(input.kind === "tv" ? "first_air_date_year" : "year", String(input.input.year));
   }
   applyTmdbApiKeyParam(params, input.credential);
-  const response = await fetch(`https://api.themoviedb.org/3/search/${input.kind}?${params}`, {
+  return fetchJson<TmdbSearchResponse>(`https://api.themoviedb.org/3/search/${input.kind}?${params}`, {
+    label: "TMDB search",
     headers: tmdbHeaders(input.credential),
     signal: input.signal
   });
-  if (!response.ok) {
-    throw new Error(`TMDB search failed with ${response.status}`);
-  }
-  return (await response.json()) as TmdbSearchResponse;
 }
 
 export async function getTmdbMediaById(
@@ -96,17 +95,14 @@ export async function getTmdbMediaById(
     throw new Error("TMDB API key is not configured");
   }
 
-  const params = new URLSearchParams({ language });
-  if (region) params.set("region", region);
-  applyTmdbApiKeyParam(params, credential);
-  const response = await fetch(`https://api.themoviedb.org/3/${kind}/${input.tmdbId}?${params}`, {
-    headers: tmdbHeaders(credential),
+  const body = await fetchTmdbDetail({
+    kind,
+    tmdbId: input.tmdbId,
+    credential,
+    language,
+    region,
     signal: options.signal
   });
-  if (!response.ok) {
-    throw new Error(`TMDB detail lookup failed with ${response.status}`);
-  }
-  const body = (await response.json()) as TmdbResult;
   return toTitleResult(body, kind, {
     title: body.title ?? body.name ?? String(input.tmdbId),
     mediaType: input.mediaType,
@@ -124,12 +120,10 @@ export async function validateTmdbCredential(value: string): Promise<void> {
   const params = new URLSearchParams();
   applyTmdbApiKeyParam(params, credential);
   const query = params.size > 0 ? `?${params}` : "";
-  const response = await fetch(`https://api.themoviedb.org/3/authentication${query}`, {
+  await fetchJson(`https://api.themoviedb.org/3/authentication${query}`, {
+    label: "TMDB authentication",
     headers: tmdbHeaders(credential)
   });
-  if (!response.ok) {
-    throw new Error(`TMDB authentication failed with ${response.status}`);
-  }
 }
 
 function mapSearchResponse(
@@ -167,7 +161,7 @@ function mapSearchResponse(
     });
   }
 
-  return Promise.all(merged.slice(0, 8).map(async ({ result, language, extraCandidateTitles }) => {
+  return Promise.all(merged.slice(0, PROVIDER_SEARCH_RESULT_LIMIT).map(async ({ result, language, extraCandidateTitles }) => {
     const seasonEpisodeEvidence = await maybeFetchTvSeasonEpisodeEvidence({
       kind,
       input,
@@ -243,14 +237,11 @@ async function fetchTmdbDetail(input: {
   const params = new URLSearchParams({ language: input.language });
   if (input.region) params.set("region", input.region);
   applyTmdbApiKeyParam(params, input.credential);
-  const response = await fetch(`https://api.themoviedb.org/3/${input.kind}/${input.tmdbId}?${params}`, {
+  return fetchJson<TmdbResult>(`https://api.themoviedb.org/3/${input.kind}/${input.tmdbId}?${params}`, {
+    label: "TMDB detail lookup",
     headers: tmdbHeaders(input.credential),
     signal: input.signal
   });
-  if (!response.ok) {
-    throw new Error(`TMDB detail lookup failed with ${response.status}`);
-  }
-  return (await response.json()) as TmdbResult;
 }
 
 function tvSeasonEpisodeEvidence(

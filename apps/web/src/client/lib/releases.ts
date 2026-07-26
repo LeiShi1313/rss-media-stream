@@ -44,15 +44,23 @@ export function releaseTitle(item: Item) {
   return item.match?.presentation?.title ?? item.parsedRelease?.title ?? item.rawTitle;
 }
 
+export function latestDownloadJob(item: Item) {
+  return [...(item.downloadJobs ?? [])].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )[0];
+}
+
+export function isTerminalDownloadStatus(status?: string | null) {
+  return Boolean(status && ["FAILED", "SENT", "COMPLETE", "COMPLETED", "SKIPPED"].includes(status));
+}
+
 export function releaseStatus(item: Item): {
   label: string;
   labelKey: string;
   ok: boolean;
   group: "review" | "downloaded" | "failed";
 } {
-  const latestJob = [...(item.downloadJobs ?? [])].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  )[0];
+  const latestJob = latestDownloadJob(item);
   if (latestJob?.status === "FAILED") {
     return { label: "Failed", labelKey: "release.status.failed", ok: false, group: "failed" };
   }

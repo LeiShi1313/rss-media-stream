@@ -3,10 +3,12 @@ import { prisma } from "../../db.js";
 import { notFound } from "../../core/errors.js";
 import { decryptAead } from "../../secrets.js";
 import {
+  legacyKindFromMediaType,
   selectReleaseMatchForPresentation,
   serializeReleaseMatch,
   type ReleaseMatchDto
 } from "../media/presentation.js";
+import { parsedReleaseMatchInclude } from "../media/parsedReleaseMatchInclude.js";
 import {
   EMPTY_PRESENTATION_PREFERENCES,
   loadPresentationPreferences,
@@ -15,7 +17,7 @@ import {
 } from "../media/presentationPreferences.js";
 import type { ItemQueryInput } from "./items.schemas.js";
 
-const itemRelations = {
+export const itemRelations = {
   feed: { select: { id: true, name: true } },
   parsedRelease: {
     include: {
@@ -27,14 +29,7 @@ const itemRelations = {
           ],
           invalidatedAt: null
         },
-        include: {
-          mediaTitle: {
-            include: { providerIdentities: { include: { metadata: true } } }
-          },
-          mediaProviderIdentity: true,
-          providerMediaMetadata: { include: { mediaProviderIdentity: true } },
-          providerTitle: true
-        },
+        include: parsedReleaseMatchInclude,
         orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }],
       }
     }
@@ -45,6 +40,7 @@ const itemRelations = {
     select: {
       id: true,
       status: true,
+      error: true,
       clientHash: true,
       createdAt: true
     }
@@ -57,6 +53,7 @@ export type ItemResponse = {
   rawTitle: string;
   sourceUrl?: string | null;
   sizeBytes?: string | null;
+  publishDate?: string | null;
   firstSeenAt: string;
   dedupeKeyType: "INFO_HASH" | "RELEASE_SIGNATURE" | "LINK_HASH";
   parsedRelease?: unknown;
@@ -65,12 +62,13 @@ export type ItemResponse = {
   downloadJobs: Array<{
     id: string;
     status: string;
+    error?: string | null;
     clientHash?: string | null;
     createdAt: string;
   }>;
 };
 
-type ItemWithRelations = any;
+type ItemWithRelations = Prisma.RssItemGetPayload<{ include: typeof itemRelations }>;
 
 export type ItemPageResponse = {
   items: ItemResponse[];
@@ -250,16 +248,6 @@ export async function getItem(
   return serializeItem(item, presentationPreferences);
 }
 
-export async function assertItemInTenant(tenantId: string, itemId: string) {
-  const item = await prisma.rssItem.findFirst({
-    where: { id: itemId, tenantId },
-    select: { id: true, tenantId: true }
-  });
-
-  if (!item) throw notFound("Item");
-  return item;
-}
-
 export function serializeItem(
   item: ItemWithRelations,
   presentationPreferences: PresentationPreferences = EMPTY_PRESENTATION_PREFERENCES
@@ -276,6 +264,7 @@ export function serializeItem(
     rawTitle: item.rawTitle,
     sourceUrl: item.encryptedSourceUrl ? decryptAead(item.encryptedSourceUrl) : null,
     sizeBytes: item.sizeBytes?.toString() ?? null,
+    publishDate: item.publishDate?.toISOString() ?? null,
     firstSeenAt: item.firstSeenAt.toISOString(),
     dedupeKeyType: item.dedupeKeyType,
     parsedRelease: release
@@ -291,9 +280,10 @@ export function serializeItem(
       presentationPreferences,
       activeMatch?.mediaType ?? activeMatch?.mediaTitle?.mediaType ?? release?.mediaType
     )),
-    downloadJobs: item.downloadJobs.map((job: any) => ({
+    downloadJobs: item.downloadJobs.map((job) => ({
       id: job.id,
       status: job.status,
+      error: job.error,
       clientHash: job.clientHash,
       createdAt: job.createdAt.toISOString()
     }))
@@ -443,9 +433,4 @@ function serializeParsedRelease(release: any) {
     parseConfidence: release.parseConfidence,
     parsedAt: release.parsedAt.toISOString()
   };
-}
-
-function legacyKindFromMediaType(mediaType?: "MOVIE" | "TV_SERIES" | "UNKNOWN") {
-  if (!mediaType) return undefined;
-  return mediaType === "TV_SERIES" ? "TV" : mediaType;
 }

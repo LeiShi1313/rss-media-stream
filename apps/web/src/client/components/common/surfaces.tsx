@@ -43,7 +43,7 @@ export function Modal({
   onClose: () => void;
 }) {
   return (
-    <AppDialog description={title} title={title} onClose={onClose}>
+    <AppDialog title={title} onClose={onClose}>
       {children}
     </AppDialog>
   );

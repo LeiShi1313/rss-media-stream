@@ -114,11 +114,11 @@ export function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-export function readUrlFromText(value?: string): string | undefined {
+function readUrlFromText(value?: string): string | undefined {
   return value?.trim().match(/https?:\/\/[^\s<>"']+/i)?.[0];
 }
 
-export function readUrlLikeGuid(guid?: string): string | undefined {
+function readUrlLikeGuid(guid?: string): string | undefined {
   if (!guid) return undefined;
   return /^(https?:|magnet:)/i.test(guid) ? guid : undefined;
 }

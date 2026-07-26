@@ -177,8 +177,6 @@ export function selectRatingProviderMetadata(input: {
     )[0]?.providerMetadata;
 }
 
-export const selectPresentationProviderTitle = selectPresentationProviderMetadata;
-
 export function selectReleaseMatchForPresentation(matches?: any[], providerOrder?: string[]) {
   const active = (matches ?? []).filter(Boolean);
   const matched = active.filter((match) => match.status === "MATCHED");

@@ -2,11 +2,9 @@ import { normalizeTitleKey } from "@rss-media/shared/titleNormalization";
 import type { MediaType, ProviderTitleResult } from "@rss-media/shared/types";
 import { scoreProviderCandidate } from "../providers/scoring.js";
 import {
+  ensureTrailingSlash,
   identityFromPtgenRecordId,
-  ptgenEntityTypeToSite,
-  ptgenEntityTypeToSource,
-  ptgenIdentity,
-  ptgenProviderEntityType
+  ptgenIdentity
 } from "./identity.js";
 import type {
   PtgenIdentity,
@@ -14,15 +12,8 @@ import type {
   PtgenNormalizedRecord,
   PtgenProviderEntityType,
   PtgenSearchHit,
-  PtgenSite,
   PtgenSource
 } from "./types.js";
-
-export {
-  ptgenEntityTypeToSite,
-  ptgenEntityTypeToSource,
-  ptgenProviderEntityType as providerEntityType
-};
 
 export function ptgenSearchHitToTitleResult(
   record: PtgenSearchHit,
@@ -99,29 +90,7 @@ export function ptgenLegacyRecordToTitleResult(
   );
 }
 
-export function ptgenRecordToTitleResult(
-  record: PtgenLegacyRecord,
-  input: {
-    site: PtgenSite;
-    sid: string;
-    mediaType?: MediaType;
-    language?: string;
-    baseUrl?: string;
-  }
-): ProviderTitleResult {
-  const result = ptgenLegacyRecordToTitleResult(record, {
-    source: input.site,
-    sourceId: input.sid,
-    mediaType: input.mediaType,
-    language: input.language,
-    baseUrl: input.baseUrl,
-    backend: "static_json"
-  });
-  if (!result) throw new Error("Invalid PTGen source ID");
-  return result;
-}
-
-export function ptgenNormalizedRecordToTitleResult(
+function ptgenNormalizedRecordToTitleResult(
   record: PtgenNormalizedRecord,
   input: { language?: string } = {}
 ): ProviderTitleResult {
@@ -485,8 +454,4 @@ function doubanIdFromLink(value?: string) {
 function stringFromFormatted(formatted: Record<string, unknown> | undefined, key: string) {
   const value = formatted?.[key];
   return typeof value === "string" ? value : undefined;
-}
-
-function ensureTrailingSlash(value: string) {
-  return value.endsWith("/") ? value : `${value}/`;
 }

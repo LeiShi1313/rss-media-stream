@@ -167,7 +167,7 @@ const {
 const {
   serializeMediaPresentation,
   selectReleaseMatchForPresentation,
-  selectPresentationProviderTitle
+  selectPresentationProviderMetadata
 } = await import("../src/server/modules/media/presentation.js");
 
 const config = {
@@ -2269,7 +2269,7 @@ describe("media presentation provider selection", () => {
       fetchedAt: new Date("2026-06-02T10:00:00Z")
     });
 
-    expect(selectPresentationProviderTitle({
+    expect(selectPresentationProviderMetadata({
       mediaTitle: { id: "media-1", mediaType: "TV_SERIES" },
       selectedProviderTitle: selected,
       providerLinks: [{ providerTitle: newerLinked }]
@@ -2301,7 +2301,7 @@ describe("media presentation provider selection", () => {
       fetchedAt: new Date("2026-06-02T10:00:00Z")
     });
 
-    expect(selectPresentationProviderTitle({
+    expect(selectPresentationProviderMetadata({
       mediaTitle: { id: "media-1", mediaType: "TV_SERIES" },
       selectedProviderTitle: selected,
       providerLinks: [{ providerTitle: allowedLinked }],
@@ -2387,7 +2387,7 @@ describe("media presentation provider selection", () => {
       expiresAt: new Date("2000-01-01T00:00:00Z")
     });
 
-    expect(selectPresentationProviderTitle({
+    expect(selectPresentationProviderMetadata({
       mediaTitle: { id: "media-1", mediaType: "UNKNOWN" },
       providerLinks: [
         { providerTitle: older },
@@ -2401,7 +2401,7 @@ describe("media presentation provider selection", () => {
       title: "Newer"
     });
 
-    expect(selectPresentationProviderTitle({
+    expect(selectPresentationProviderMetadata({
       mediaTitle: { id: "media-1", mediaType: "UNKNOWN" },
       providerLinks: [
         { providerTitle: providerTitle({ ...newer, fetchedAt: older.fetchedAt }) },

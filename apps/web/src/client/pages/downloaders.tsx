@@ -6,7 +6,8 @@ import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
 import { Empty } from "../components/common/feedback.js";
 import { Modal } from "../components/common/surfaces.js";
-import { optionalText, stringListFromInput } from "../lib/forms.js";
+import { filterByQuery, optionalText, stringListFromInput } from "../lib/forms.js";
+import { errorMessage } from "../lib/format.js";
 
 export function DownloadersPage({
   busy,
@@ -20,21 +21,16 @@ export function DownloadersPage({
   const { t } = useTranslation();
   const [downloaderModal, setDownloaderModal] = useState<Downloader | "new" | null>(null);
   const [query, setQuery] = useState("");
-  const filteredDownloaders = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return downloaders;
-    return downloaders.filter((downloader) =>
-      [
-        downloader.name,
-        downloader.type,
-        downloader.baseUrl,
-        downloader.category,
-        ...(downloader.tags ?? [])
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedQuery))
-    );
-  }, [downloaders, query]);
+  const filteredDownloaders = useMemo(
+    () => filterByQuery(downloaders, query, (downloader) => [
+      downloader.name,
+      downloader.type,
+      downloader.baseUrl,
+      downloader.category,
+      ...(downloader.tags ?? [])
+    ]),
+    [downloaders, query]
+  );
 
   return (
     <div className="management-workbench">
@@ -300,6 +296,3 @@ function DownloaderModalForm({
   );
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}

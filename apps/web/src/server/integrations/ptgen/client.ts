@@ -1,10 +1,12 @@
 import type { MediaType, ProviderTitleResult } from "@rss-media/shared/types";
 import { notFound } from "../../core/errors.js";
+import { fetchJson, HttpStatusError } from "../http.js";
+import { PROVIDER_SEARCH_RESULT_LIMIT } from "../providers/searchExecution.js";
 import {
+  ensureTrailingSlash,
   parsePtgenProviderId,
   ptgenEntityTypeToSource,
-  ptgenIdentity,
-  ptgenProviderEntityType
+  ptgenIdentity
 } from "./identity.js";
 import {
   ptgenLegacyRecordToTitleResult,
@@ -25,12 +27,6 @@ export const PTGEN_INFOGEN_BASE_URL = "https://api.ourhelp.club/infogen";
 export const PTGEN_STATIC_BASE_URLS = [
   "https://ourbits.github.io/PtGen/",
   "https://cdn.ourhelp.club/ptgen/"
-] as const;
-
-export const PTGEN_BACKENDS = [
-  { id: "search_api", label: "PTGen Search API", baseUrl: PTGEN_SEARCH_BASE_URL },
-  { id: "infogen_api", label: "Ourhelp infogen API", baseUrl: PTGEN_INFOGEN_BASE_URL },
-  ...PTGEN_STATIC_BASE_URLS.map((baseUrl) => ({ id: "static_json", label: "Static JSON", baseUrl }))
 ] as const;
 
 type PtgenClientOptions = {
@@ -66,20 +62,18 @@ export async function searchPtgen(
     .filter((result): result is ProviderTitleResult => Boolean(result));
 }
 
-async function fetchPtgenSearch(input: Parameters<typeof ptgenSearchUrl>[1], signal?: AbortSignal) {
-  const response = await fetch(ptgenSearchUrl(PTGEN_SEARCH_BASE_URL, input), { signal });
-  if (!response.ok) {
-    throw new Error(`PTGen search failed with ${response.status}`);
-  }
-
-  return await response.json() as PtgenSearchResponse;
+function fetchPtgenSearch(input: Parameters<typeof ptgenSearchUrl>[1], signal?: AbortSignal) {
+  return fetchJson<PtgenSearchResponse>(ptgenSearchUrl(PTGEN_SEARCH_BASE_URL, input), {
+    label: "PTGen search",
+    signal
+  });
 }
 
 function ptgenSearchAttempts(input: { title: string; mediaType: MediaType; year?: number; source?: PtgenSource }) {
   const base = {
     q: input.title,
     source: input.source,
-    limit: 8,
+    limit: PROVIDER_SEARCH_RESULT_LIMIT,
     offset: 0
   };
   const primaryKind: string = ptgenKind(input.mediaType);
@@ -132,23 +126,6 @@ export async function getPtgenTitleByProviderId(
     throw errors[0];
   }
   throw notFound("PTGen title");
-}
-
-export async function getPtgenTitleById(
-  input: { site: PtgenSite; sid: string; mediaType?: MediaType; language?: string },
-  options: PtgenClientOptions = {}
-): Promise<ProviderTitleResult> {
-  const identity = ptgenIdentity(input.site, input.sid);
-  if (!identity) throw notFound("PTGen title");
-  return getPtgenTitleByProviderId(
-    {
-      providerEntityType: identity.providerEntityType,
-      providerId: identity.providerId,
-      mediaType: input.mediaType,
-      language: input.language
-    },
-    options
-  );
 }
 
 export function ptgenSearchUrl(
@@ -206,7 +183,7 @@ const lookupAdapters = [
 ] as const;
 
 async function lookupSearchApiRecord(identity: PtgenIdentity, input: LookupInput) {
-  const record = await fetchJson<unknown>(ptgenLookupUrl(PTGEN_SEARCH_BASE_URL, identity), "PTGen lookup");
+  const record = await fetchPtgenJson<unknown>(ptgenLookupUrl(PTGEN_SEARCH_BASE_URL, identity), "PTGen lookup");
   if (!record) return undefined;
   const hit = extractPtgenSearchHit(record);
   if (!hit) return undefined;
@@ -219,7 +196,7 @@ async function lookupSearchApiRecord(identity: PtgenIdentity, input: LookupInput
 }
 
 async function lookupInfogenRecord(identity: PtgenIdentity, input: LookupInput) {
-  const record = await fetchJson<PtgenLegacyRecord>(
+  const record = await fetchPtgenJson<PtgenLegacyRecord>(
     ptgenRecordUrl(PTGEN_INFOGEN_BASE_URL, identity.source, identity.sourceId),
     "PTGen infogen lookup"
   );
@@ -235,7 +212,7 @@ async function lookupInfogenRecord(identity: PtgenIdentity, input: LookupInput) 
 }
 
 async function lookupStaticRecord(baseUrl: string, identity: PtgenIdentity, input: LookupInput) {
-  const record = await fetchJson<PtgenLegacyRecord>(
+  const record = await fetchPtgenJson<PtgenLegacyRecord>(
     ptgenRecordUrl(baseUrl, identity.source, identity.sourceId),
     "PTGen static lookup"
   );
@@ -250,14 +227,15 @@ async function lookupStaticRecord(baseUrl: string, identity: PtgenIdentity, inpu
   });
 }
 
-async function fetchJson<T>(url: string, label: string): Promise<T | undefined> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    if (response.status === 404) return undefined;
-    throw new Error(`${label} failed with ${response.status}`);
+async function fetchPtgenJson<T>(url: string, label: string): Promise<T | undefined> {
+  let body: T & { success?: boolean; error?: string | null };
+  try {
+    body = await fetchJson<T & { success?: boolean; error?: string | null }>(url, { label });
+  } catch (error) {
+    if (error instanceof HttpStatusError && error.status === 404) return undefined;
+    throw error;
   }
 
-  const body = await response.json() as T & { success?: boolean; error?: string | null };
   if (body?.success === false || body?.error) {
     throw new Error(body.error || `${label} failed`);
   }
@@ -294,8 +272,3 @@ function ptgenKind(mediaType: MediaType) {
   return mediaType === "TV_SERIES" ? "tv" : "movie";
 }
 
-function ensureTrailingSlash(value: string) {
-  return value.endsWith("/") ? value : `${value}/`;
-}
-
-export { ptgenProviderEntityType };

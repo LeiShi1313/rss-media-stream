@@ -42,12 +42,17 @@ export type DownloaderResponse = {
   updatedAt: Date;
 };
 
+async function getDefaultDownloaderId(tenantId: string): Promise<string | null> {
+  const settings = await prisma.tenantSettings.findUnique({
+    where: { tenantId },
+    select: { defaultDownloaderId: true }
+  });
+  return settings?.defaultDownloaderId ?? null;
+}
+
 export async function listDownloaders(tenantId: string) {
-  const [settings, downloaders] = await Promise.all([
-    prisma.tenantSettings.findUnique({
-      where: { tenantId },
-      select: { defaultDownloaderId: true }
-    }),
+  const [defaultDownloaderId, downloaders] = await Promise.all([
+    getDefaultDownloaderId(tenantId),
     prisma.downloader.findMany({
       where: { tenantId },
       orderBy: { createdAt: "desc" },
@@ -56,16 +61,13 @@ export async function listDownloaders(tenantId: string) {
   ]);
 
   return downloaders.map((downloader) =>
-    serializeDownloader(downloader, settings?.defaultDownloaderId ?? null)
+    serializeDownloader(downloader, defaultDownloaderId)
   );
 }
 
 export async function getDownloader(tenantId: string, downloaderId: string) {
-  const [settings, downloader] = await Promise.all([
-    prisma.tenantSettings.findUnique({
-      where: { tenantId },
-      select: { defaultDownloaderId: true }
-    }),
+  const [defaultDownloaderId, downloader] = await Promise.all([
+    getDefaultDownloaderId(tenantId),
     prisma.downloader.findFirst({
       where: { id: downloaderId, tenantId },
       include: { _count: { select: { jobs: true } } }
@@ -73,23 +75,19 @@ export async function getDownloader(tenantId: string, downloaderId: string) {
   ]);
 
   if (!downloader) throw notFound("Downloader");
-  return serializeDownloader(downloader, settings?.defaultDownloaderId ?? null);
+  return serializeDownloader(downloader, defaultDownloaderId);
 }
 
 export async function getDefaultDownloader(tenantId: string) {
-  const settings = await prisma.tenantSettings.findUnique({
-    where: { tenantId },
-    select: { defaultDownloaderId: true }
-  });
-
-  if (!settings?.defaultDownloaderId) return null;
+  const defaultDownloaderId = await getDefaultDownloaderId(tenantId);
+  if (!defaultDownloaderId) return null;
 
   const downloader = await prisma.downloader.findFirst({
-    where: { id: settings.defaultDownloaderId, tenantId },
+    where: { id: defaultDownloaderId, tenantId },
     include: { _count: { select: { jobs: true } } }
   });
 
-  return downloader ? serializeDownloader(downloader, settings.defaultDownloaderId) : null;
+  return downloader ? serializeDownloader(downloader, defaultDownloaderId) : null;
 }
 
 export async function createDownloader(
@@ -149,12 +147,7 @@ export async function updateDownloader(
     include: { _count: { select: { jobs: true } } }
   });
 
-  const settings = await prisma.tenantSettings.findUnique({
-    where: { tenantId },
-    select: { defaultDownloaderId: true }
-  });
-
-  return serializeDownloader(downloader, settings?.defaultDownloaderId ?? null);
+  return serializeDownloader(downloader, await getDefaultDownloaderId(tenantId));
 }
 
 export async function deleteDownloader(tenantId: string, downloaderId: string) {

@@ -1,6 +1,6 @@
 import type { MediaType } from "@rss-media/shared/types";
 import { getPtgenTitleByProviderId, searchPtgen } from "./client.js";
-import { ptgenIdentity, ptgenProviderEntityType } from "./identity.js";
+import { ptgenIdentity } from "./identity.js";
 import type { PtgenSource } from "./types.js";
 import type { MetadataProvider, ProviderProbeResult } from "../providers/types.js";
 
@@ -96,5 +96,3 @@ function ptgenSourceFromProviderSource(providerSource?: string): PtgenSource | u
   if (providerSource === "ptgen_douban") return "douban";
   return undefined;
 }
-
-export { ptgenProviderEntityType as providerEntityType };

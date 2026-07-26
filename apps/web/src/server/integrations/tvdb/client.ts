@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ProviderTitleResult } from "@rss-media/shared/types";
+import { fetchJson, HttpStatusError } from "../http.js";
+import { PROVIDER_SEARCH_RESULT_LIMIT } from "../providers/searchExecution.js";
 import { tvdbMovieToTitleResult, tvdbSearchResultToTitleResult, tvdbSeriesToTitleResult } from "./mapper.js";
 import type {
   TvdbLoginResponse,
@@ -22,54 +24,51 @@ type TvdbClientOptions = {
   signal?: AbortSignal;
 };
 
-export async function searchTvdbSeries(
-  input: { title: string; mediaType: "TV_SERIES"; year?: number; season?: number; episode?: number; language?: string; region?: string },
+type TvdbSearchInput = {
+  title: string;
+  year?: number;
+  season?: number;
+  episode?: number;
+  language?: string;
+  region?: string;
+};
+
+export function searchTvdbSeries(
+  input: TvdbSearchInput & { mediaType: "TV_SERIES" },
   options: TvdbClientOptions
 ): Promise<ProviderTitleResult[]> {
-  const token = await resolveTvdbToken(options);
-  const language = input.language ?? options.language ?? "en-US";
-  const params = new URLSearchParams({
-    query: input.title,
-    type: "series",
-    limit: "8"
-  });
-  if (language) params.set("language", language);
-  if (input.year) params.set("year", String(input.year));
-
-  const response = await fetch(`${TVDB_BASE_URL}/search?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: options.signal
-  });
-  if (!response.ok) {
-    throw new Error(`TVDB search failed with ${response.status}`);
-  }
-
-  const body = (await response.json()) as TvdbSearchResponse;
-  return mapSearchResponse(body, { ...input, language });
+  return searchTvdb("series", input, options);
 }
 
-export async function searchTvdbMovie(
-  input: { title: string; mediaType: "MOVIE"; year?: number; season?: number; episode?: number; language?: string; region?: string },
+export function searchTvdbMovie(
+  input: TvdbSearchInput & { mediaType: "MOVIE" },
+  options: TvdbClientOptions
+): Promise<ProviderTitleResult[]> {
+  return searchTvdb("movie", input, options);
+}
+
+async function searchTvdb(
+  type: "series" | "movie",
+  input: TvdbSearchInput,
   options: TvdbClientOptions
 ): Promise<ProviderTitleResult[]> {
   const token = await resolveTvdbToken(options);
   const language = input.language ?? options.language ?? "en-US";
   const params = new URLSearchParams({
     query: input.title,
-    type: "movie",
-    limit: "8"
+    type,
+    limit: String(PROVIDER_SEARCH_RESULT_LIMIT)
   });
+  // Intentional divergence preserved from the original implementations:
+  // series search filters by language, movie search never has.
+  if (type === "series" && language) params.set("language", language);
   if (input.year) params.set("year", String(input.year));
 
-  const response = await fetch(`${TVDB_BASE_URL}/search?${params}`, {
+  const body = await fetchJson<TvdbSearchResponse>(`${TVDB_BASE_URL}/search?${params}`, {
+    label: type === "movie" ? "TVDB movie search" : "TVDB search",
     headers: { Authorization: `Bearer ${token}` },
     signal: options.signal
   });
-  if (!response.ok) {
-    throw new Error(`TVDB movie search failed with ${response.status}`);
-  }
-
-  const body = (await response.json()) as TvdbSearchResponse;
   return mapSearchResponse(body, { ...input, language });
 }
 
@@ -86,19 +85,15 @@ export async function getTvdbSeriesById(
   const params = new URLSearchParams();
   if (language) params.set("language", language);
   const suffix = params.size > 0 ? `?${params}` : "";
-  const response = await fetch(`${TVDB_BASE_URL}/series/${input.providerId}${suffix}`, {
+  const body = await fetchJson<TvdbSeriesResponse>(`${TVDB_BASE_URL}/series/${input.providerId}${suffix}`, {
+    label: "TVDB series lookup",
     headers: {
       Authorization: `Bearer ${token}`,
       ...(language ? { "Accept-Language": language } : {})
     },
     signal: options.signal
   });
-  if (!response.ok) {
-    throw new Error(`TVDB series lookup failed with ${response.status}`);
-  }
-
-  const body = (await response.json()) as TvdbSeriesResponse;
-  const translation = await fetchTvdbSeriesTranslation(token, input.providerId, tvdbLanguageCode(language), options.signal);
+  const translation = await fetchTvdbTranslation("series", token, input.providerId, tvdbLanguageCode(language), options.signal);
   return tvdbSeriesToTitleResult(body.data ?? {}, {
     ...input,
     language,
@@ -116,16 +111,12 @@ export async function getTvdbMovieById(
 
   const token = await resolveTvdbToken(options);
   const language = input.language ?? options.language ?? "en-US";
-  const response = await fetch(`${TVDB_BASE_URL}/movies/${input.providerId}`, {
+  const body = await fetchJson<TvdbMovieResponse>(`${TVDB_BASE_URL}/movies/${input.providerId}`, {
+    label: "TVDB movie lookup",
     headers: { Authorization: `Bearer ${token}` },
     signal: options.signal
   });
-  if (!response.ok) {
-    throw new Error(`TVDB movie lookup failed with ${response.status}`);
-  }
-
-  const body = (await response.json()) as TvdbMovieResponse;
-  const translation = await fetchTvdbMovieTranslation(token, input.providerId, tvdbLanguageCode(language), options.signal);
+  const translation = await fetchTvdbTranslation("movies", token, input.providerId, tvdbLanguageCode(language), options.signal);
   return tvdbMovieToTitleResult(body.data ?? {}, {
     ...input,
     language,
@@ -149,7 +140,8 @@ async function loginTvdb(apiKey: string, pin?: string, signal?: AbortSignal) {
   const cached = tokenCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.token;
 
-  const response = await fetch(`${TVDB_BASE_URL}/login`, {
+  const body = await fetchJson<TvdbLoginResponse>(`${TVDB_BASE_URL}/login`, {
+    label: "TVDB authentication",
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -158,10 +150,6 @@ async function loginTvdb(apiKey: string, pin?: string, signal?: AbortSignal) {
     }),
     signal
   });
-  if (!response.ok) {
-    throw new Error(`TVDB authentication failed with ${response.status}`);
-  }
-  const body = (await response.json()) as TvdbLoginResponse;
   const token = body.data?.token;
   if (!token) throw new Error("TVDB authentication did not return a token");
 
@@ -176,38 +164,30 @@ function mapSearchResponse(
   return (body.data ?? [])
     .map((result) => tvdbSearchResultToTitleResult(result, input))
     .filter((media): media is ProviderTitleResult => Boolean(media))
-    .slice(0, 8);
+    .slice(0, PROVIDER_SEARCH_RESULT_LIMIT);
 }
 
-async function fetchTvdbMovieTranslation(
+async function fetchTvdbTranslation(
+  segment: "movies" | "series",
   token: string,
   providerId: string,
   language: string,
   signal?: AbortSignal
 ): Promise<TvdbTranslationRecord | undefined> {
-  const response = await fetch(`${TVDB_BASE_URL}/movies/${providerId}/translations/${language}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal
-  });
-  if (!response.ok) return undefined;
-  const body = (await response.json()) as TvdbTranslationResponse;
-  const translation = body.data;
-  if (!translation?.name && !translation?.overview) return undefined;
-  return translation;
-}
-
-async function fetchTvdbSeriesTranslation(
-  token: string,
-  providerId: string,
-  language: string,
-  signal?: AbortSignal
-): Promise<TvdbTranslationRecord | undefined> {
-  const response = await fetch(`${TVDB_BASE_URL}/series/${providerId}/translations/${language}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal
-  });
-  if (!response.ok) return undefined;
-  const body = (await response.json()) as TvdbTranslationResponse;
+  let body: TvdbTranslationResponse;
+  try {
+    body = await fetchJson<TvdbTranslationResponse>(
+      `${TVDB_BASE_URL}/${segment}/${providerId}/translations/${language}`,
+      {
+        label: "TVDB translation lookup",
+        headers: { Authorization: `Bearer ${token}` },
+        signal
+      }
+    );
+  } catch (error) {
+    if (error instanceof HttpStatusError) return undefined;
+    throw error;
+  }
   const translation = body.data;
   if (!translation?.name && !translation?.overview) return undefined;
   return translation;

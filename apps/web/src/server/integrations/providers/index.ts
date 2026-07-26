@@ -7,8 +7,6 @@ import {
   getDefaultProviderSourcePoliciesForMediaType,
   getProviderSourceDefinition,
   listProviderSourceDefinitions,
-  providerSourceForLegacyProvider,
-  providerSourceSupportsMediaType,
   type MetadataAdapterId
 } from "./sources.js";
 import type { MetadataProvider, ProviderDefinition, ProviderDefaultPolicy } from "./types.js";
@@ -27,16 +25,6 @@ export function getMetadataProvider(providerId: string): MetadataProvider {
   return provider;
 }
 
-export function getMetadataAdapter(providerSource: ProviderSource): MetadataProvider {
-  const definition = getProviderSourceDefinition(providerSource);
-  return getMetadataProvider(definition.adapterId);
-}
-
-export function getProviderDefinition(providerId: string): ProviderDefinition {
-  const sourceId = providerSourceForLegacyProvider(providerId) ?? providerId;
-  return getProviderSourceDefinition(sourceId);
-}
-
 export function listProviderDefinitions(): ProviderDefinition[] {
   return listProviderSourceDefinitions();
 }
@@ -49,11 +37,6 @@ export function getDefaultPoliciesForMediaType(
       ...policy,
       provider: getProviderSourceDefinition(policy.providerSource).provider
     }));
-}
-
-export function providerSupportsMediaType(providerId: string, mediaType: ParsedMediaType): boolean {
-  const sourceId = providerSourceForLegacyProvider(providerId) ?? providerId;
-  return providerSourceSupportsMediaType(sourceId, mediaType);
 }
 
 export function getMetadataProviders(): MetadataProvider[] {
@@ -78,7 +61,5 @@ export {
   listProviderSourceDefinitions,
   providerSourceForLegacyProvider,
   providerSourceForLegacyProviderEntity,
-  providerSourceSupportsRatings,
   providerSourceSupportsMediaType
 } from "./sources.js";
-export type { ProviderSourceDefinition } from "./sources.js";

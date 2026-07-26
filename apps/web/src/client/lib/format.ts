@@ -9,6 +9,10 @@ export function relativeTime(value: string | Date) {
   });
 }
 
+export function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function formatBytes(value: string, unknownLabel = "Unknown") {
   const bytes = Number(value);
   if (!Number.isFinite(bytes)) return unknownLabel;

@@ -20,11 +20,13 @@ import { AppDialog, FieldLabel, FormInput, SelectField, StatTile, UiButton } fro
 import { Empty, Pill, StatusPill } from "../components/common/feedback.js";
 import { ManualDownload } from "../components/common/manual-download.js";
 import { RatingBadge } from "../components/media/rating-badge.js";
-import { formatBytes, relativeTime } from "../lib/format.js";
+import { errorMessage, formatBytes, relativeTime } from "../lib/format.js";
 import { formatNativeRating } from "../lib/ratings.js";
-import { matchRate, releaseIdentityState, releaseStatus, releaseTitle } from "../lib/releases.js";
+import { isTerminalDownloadStatus, latestDownloadJob, matchRate, releaseIdentityState, releaseStatus, releaseTitle } from "../lib/releases.js";
+import { providerLabel } from "../lib/forms.js";
+import { legacyKindFromMediaType, mediaTypeFromKind } from "../lib/media.js";
 
-type ShelfKey = "all" | "matched" | "downloading" | "attention";
+type ShelfKey = "matched" | "downloading" | "attention";
 type ReleaseCategoryFilter = "" | "MOVIE" | "TV" | "OTHER";
 type ReleaseStatusFilter = "" | "matched" | "unmatched" | "downloading" | "attention";
 
@@ -42,7 +44,6 @@ export function OverviewPage({
     totalItems: number;
     matched: number;
     feeds: number;
-    jobs: number;
     failedJobs: number;
     subscriptions: number;
     downloaders: number;
@@ -322,14 +323,18 @@ type ItemShelfOptions = {
   status?: ReleaseStatusFilter;
 };
 
-function useItemShelf({
+type CursorPage<T> = { items: T[]; nextCursor?: string };
+
+function useCursorShelf<T>({
   enabled = true,
-  q = "",
-  feedId = "",
-  category = "",
-  status = ""
-}: ItemShelfOptions): ItemShelfState {
-  const [items, setItems] = useState<Item[]>([]);
+  fetchPage,
+  keyOf
+}: {
+  enabled?: boolean;
+  fetchPage: (cursor: string | undefined, signal: AbortSignal) => Promise<CursorPage<T>>;
+  keyOf: (item: T) => string;
+}) {
+  const [items, setItems] = useState<T[]>([]);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -338,7 +343,6 @@ function useItemShelf({
   const abortRef = useRef<AbortController | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLSpanElement | null>(null);
-  const query = q.trim();
 
   const loadPage = useCallback(async (cursor?: string, replace = false) => {
     if (!enabled) return;
@@ -352,20 +356,14 @@ function useItemShelf({
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ limit: "24" });
-      if (cursor) params.set("cursor", cursor);
-      if (query) params.set("q", query);
-      if (feedId) params.set("feedId", feedId);
-      if (category) params.set("category", category);
-      if (status) params.set("status", status);
-      const page = await api<ItemPage>(`/api/items?${params.toString()}`, { signal: controller.signal });
+      const page = await fetchPage(cursor, controller.signal);
       if (controller.signal.aborted) return;
-      setItems((current) => replace ? page.items : appendItems(current, page.items));
+      setItems((current) => replace ? page.items : appendByKey(current, page.items, keyOf));
       setNextCursor(page.nextCursor);
       setExhausted(!page.nextCursor);
     } catch (err) {
       if (controller.signal.aborted) return;
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
@@ -373,7 +371,7 @@ function useItemShelf({
         setLoading(false);
       }
     }
-  }, [category, enabled, feedId, query, status]);
+  }, [enabled, fetchPage, keyOf]);
 
   const loadMore = useCallback(() => {
     if (loadingRef.current || exhausted) return;
@@ -413,92 +411,53 @@ function useItemShelf({
   return { items, loading, error, exhausted, loadMore, railRef, sentinelRef };
 }
 
-function appendItems(current: Item[], next: Item[]) {
-  const seen = new Set(current.map((item) => item.id));
+function appendByKey<T>(current: T[], next: T[], keyOf: (item: T) => string) {
+  const seen = new Set(current.map(keyOf));
   return [
     ...current,
     ...next.filter((item) => {
-      if (seen.has(item.id)) return false;
-      seen.add(item.id);
+      if (seen.has(keyOf(item))) return false;
+      seen.add(keyOf(item));
       return true;
     })
   ];
+}
+
+function useItemShelf({
+  enabled = true,
+  q = "",
+  feedId = "",
+  category = "",
+  status = ""
+}: ItemShelfOptions): ItemShelfState {
+  const query = q.trim();
+  const fetchPage = useCallback((cursor: string | undefined, signal: AbortSignal) => {
+    const params = new URLSearchParams({ limit: "24" });
+    if (cursor) params.set("cursor", cursor);
+    if (query) params.set("q", query);
+    if (feedId) params.set("feedId", feedId);
+    if (category) params.set("category", category);
+    if (status) params.set("status", status);
+    return api<ItemPage>(`/api/items?${params.toString()}`, { signal });
+  }, [category, feedId, query, status]);
+  return useCursorShelf({ enabled, fetchPage, keyOf: itemKey });
+}
+
+function itemKey(item: Item) {
+  return item.id;
 }
 
 function useTrendingMediaShelf(mediaType: "MOVIE" | "TV_SERIES"): TrendingShelfState {
-  const [items, setItems] = useState<TrendingMedia[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | undefined>();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [exhausted, setExhausted] = useState(false);
-  const loadingRef = useRef(false);
-  const railRef = useRef<HTMLDivElement | null>(null);
-  const sentinelRef = useRef<HTMLSpanElement | null>(null);
-
-  const loadPage = useCallback(async (cursor?: string, replace = false) => {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
-    setError("");
-    try {
-      const params = new URLSearchParams({
-        windowDays: "7",
-        limit: "24",
-        mediaType
-      });
-      if (cursor) params.set("cursor", cursor);
-      const page = await api<TrendingMediaPage>(`/api/media-titles/trending?${params.toString()}`);
-      setItems((current) => replace ? page.items : appendTrendingItems(current, page.items));
-      setNextCursor(page.nextCursor);
-      setExhausted(!page.nextCursor);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-    }
+  const fetchPage = useCallback((cursor: string | undefined, signal: AbortSignal) => {
+    const params = new URLSearchParams({ windowDays: "7", limit: "24", mediaType });
+    if (cursor) params.set("cursor", cursor);
+    return api<TrendingMediaPage>(`/api/media-titles/trending?${params.toString()}`, { signal });
   }, [mediaType]);
-
-  const loadMore = useCallback(() => {
-    if (loadingRef.current || exhausted) return;
-    void loadPage(nextCursor);
-  }, [exhausted, loadPage, nextCursor]);
-
-  useEffect(() => {
-    setItems([]);
-    setNextCursor(undefined);
-    setExhausted(false);
-    void loadPage(undefined, true);
-  }, [loadPage]);
-
-  useEffect(() => {
-    const root = railRef.current;
-    const sentinel = sentinelRef.current;
-    if (!root || !sentinel || exhausted) return undefined;
-
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) loadMore();
-    }, {
-      root: railRef.current,
-      rootMargin: "0px 320px 0px 0px"
-    });
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [exhausted, items.length, loadMore]);
-
-  return { items, loading, error, exhausted, loadMore, railRef, sentinelRef };
+  return useCursorShelf({ fetchPage, keyOf: trendingKey });
 }
 
-function appendTrendingItems(current: TrendingMedia[], next: TrendingMedia[]) {
-  const seen = new Set(current.map((entry) => entry.media.id));
-  return [
-    ...current,
-    ...next.filter((entry) => {
-      if (seen.has(entry.media.id)) return false;
-      seen.add(entry.media.id);
-      return true;
-    })
-  ];
+function trendingKey(entry: TrendingMedia) {
+  return entry.media.id;
 }
 
 function TrendingMediaCard({ entry, onInspect }: { entry: TrendingMedia; onInspect: () => void }) {
@@ -708,7 +667,7 @@ function ReleaseInspectorModal({
       });
       setTitleSearchResults(response.results);
     } catch (error) {
-      setTitleSearchError(error instanceof Error ? error.message : String(error));
+      setTitleSearchError(errorMessage(error));
     } finally {
       setTitleSearchBusy(false);
     }
@@ -742,7 +701,7 @@ function ReleaseInspectorModal({
     >
       <section
         className="release-sheet-hero"
-        style={backdropUrl ? { backgroundImage: `linear-gradient(90deg, rgba(7,10,18,0.98), rgba(7,10,18,0.82), rgba(7,10,18,0.58)), url(${backdropUrl})` } : undefined}
+        style={heroBackdropStyle(backdropUrl, [0.98, 0.82, 0.58])}
       >
         <div className="release-sheet-poster">
           {posterUrl ? <img src={posterUrl} alt={title} /> : <PosterFallback title={title} />}
@@ -984,7 +943,7 @@ function MediaInspectorModal({
     <AppDialog className="release-dialog cinema-dialog" description={t("overview.inspector.groupedReleases")} onClose={onClose} title={title}>
       <section
         className="release-dialog-hero"
-        style={backdropUrl ? { backgroundImage: `linear-gradient(90deg, rgba(7,10,18,0.96), rgba(7,10,18,0.76), rgba(7,10,18,0.42)), url(${backdropUrl})` } : undefined}
+        style={heroBackdropStyle(backdropUrl, [0.96, 0.76, 0.42])}
       >
         <div className="release-dialog-poster">
           {posterUrl ? <img src={posterUrl} alt={title} /> : <PosterFallback title={title} />}
@@ -1053,20 +1012,6 @@ function MediaInspectorModal({
   );
 }
 
-function DetailGroup({ title, rows }: { title: string; rows: Array<[string, string]> }) {
-  return (
-    <article className="detail-group">
-      <h4>{title}</h4>
-      {rows.map(([label, value]) => (
-        <div key={label}>
-          <span>{label}</span>
-          <strong>{value}</strong>
-        </div>
-      ))}
-    </article>
-  );
-}
-
 function PosterFallback({ title }: { title: string }) {
   return (
     <span className="poster-fallback">
@@ -1088,36 +1033,9 @@ function itemBelongsToShelf(item: Item, shelf: ShelfKey) {
   const status = releaseStatus(item);
   const latestJob = latestDownloadJob(item);
   const identity = releaseIdentityState(item);
-  if (shelf === "all") return true;
   if (shelf === "matched") return identity === "resolved";
   if (shelf === "downloading") return Boolean(latestJob && !isTerminalDownloadStatus(latestJob.status));
   return status.group === "failed" || identity !== "resolved";
-}
-
-function itemBelongsToStatus(item: Item, status: ReleaseStatusFilter) {
-  if (!status) return true;
-  const identity = releaseIdentityState(item);
-  if (status === "matched") return identity === "resolved";
-  if (status === "unmatched") return identity !== "resolved";
-  if (status === "downloading") return itemBelongsToShelf(item, "downloading");
-  return itemBelongsToShelf(item, "attention");
-}
-
-function releaseCategory(item: Item): "MOVIE" | "TV" | "OTHER" {
-  const kind = item.parsedRelease?.kind && item.parsedRelease.kind !== "UNKNOWN"
-    ? item.parsedRelease.kind
-    : legacyKindFromMediaType(item.match?.presentation?.mediaType);
-  return kind === "MOVIE" || kind === "TV" ? kind : "OTHER";
-}
-
-function latestDownloadJob(item: Item) {
-  return [...(item.downloadJobs ?? [])].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  )[0];
-}
-
-function isTerminalDownloadStatus(status?: string | null) {
-  return Boolean(status && ["FAILED", "SENT", "COMPLETE", "COMPLETED", "SKIPPED"].includes(status));
 }
 
 function posterMetadata(item: Item) {
@@ -1198,19 +1116,10 @@ function ptgenSourceLabel(result: MediaSearchResult) {
   return undefined;
 }
 
-function legacyKindFromMediaType(mediaType?: "MOVIE" | "TV_SERIES" | "UNKNOWN") {
-  if (!mediaType) return undefined;
-  return mediaType === "TV_SERIES" ? "TV" : mediaType;
-}
-
-function mediaTypeFromKind(kind?: "MOVIE" | "TV" | "UNKNOWN") {
-  if (kind === "TV") return "TV_SERIES";
-  if (kind === "MOVIE") return "MOVIE";
-  return undefined;
-}
-
-function providerLabel(provider?: string) {
-  return provider ? provider.toUpperCase() : undefined;
+function heroBackdropStyle(backdropUrl: string | undefined, alphas: [number, number, number]) {
+  if (!backdropUrl) return undefined;
+  const stops = alphas.map((alpha) => `rgba(7,10,18,${alpha})`).join(", ");
+  return { backgroundImage: `linear-gradient(90deg, ${stops}), url(${backdropUrl})` };
 }
 
 function initials(value: string) {

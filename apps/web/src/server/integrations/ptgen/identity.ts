@@ -10,8 +10,8 @@ export function ptgenEntityTypeToSource(entityType: string): PtgenSource | undef
   return undefined;
 }
 
-export function ptgenEntityTypeToSite(entityType: string): PtgenSource | undefined {
-  return ptgenEntityTypeToSource(entityType);
+export function ensureTrailingSlash(value: string) {
+  return value.endsWith("/") ? value : `${value}/`;
 }
 
 export function ptgenProviderId(source: PtgenSource, rawSourceId: string): string | undefined {

@@ -72,15 +72,6 @@ export async function resolveProviderRuntime(
   };
 }
 
-export async function providerIsConfigured(
-  config: AppConfig,
-  tenantId: string,
-  providerSource: ProviderSource | string
-) {
-  const runtime = await resolveProviderRuntime(config, tenantId, providerSource);
-  return providerRuntimeAvailable(runtime);
-}
-
 export async function listProviderSettings(config: AppConfig, tenantId: string) {
   const statuses = await Promise.all(
     listProviderSourceDefinitions().map(async (definition): Promise<ProviderSettingsStatus> => {
@@ -164,6 +155,26 @@ export async function upsertProviderSettings(input: {
     data.lastError = null;
   }
 
+  // lastError is the only field that differs between the validation-failure
+  // upsert and the final success upsert.
+  const upsertConfig = (lastError?: string) =>
+    prisma.tenantProviderSourceConfig.upsert({
+      where: { tenantId_providerSource: { tenantId: input.tenantId, providerSource } },
+      create: {
+        tenantId: input.tenantId,
+        providerSource,
+        enabled: data.enabled ?? true,
+        encryptedSecretsJson: data.encryptedSecretsJson,
+        configuredAt: data.configuredAt,
+        lastValidatedAt: data.lastValidatedAt,
+        lastError: lastError ?? data.lastError,
+        metadataLanguage: data.metadataLanguage ?? definition.defaultMetadataLanguage,
+        region: data.region,
+        baseUrl: data.baseUrl ?? definition.defaultBaseUrl
+      },
+      update: lastError === undefined ? data : { ...data, lastError }
+    });
+
   if (input.secrets) {
     const secrets = validateSecretShape(providerSource, input.secrets);
     try {
@@ -174,22 +185,7 @@ export async function upsertProviderSettings(input: {
       await provider.validateCredentials(secrets);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await prisma.tenantProviderSourceConfig.upsert({
-        where: { tenantId_providerSource: { tenantId: input.tenantId, providerSource } },
-        create: {
-          tenantId: input.tenantId,
-          providerSource,
-          enabled: input.enabled ?? true,
-          metadataLanguage: data.metadataLanguage ?? definition.defaultMetadataLanguage,
-          region: data.region,
-          baseUrl: data.baseUrl ?? definition.defaultBaseUrl,
-          lastError: message
-        },
-        update: {
-          ...data,
-          lastError: message
-        }
-      });
+      await upsertConfig(message);
       throw badRequest(message);
     }
 
@@ -200,22 +196,7 @@ export async function upsertProviderSettings(input: {
     data.lastError = null;
   }
 
-  await prisma.tenantProviderSourceConfig.upsert({
-    where: { tenantId_providerSource: { tenantId: input.tenantId, providerSource } },
-    create: {
-      tenantId: input.tenantId,
-      providerSource,
-      enabled: data.enabled ?? true,
-      encryptedSecretsJson: data.encryptedSecretsJson,
-      configuredAt: data.configuredAt,
-      lastValidatedAt: data.lastValidatedAt,
-      lastError: data.lastError,
-      metadataLanguage: data.metadataLanguage ?? definition.defaultMetadataLanguage,
-      region: data.region,
-      baseUrl: data.baseUrl ?? definition.defaultBaseUrl
-    },
-    update: data
-  });
+  await upsertConfig();
 }
 
 export function providerRuntimeAvailable(runtime: ProviderRuntimeContext) {
@@ -227,7 +208,7 @@ export function providerRuntimeConfigured(runtime: ProviderRuntimeContext) {
   return !providerRequiresCredentials(definition.authFields) || Boolean(runtime.credential);
 }
 
-export function validateSecretShape(providerSource: ProviderSource | string, rawSecrets: ProviderSecrets) {
+function validateSecretShape(providerSource: ProviderSource | string, rawSecrets: ProviderSecrets) {
   const definition = getProviderSourceDefinition(canonicalProviderSource(providerSource));
   const allowed = new Set(definition.authFields.map((field) => field.key));
   const cleaned = cleanSecrets(rawSecrets);
@@ -269,12 +250,9 @@ async function legacyProviderConfig(tenantId: string, providerSource: ProviderSo
 }
 
 async function findProviderSourceConfig(tenantId: string, providerSource: ProviderSource) {
-  const sourceModel = (prisma as any).tenantProviderSourceConfig;
-  const sourceRow = sourceModel
-    ? await sourceModel.findUnique({
-        where: { tenantId_providerSource: { tenantId, providerSource } }
-      })
-    : null;
+  const sourceRow = await prisma.tenantProviderSourceConfig.findUnique({
+    where: { tenantId_providerSource: { tenantId, providerSource } }
+  });
   return sourceRow ?? legacyProviderConfig(tenantId, providerSource);
 }
 

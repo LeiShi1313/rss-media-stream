@@ -225,7 +225,7 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
   const mode = normalizeMode(rule.mode ?? criteria.mode);
   const mediaType = normalizeOptionalMediaType(rule.mediaType ?? criteria.mediaType);
   const mediaTitleId = optionalString(rule.mediaTitleId) ??
-    optionalString(criteria.mediaTitleId);
+    optionalUnknownString(criteria.mediaTitleId);
   const selectedProvider = normalizeProviderIdentity(
     rule.selectedProvider ?? criteria.selectedProvider
   );
@@ -278,11 +278,11 @@ export function normalizeRule(rule: SubscriptionRuleInput): NormalizedSubscripti
     normalizeReleaseGroup
   );
   const variantsInclude = normalizeStringList(
-    rule.variantsInclude ?? criteria.variantsInclude,
+    rule.variantsInclude ?? unknownStringArray(criteria.variantsInclude),
     normalizeReleaseVariant
   );
   const variantsExclude = normalizeStringList(
-    rule.variantsExclude ?? criteria.variantsExclude,
+    rule.variantsExclude ?? unknownStringArray(criteria.variantsExclude),
     normalizeReleaseVariant
   );
   const preferredReleaseGroups = normalizeStringList(
@@ -516,11 +516,7 @@ function matchesTitleRegex(
 ): boolean {
   if (!expression) return true;
   const regex = new RegExp(expression, "i");
-  return regex.test(parsedTitle) || regex.test(normalizeTitle(parsedTitle)) || regex.test(rawTitle);
-}
-
-function normalizeTitle(value: string): string {
-  return normalizeTitleKey(value);
+  return regex.test(parsedTitle) || regex.test(normalizeTitleKey(parsedTitle)) || regex.test(rawTitle);
 }
 
 function releaseResolution(candidate: CandidateInput): number | undefined {
@@ -571,9 +567,9 @@ function hasNumber(value: number | undefined): value is number {
   return typeof value === "number";
 }
 
-function criteriaObject(value: unknown): Record<string, any> {
+function criteriaObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, any>
+    ? value as Record<string, unknown>
     : {};
 }
 
@@ -769,6 +765,12 @@ function compareRating(left: number, right: number, comparison: ProviderRatingFi
 
 function optionalUnknownString(value: unknown): string | undefined {
   return typeof value === "string" ? optionalString(value) : undefined;
+}
+
+function unknownStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : undefined;
 }
 
 function optionalNumber(value: unknown): number | undefined {

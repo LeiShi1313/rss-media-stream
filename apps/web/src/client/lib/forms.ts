@@ -13,6 +13,16 @@ export function numberOrUndefined(value: string) {
   return Number.isFinite(numeric) ? numeric : undefined;
 }
 
+export function filterByQuery<T>(rows: T[], query: string, fields: (row: T) => unknown[]) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return rows;
+  return rows.filter((row) =>
+    fields(row)
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedQuery))
+  );
+}
+
 export function stringListFromInput(value: string) {
   return value
     .split(",")
@@ -20,20 +30,7 @@ export function stringListFromInput(value: string) {
     .filter(Boolean);
 }
 
-export function providerValue(value?: string): "" | "tmdb" | "tvdb" | "ptgen" | "imdb" | "douban" | "wikidata" | "trakt" | "musicbrainz" {
-  return value === "tmdb" ||
-    value === "tvdb" ||
-    value === "ptgen" ||
-    value === "imdb" ||
-    value === "douban" ||
-    value === "wikidata" ||
-    value === "trakt" ||
-    value === "musicbrainz"
-    ? value
-    : "";
-}
-
-function providerLabel(provider?: string) {
+export function providerLabel(provider?: string) {
   if (!provider) return undefined;
   return provider.toUpperCase();
 }

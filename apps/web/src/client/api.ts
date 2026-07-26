@@ -5,17 +5,15 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   const normalizedBody = (body === undefined && ["POST", "PUT", "PATCH", "DELETE"].includes(method))
     ? "{}"
     : body;
-  const effectiveBody = normalizedBody;
 
-  if (effectiveBody !== undefined && effectiveBody !== null && !headers.has("Content-Type")) {
+  if (normalizedBody !== undefined && normalizedBody !== null && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
   const response = await fetch(path, {
     credentials: "include",
     ...rest,
-    method: rest.method,
-    body: effectiveBody,
+    body: normalizedBody,
     headers
   });
   if (!response.ok) {
@@ -48,14 +46,6 @@ export type Workspace = {
   id: string;
   name: string;
   role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
-};
-
-export type ProviderCredentialSettings = {
-  configured: boolean;
-  source: "workspace" | "environment" | null;
-  configuredAt?: string | null;
-  lastValidatedAt?: string | null;
-  lastError?: string | null;
 };
 
 export type WorkspaceSettings = {

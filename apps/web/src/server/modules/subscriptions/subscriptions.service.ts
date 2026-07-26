@@ -15,12 +15,15 @@ import type {
   ProviderTitleRuleView,
   SubscriptionRuleInput
 } from "@rss-media/shared/types";
+import type { Prisma } from "@prisma/client";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
+import { db } from "../../core/dbClient.js";
 import { forbidden, notFound } from "../../core/errors.js";
 import { isAdminRole } from "../../core/permissions.js";
 import { createDownloadJob, sendDownloadJob } from "../jobs/jobs.service.js";
-import { serializeMediaPresentation } from "../media/presentation.js";
+import { legacyKindFromMediaType, serializeMediaPresentation } from "../media/presentation.js";
+import { parsedReleaseMatchInclude } from "../media/parsedReleaseMatchInclude.js";
 import {
   EMPTY_PRESENTATION_PREFERENCES,
   loadPresentationPreferences,
@@ -326,14 +329,7 @@ export async function evaluateAutoDownloadsForItem(input: {
           matches: {
             where: { status: "MATCHED", invalidatedAt: null },
             take: 1,
-            include: {
-              mediaTitle: {
-                include: { providerIdentities: { include: { metadata: true } } }
-              },
-              mediaProviderIdentity: true,
-              providerMediaMetadata: { include: { mediaProviderIdentity: true } },
-              providerTitle: true
-            },
+            include: parsedReleaseMatchInclude,
             orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
           }
         }
@@ -449,7 +445,7 @@ export async function evaluateAutoDownloadsForItem(input: {
 }
 
 async function validateSubscriptionReferences(
-  tx: unknown,
+  tx: Prisma.TransactionClient,
   input: {
     tenantId: string;
     mediaTitleId?: string | null;
@@ -832,7 +828,8 @@ function addCrossSeedFeed(input: {
       recordedAt: input.recordedAt.toISOString()
     };
   }
-  return Object.keys(history).length > 0 ? history : null;
+  // Cast keeps the pre-existing runtime behavior (plain null) now that db() is typed.
+  return (Object.keys(history).length > 0 ? history : null) as Prisma.InputJsonValue;
 }
 
 function scoreJson(score: ReleaseScore) {
@@ -909,7 +906,8 @@ function ruleCriteriaJson(rule: ReturnType<typeof normalizeRule>) {
       Array.isArray(value) ? value.length > 0 : value !== undefined
     )
   );
-  return Object.keys(compact).length > 0 ? compact : null;
+  // Cast keeps the pre-existing runtime behavior (plain null) now that db() is typed.
+  return (Object.keys(compact).length > 0 ? compact : null) as Prisma.InputJsonValue;
 }
 
 function criteriaFromRow(rule: any): {
@@ -1162,24 +1160,14 @@ function isNonFatalAutoDownloadError(error: unknown) {
 }
 
 function isDuplicateDownloadError(error: unknown) {
-  const value = error as { code?: string; message?: string };
-  return value?.code === "DOWNLOAD_DUPLICATE" || /download already exists/i.test(value?.message ?? "");
+  return errorCode(error) === "DOWNLOAD_DUPLICATE";
 }
 
 function isDefaultDownloaderError(error: unknown) {
-  const value = error as { code?: string; message?: string };
-  return (
-    value?.code === "DEFAULT_DOWNLOADER_REQUIRED" ||
-    value?.code === "DEFAULT_DOWNLOADER_UNAVAILABLE" ||
-    /default downloader/i.test(value?.message ?? "")
-  );
+  const code = errorCode(error);
+  return code === "DEFAULT_DOWNLOADER_REQUIRED" || code === "DEFAULT_DOWNLOADER_UNAVAILABLE";
 }
 
-function legacyKindFromMediaType(mediaType?: string | null) {
-  if (!mediaType) return undefined;
-  return mediaType === "TV_SERIES" ? "TV" : mediaType;
-}
-
-function db(tx?: unknown) {
-  return (tx ?? prisma) as any;
+function errorCode(error: unknown) {
+  return (error as { code?: string } | null | undefined)?.code;
 }

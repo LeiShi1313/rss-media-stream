@@ -7,7 +7,9 @@ import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
 import { Empty } from "../components/common/feedback.js";
 import { Modal } from "../components/common/surfaces.js";
-import { numberOrUndefined, optionalText, ruleSummary, stringListFromInput } from "../lib/forms.js";
+import { filterByQuery, numberOrUndefined, optionalText, ruleSummary, stringListFromInput } from "../lib/forms.js";
+import { kindFromMediaType, mediaTypeFromKind, type MediaKind, type MediaRuleType } from "../lib/media.js";
+import { errorMessage } from "../lib/format.js";
 
 export function SubscriptionsPage({
   busy,
@@ -29,21 +31,16 @@ export function SubscriptionsPage({
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
   const [query, setQuery] = useState("");
   const releaseGroupOptions = useMemo(() => releaseGroupOptionsFromData(subscriptions, items), [items, subscriptions]);
-  const filteredSubscriptions = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return subscriptions;
-    return subscriptions.filter((subscription) =>
-      [
-        subscription.title,
-        subscriptionTarget(subscription, t),
-        ruleSummary(subscription, t),
-        subscription.downloader?.name,
-        subscriptionMode(subscription, t)
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedQuery))
-    );
-  }, [query, subscriptions, t]);
+  const filteredSubscriptions = useMemo(
+    () => filterByQuery(subscriptions, query, (subscription) => [
+      subscription.title,
+      subscriptionTarget(subscription, t),
+      ruleSummary(subscription, t),
+      subscription.downloader?.name,
+      subscriptionMode(subscription, t)
+    ]),
+    [query, subscriptions, t]
+  );
 
   return (
     <div className="management-workbench">
@@ -194,8 +191,6 @@ function addReleaseGroupOption(options: string[], seen: Set<string>, value?: str
 
 type RuleMode = "MEDIA_TITLE" | "REGEX";
 type UpgradePolicy = "none" | "better_quality" | "preferred_release_group";
-type MediaKind = "MOVIE" | "TV";
-type MediaRuleType = "MOVIE" | "TV_SERIES";
 type EditorStep = "search" | "rule";
 
 type SelectedMedia = {
@@ -277,7 +272,7 @@ function SubscriptionEditorModal({
   const [separateVariants, setSeparateVariants] = useState(rule?.separateVariants ?? false);
   const [seasonPackAllowed, setSeasonPackAllowed] = useState(rule?.seasonPackAllowed ?? true);
   const canChooseMode = !subscription;
-  const selectedRuleType = selectedMedia?.mediaType ?? mediaTypeForKind(kind);
+  const selectedRuleType = selectedMedia?.mediaType ?? mediaTypeFromKind(kind);
 
   const toggleFeed = (feedId: string, checked: boolean) => {
     setFeedIds((current) =>
@@ -307,7 +302,7 @@ function SubscriptionEditorModal({
     try {
       const params = new URLSearchParams({
         q: trimmedQuery,
-        mediaType: mediaTypeForKind(kind)
+        mediaType: mediaTypeFromKind(kind)
       });
       setResults(await api<MediaSearchResult[]>(`/api/provider-titles/search?${params}`));
     } catch (error) {
@@ -409,7 +404,7 @@ function SubscriptionEditorModal({
     const effectiveTitle = optionalText(title) ?? optionalText(titleRegex) ?? optionalText(includeRegex) ?? t("subscriptions.rawReleaseRule");
     const ruleBody = JSON.stringify(subscriptionRulePayload({
       mode: "REGEX",
-      mediaType: mediaTypeForKind(kind),
+      mediaType: mediaTypeFromKind(kind),
       feedIds,
       titleRegex,
       includeRegex,
@@ -1021,7 +1016,7 @@ function selectedMediaFromResolved(resolved: ResolvedMediaTitle, source: MediaSe
 
 function selectedMediaFromSubscription(subscription?: Subscription): SelectedMedia | null {
   if (!subscription?.media) return null;
-  const mediaType = mediaTypeFromSubscriptionKind(subscription.media.kind);
+  const mediaType = mediaTypeFromKind(subscription.media.kind);
   if (!mediaType) return null;
   return {
     mediaTitleId: subscription.media.id,
@@ -1054,22 +1049,6 @@ function mediaKindOptions(t: (key: string) => string) {
   ];
 }
 
-function mediaTypeForKind(kind: MediaKind): MediaRuleType {
-  return kind === "TV" ? "TV_SERIES" : "MOVIE";
-}
-
-function kindFromMediaType(mediaType?: string): MediaKind | undefined {
-  if (mediaType === "TV_SERIES") return "TV";
-  if (mediaType === "MOVIE") return "MOVIE";
-  return undefined;
-}
-
-function mediaTypeFromSubscriptionKind(kind?: string): MediaRuleType | undefined {
-  if (kind === "TV") return "TV_SERIES";
-  if (kind === "MOVIE") return "MOVIE";
-  return undefined;
-}
-
 function defaultMediaSubscriptionTitle(media: SelectedMedia, season: string, minResolution: string) {
   return [
     media.title,
@@ -1096,8 +1075,4 @@ function mediaMeta(media: SelectedMedia, t: (key: string) => string) {
 function providerDisplay(media: Pick<SelectedMedia, "provider" | "providerSource">) {
   const raw = media.providerSource ?? media.provider;
   return raw.replace("_api", "").replace("ptgen_", "PTGen ").toUpperCase();
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }

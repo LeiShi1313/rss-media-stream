@@ -10,6 +10,7 @@ import {
   loadPresentationPreferences,
   presentationOptionsForMediaType
 } from "../media/presentationPreferences.js";
+import { parsedReleaseMatchInclude } from "../media/parsedReleaseMatchInclude.js";
 
 export function registerDashboardRoutes(app: FastifyInstance) {
   app.get(
@@ -43,14 +44,7 @@ export function registerDashboardRoutes(app: FastifyInstance) {
             include: {
               matches: {
                 where: { status: "MATCHED", invalidatedAt: null },
-                include: {
-                  mediaTitle: {
-                    include: { providerIdentities: { include: { metadata: true } } }
-                  },
-                  mediaProviderIdentity: true,
-                  providerMediaMetadata: { include: { mediaProviderIdentity: true } },
-                  providerTitle: true
-                },
+                include: parsedReleaseMatchInclude,
                 orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
               }
             }
@@ -112,12 +106,7 @@ export function registerDashboardRoutes(app: FastifyInstance) {
         orderBy: { updatedAt: "desc" },
         take: 40,
         include: {
-          mediaTitle: {
-            include: { providerIdentities: { include: { metadata: true } } }
-          },
-          mediaProviderIdentity: true,
-          providerMediaMetadata: { include: { mediaProviderIdentity: true } },
-          providerTitle: true,
+          ...parsedReleaseMatchInclude,
           parsedRelease: { include: { item: true } }
         }
       });
