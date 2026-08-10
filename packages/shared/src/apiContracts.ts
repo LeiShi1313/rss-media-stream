@@ -333,26 +333,26 @@ export type DownloaderTestDto = {
 
 export type ProviderIdentityFilterDto = {
   provider: string;
-  mediaType?: MediaType;
-  providerEntityType?: string;
+  mediaType?: MediaType | null;
+  providerEntityType?: string | null;
   providerId: string;
 };
 
 export type ProviderRatingFilterDto = {
   provider: string;
-  ratingType?: RatingType;
+  ratingType?: RatingType | null;
   comparison: RatingComparison;
   value: number;
-  scale?: number;
-  minVoteCount?: number;
+  scale?: number | null;
+  minVoteCount?: number | null;
 };
 
 export type SubscriptionRuleDto = {
   id: string;
   mode: SubscriptionMode;
   mediaType: ParsedMediaType | null;
-  mediaTitleId?: string;
-  selectedProvider?: ProviderIdentityFilterDto;
+  mediaTitleId?: string | null;
+  selectedProvider?: ProviderIdentityFilterDto | null;
   linkedProviders: ProviderIdentityFilterDto[];
   providerRatings: ProviderRatingFilterDto[];
   feedIds: string[];
@@ -376,7 +376,7 @@ export type SubscriptionRuleDto = {
   episodeEnd: number | null;
   upgradePolicy: SubscriptionUpgradePolicy;
   allowCrossSeed: boolean;
-  separateVariants: boolean;
+  separateVariants?: boolean | null;
   seasonPackAllowed: boolean;
   createdAt: string;
   updatedAt: string;

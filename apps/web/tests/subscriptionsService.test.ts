@@ -336,18 +336,44 @@ describe("evaluateAutoDownloadsForItem", () => {
 });
 
 describe("subscription response serialization", () => {
-  it("preserves null, omitted, array, BigInt, and timestamp wire semantics", () => {
+  it("preserves structured filters, nulls, BigInt, and timestamp wire semantics", () => {
     const serialized = serializeSubscription({
       id: "subscription-1",
       title: "Stand-up Comedy",
       createdByUserId: "user-1",
-      mediaTitleId: null,
+      mediaTitleId: "media-title-1",
       mediaTitle: null,
       downloader: null,
       autoDownload: true,
       enabled: true,
       rule: {
-        ...rule({ mode: "REGEX", mediaType: "TV_SERIES", titleRegex: "Stand-up" }),
+        ...rule({
+          mode: "MEDIA_TITLE",
+          mediaType: "TV_SERIES",
+          criteriaJson: {
+            selectedProvider: {
+              provider: "tmdb",
+              providerEntityType: "tmdb_tv",
+              providerId: "123"
+            },
+            linkedProviders: [{
+              provider: "tvdb",
+              providerEntityType: "tvdb_series",
+              providerId: "456"
+            }],
+            providerRatings: [{
+              provider: "douban",
+              ratingType: "user_score",
+              comparison: "gte",
+              value: 8,
+              scale: 10,
+              minVoteCount: 1000
+            }],
+            variantsInclude: ["PURE"],
+            variantsExclude: ["REPACK"],
+            separateVariants: true
+          }
+        }),
         minSizeBytes: 1_000n,
         createdAt: new Date("2026-08-10T12:00:00.000Z"),
         updatedAt: new Date("2026-08-10T13:00:00.000Z")
@@ -357,29 +383,108 @@ describe("subscription response serialization", () => {
     });
 
     expect(serialized.createdAt).toBe("2026-08-10T12:00:00.000Z");
-    expect(JSON.parse(JSON.stringify(serialized))).toMatchObject({
+    expect(JSON.parse(JSON.stringify(serialized))).toEqual({
       id: "subscription-1",
+      title: "Stand-up Comedy",
+      createdByUserId: "user-1",
       autoDownload: true,
       enabled: true,
       rule: {
-        mode: "REGEX",
+        id: "rule-1",
+        mode: "MEDIA_TITLE",
         mediaType: "TV_SERIES",
-        linkedProviders: [],
-        providerRatings: [],
+        mediaTitleId: "media-title-1",
+        selectedProvider: {
+          provider: "tmdb",
+          providerEntityType: "tmdb_tv",
+          providerId: "123"
+        },
+        linkedProviders: [{
+          provider: "tvdb",
+          providerEntityType: "tvdb_series",
+          providerId: "456"
+        }],
+        providerRatings: [{
+          provider: "douban",
+          ratingType: "user_score",
+          comparison: "gte",
+          value: 8,
+          scale: 10,
+          minVoteCount: 1000
+        }],
         feedIds: [],
-        titleRegex: "Stand-up",
+        titleRegex: null,
         includeRegex: null,
         excludeRegex: null,
-        minSizeBytes: "1000",
+        minResolution: null,
+        maxResolution: null,
         sources: [],
-        variantsInclude: [],
-        variantsExclude: [],
+        codecs: [],
+        audio: [],
+        releaseGroupsInclude: [],
+        releaseGroupsExclude: [],
+        variantsInclude: ["PURE"],
+        variantsExclude: ["REPACK"],
+        preferredReleaseGroups: [],
+        minSizeBytes: "1000",
+        season: null,
+        episodeStart: null,
+        episodeEnd: null,
+        upgradePolicy: "none",
+        allowCrossSeed: false,
+        separateVariants: true,
+        seasonPackAllowed: true,
         createdAt: "2026-08-10T12:00:00.000Z",
         updatedAt: "2026-08-10T13:00:00.000Z"
       },
       createdAt: "2026-08-10T12:00:00.000Z",
       updatedAt: "2026-08-10T13:00:00.000Z"
     });
+  });
+
+  it("keeps absent optional criteria out of the JSON response", () => {
+    const serialized = serializeSubscription({
+      id: "subscription-1",
+      title: "Regex subscription",
+      createdByUserId: "user-1",
+      mediaTitleId: null,
+      mediaTitle: null,
+      downloader: null,
+      autoDownload: true,
+      enabled: true,
+      rule: {
+        ...rule({ mode: "REGEX", titleRegex: "Stand-up", criteriaJson: null }),
+        createdAt: new Date("2026-08-10T12:00:00.000Z"),
+        updatedAt: new Date("2026-08-10T13:00:00.000Z")
+      },
+      createdAt: new Date("2026-08-10T12:00:00.000Z"),
+      updatedAt: new Date("2026-08-10T13:00:00.000Z")
+    });
+
+    const wire = JSON.parse(JSON.stringify(serialized));
+    expect(wire.rule).not.toHaveProperty("separateVariants");
+    expect(wire.rule).not.toHaveProperty("mediaTitleId");
+    expect(wire.rule.linkedProviders).toEqual([]);
+  });
+
+  it("rejects malformed persisted structured filters", () => {
+    expect(() => serializeSubscription({
+      id: "subscription-1",
+      title: "Malformed subscription",
+      createdByUserId: "user-1",
+      mediaTitleId: null,
+      mediaTitle: null,
+      downloader: null,
+      autoDownload: true,
+      enabled: true,
+      rule: {
+        ...rule({ criteriaJson: { linkedProviders: "not-an-array" } }),
+        createdAt: new Date("2026-08-10T12:00:00.000Z"),
+        updatedAt: new Date("2026-08-10T13:00:00.000Z")
+      },
+      createdAt: new Date("2026-08-10T12:00:00.000Z"),
+      updatedAt: new Date("2026-08-10T13:00:00.000Z")
+    })).toThrow("subscription criteria are invalid");
   });
 });
 

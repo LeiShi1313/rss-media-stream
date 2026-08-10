@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import { z } from "zod";
 import { redactSecrets } from "@rss-media/shared/redact";
 import {
   evaluateSubscriptionRule,
@@ -7,19 +8,22 @@ import {
   normalizeRule,
   normalizeResolution,
   normalizeSource,
+  SubscriptionRuleValidationError,
   serializeRuleSnapshot
 } from "@rss-media/shared/subscriptionRules";
 import type {
   CandidateInput,
   NormalizedSubscriptionRule,
   ProviderTitleRuleView,
-  SubscriptionRuleInput
+  SubscriptionMode,
+  SubscriptionRuleInput,
+  SubscriptionUpgradePolicy
 } from "@rss-media/shared/types";
 import type {
   SubscriptionDto,
   SubscriptionRuleDto
 } from "@rss-media/shared/apiContracts";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, SubscriptionRule } from "@prisma/client";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { db } from "../../core/dbClient.js";
@@ -40,12 +44,66 @@ import type {
   subscriptionPatchSchema,
   subscriptionRuleSchema
 } from "./subscriptions.schemas.js";
-import type { z } from "zod";
 
 type SubscriptionCreateInput = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionPatchInput = z.infer<typeof subscriptionPatchSchema>;
 type SubscriptionRuleBody = z.infer<typeof subscriptionRuleSchema>;
 type MatchHistoryQuery = z.infer<typeof matchHistoryQuerySchema>;
+
+type PersistedRuleInput = SubscriptionRuleInput & {
+  mode: SubscriptionMode;
+  linkedProviders: NonNullable<SubscriptionRuleInput["linkedProviders"]>;
+  providerRatings: NonNullable<SubscriptionRuleInput["providerRatings"]>;
+  feedIds: string[];
+  variantsInclude: string[];
+  variantsExclude: string[];
+  upgradePolicy: SubscriptionUpgradePolicy;
+  allowCrossSeed: boolean;
+  seasonPackAllowed: boolean;
+};
+
+const persistedProviderIdentitySchema = z.object({
+  provider: z.string(),
+  mediaType: z.enum(["MOVIE", "TV_SERIES"]).nullable().optional(),
+  providerEntityType: z.string().nullable().optional(),
+  providerId: z.string()
+});
+
+const persistedProviderRatingSchema = z.object({
+  provider: z.string(),
+  ratingType: z
+    .enum(["user_score", "critic_score", "popularity"])
+    .nullable()
+    .optional(),
+  comparison: z.enum(["gte", "lte", "gt", "lt", "eq"]),
+  value: z.number(),
+  scale: z.number().nullable().optional(),
+  minVoteCount: z.number().nullable().optional()
+});
+
+const persistedRuleCriteriaSchema = z.object({
+  mediaTitleId: z.string().nullable().optional(),
+  selectedProvider: persistedProviderIdentitySchema.nullable().optional(),
+  linkedProviders: z
+    .array(persistedProviderIdentitySchema)
+    .nullish()
+    .transform((value) => value ?? []),
+  providerRatings: z
+    .array(persistedProviderRatingSchema)
+    .nullish()
+    .transform((value) => value ?? []),
+  variantsInclude: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? []),
+  variantsExclude: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? []),
+  separateVariants: z.boolean().nullable().optional()
+});
+
+type RuleCriteria = z.output<typeof persistedRuleCriteriaSchema>;
 
 type AcquisitionUnit = {
   contentKey: string;
@@ -914,29 +972,18 @@ function ruleCriteriaJson(rule: ReturnType<typeof normalizeRule>) {
   return (Object.keys(compact).length > 0 ? compact : null) as Prisma.InputJsonValue;
 }
 
-function criteriaFromRow(rule: any): {
-  mediaTitleId?: string;
-  selectedProvider?: SubscriptionRuleInput["selectedProvider"];
-  linkedProviders?: SubscriptionRuleInput["linkedProviders"];
-  providerRatings?: SubscriptionRuleInput["providerRatings"];
-  variantsInclude?: SubscriptionRuleInput["variantsInclude"];
-  variantsExclude?: SubscriptionRuleInput["variantsExclude"];
-  separateVariants?: SubscriptionRuleInput["separateVariants"];
-} {
-  return rule.criteriaJson && typeof rule.criteriaJson === "object" && !Array.isArray(rule.criteriaJson)
-    ? rule.criteriaJson
-    : {};
-}
-
-function ruleFromRow(rule: any, subscriptionMediaTitleId?: string | null): SubscriptionRuleInput {
-  const criteria = criteriaFromRow(rule);
+function ruleFromRow(
+  rule: SubscriptionRule,
+  subscriptionMediaTitleId?: string | null
+): PersistedRuleInput {
+  const criteria = criteriaFromRow(rule.criteriaJson);
   return {
-    mode: rule.mode ?? undefined,
+    mode: subscriptionModeFromRow(rule.mode),
     mediaType: rule.mediaType ?? undefined,
     mediaTitleId: subscriptionMediaTitleId ?? criteria.mediaTitleId,
     selectedProvider: criteria.selectedProvider,
-    linkedProviders: criteria.linkedProviders ?? [],
-    providerRatings: criteria.providerRatings ?? [],
+    linkedProviders: criteria.linkedProviders,
+    providerRatings: criteria.providerRatings,
     feedIds: rule.feedIds ?? [],
     titleRegex: rule.titleRegex ?? undefined,
     includeRegex: rule.includeRegex ?? undefined,
@@ -948,19 +995,44 @@ function ruleFromRow(rule: any, subscriptionMediaTitleId?: string | null): Subsc
     audio: rule.audio ?? [],
     releaseGroupsInclude: rule.releaseGroupsInclude ?? [],
     releaseGroupsExclude: rule.releaseGroupsExclude ?? [],
-    variantsInclude: criteria.variantsInclude ?? [],
-    variantsExclude: criteria.variantsExclude ?? [],
+    variantsInclude: criteria.variantsInclude,
+    variantsExclude: criteria.variantsExclude,
     preferredReleaseGroups: rule.preferredReleaseGroups ?? [],
     minSizeBytes: rule.minSizeBytes ?? undefined,
     maxSizeBytes: rule.maxSizeBytes ?? undefined,
     season: rule.season ?? undefined,
     episodeStart: rule.episodeStart ?? undefined,
     episodeEnd: rule.episodeEnd ?? undefined,
-    upgradePolicy: rule.upgradePolicy ?? undefined,
-    allowCrossSeed: rule.allowCrossSeed ?? undefined,
-    separateVariants: rule.separateVariants ?? criteria.separateVariants,
-    seasonPackAllowed: rule.seasonPackAllowed ?? undefined
+    upgradePolicy: subscriptionUpgradePolicyFromRow(rule.upgradePolicy),
+    allowCrossSeed: rule.allowCrossSeed,
+    separateVariants: criteria.separateVariants,
+    seasonPackAllowed: rule.seasonPackAllowed
   };
+}
+
+function criteriaFromRow(value: Prisma.JsonValue | null): RuleCriteria {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const result = persistedRuleCriteriaSchema.safeParse(input);
+  if (!result.success) {
+    throw new SubscriptionRuleValidationError("subscription criteria are invalid");
+  }
+  return result.data;
+}
+
+function subscriptionModeFromRow(value: string): SubscriptionMode {
+  if (value === "MEDIA_TITLE" || value === "REGEX") return value;
+  throw new SubscriptionRuleValidationError("subscription mode is unsupported");
+}
+
+function subscriptionUpgradePolicyFromRow(value: string): SubscriptionUpgradePolicy {
+  if (
+    value === "none" ||
+    value === "better_quality" ||
+    value === "preferred_release_group"
+  ) {
+    return value;
+  }
+  throw new SubscriptionRuleValidationError("subscription upgrade policy is unsupported");
 }
 
 function activeMatchFromRow(match: any): CandidateInput["activeMatch"] {
@@ -1099,19 +1171,19 @@ export function serializeSubscription(
 }
 
 function serializeRule(
-  rule: any,
+  rule: SubscriptionRule,
   subscriptionMediaTitleId?: string | null
 ): SubscriptionRuleDto {
   const ruleInput = ruleFromRow(rule, subscriptionMediaTitleId);
   return {
     id: rule.id,
-    mode: ruleInput.mode as SubscriptionRuleDto["mode"],
+    mode: ruleInput.mode,
     mediaType: rule.mediaType,
-    mediaTitleId: ruleInput.mediaTitleId as SubscriptionRuleDto["mediaTitleId"],
-    selectedProvider: ruleInput.selectedProvider as SubscriptionRuleDto["selectedProvider"],
-    linkedProviders: ruleInput.linkedProviders as SubscriptionRuleDto["linkedProviders"],
-    providerRatings: ruleInput.providerRatings as SubscriptionRuleDto["providerRatings"],
-    feedIds: ruleInput.feedIds as SubscriptionRuleDto["feedIds"],
+    mediaTitleId: ruleInput.mediaTitleId,
+    selectedProvider: ruleInput.selectedProvider,
+    linkedProviders: ruleInput.linkedProviders,
+    providerRatings: ruleInput.providerRatings,
+    feedIds: ruleInput.feedIds,
     titleRegex: rule.titleRegex,
     includeRegex: rule.includeRegex,
     excludeRegex: rule.excludeRegex,
@@ -1122,18 +1194,18 @@ function serializeRule(
     audio: rule.audio ?? [],
     releaseGroupsInclude: rule.releaseGroupsInclude ?? [],
     releaseGroupsExclude: rule.releaseGroupsExclude ?? [],
-    variantsInclude: ruleInput.variantsInclude ?? [],
-    variantsExclude: ruleInput.variantsExclude ?? [],
+    variantsInclude: ruleInput.variantsInclude,
+    variantsExclude: ruleInput.variantsExclude,
     preferredReleaseGroups: rule.preferredReleaseGroups ?? [],
     minSizeBytes: rule.minSizeBytes?.toString?.(),
     maxSizeBytes: rule.maxSizeBytes?.toString?.(),
     season: rule.season,
     episodeStart: rule.episodeStart,
     episodeEnd: rule.episodeEnd,
-    upgradePolicy: ruleInput.upgradePolicy as SubscriptionRuleDto["upgradePolicy"],
-    allowCrossSeed: ruleInput.allowCrossSeed as SubscriptionRuleDto["allowCrossSeed"],
-    separateVariants: ruleInput.separateVariants as SubscriptionRuleDto["separateVariants"],
-    seasonPackAllowed: ruleInput.seasonPackAllowed as SubscriptionRuleDto["seasonPackAllowed"],
+    upgradePolicy: ruleInput.upgradePolicy,
+    allowCrossSeed: ruleInput.allowCrossSeed,
+    separateVariants: ruleInput.separateVariants,
+    seasonPackAllowed: ruleInput.seasonPackAllowed,
     createdAt: rule.createdAt.toISOString(),
     updatedAt: rule.updatedAt.toISOString()
   };
