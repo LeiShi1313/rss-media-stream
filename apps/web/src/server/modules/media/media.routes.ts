@@ -10,10 +10,12 @@ import {
   getMedia,
   listMediaItems,
   listTrendingMedia,
-  manuallyMatchParsedReleaseWithProvider,
-  matchParsedReleaseForItem,
   resolveProviderMediaTitle,
   searchLocalMedia
+} from "./mediaCatalog.js";
+import {
+  manuallyMatchParsedReleaseWithProvider,
+  matchParsedReleaseForItem
 } from "./media.service.js";
 import {
   searchExternalMedia,

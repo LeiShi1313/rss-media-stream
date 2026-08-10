@@ -40,12 +40,14 @@ vi.mock("../src/server/modules/subscriptions/subscriptionAutomation.js", () => (
   evaluateAutoDownloadsForItem: mocks.evaluateAutoDownloadsForItem
 }));
 vi.mock("../src/server/modules/media/media.service.js", () => ({
+  manuallyMatchParsedReleaseWithProvider: mocks.manuallyMatchParsedReleaseWithProvider,
+  matchParsedReleaseForItem: mocks.matchParsedReleaseForItem
+}));
+vi.mock("../src/server/modules/media/mediaCatalog.js", () => ({
   getMedia: mocks.getMedia,
   getMediaDetail: mocks.getMediaDetail,
   listMediaItems: mocks.listMediaItems,
   listTrendingMedia: mocks.listTrendingMedia,
-  manuallyMatchParsedReleaseWithProvider: mocks.manuallyMatchParsedReleaseWithProvider,
-  matchParsedReleaseForItem: mocks.matchParsedReleaseForItem,
   resolveProviderMediaTitle: mocks.resolveProviderMediaTitle,
   searchLocalMedia: mocks.searchLocalMedia
 }));

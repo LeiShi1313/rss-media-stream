@@ -155,15 +155,17 @@ vi.mock("../src/server/integrations/providers/runtime.js", () => ({
 }));
 
 const {
+  manuallyMatchParsedReleaseWithProvider,
+  matchParsedReleaseForItem
+} = await import("../src/server/modules/media/media.service.js");
+const {
   getMedia,
   getMediaDetail,
   listTrendingMedia,
   listMediaItems,
-  manuallyMatchParsedReleaseWithProvider,
-  matchParsedReleaseForItem,
   resolveProviderMediaTitle,
   searchLocalMedia
-} = await import("../src/server/modules/media/media.service.js");
+} = await import("../src/server/modules/media/mediaCatalog.js");
 const {
   searchExternalMedia,
   smartSearchExternalMedia
