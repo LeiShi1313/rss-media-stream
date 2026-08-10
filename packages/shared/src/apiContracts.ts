@@ -186,7 +186,7 @@ export type ParsedReleaseDto = {
   year: number | null;
   kind: "MOVIE" | "TV" | "UNKNOWN";
   mediaType: ParsedMediaType;
-  tvUnitType: "EPISODE" | "SPECIAL" | null;
+  tvUnitType: string | null;
   season: number | null;
   episode: number | null;
   episodeEnd: number | null;

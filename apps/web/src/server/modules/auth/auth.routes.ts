@@ -1,6 +1,10 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import type {
+  AuthResponseDto,
+  SetupStatusDto
+} from "@rss-media/shared/apiContracts";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { authenticateUser, listUserWorkspaces, resolveTenantContext } from "../../core/context.js";
@@ -23,7 +27,7 @@ const loginSchema = z.object({
 export async function registerAuthRoutes(app: FastifyInstance, config: AppConfig) {
   app.get("/api/setup/status", async () => {
     const count = await prisma.user.count();
-    return { required: count === 0 };
+    return { required: count === 0 } satisfies SetupStatusDto;
   });
 
   app.post("/api/setup", async (request, reply) => {
@@ -80,7 +84,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: AppConfig
         name: result.tenant.name,
         role: result.role
       }
-    };
+    } satisfies AuthResponseDto;
   });
 
   app.post("/api/login", async (request, reply) => {
@@ -102,7 +106,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: AppConfig
       user: { id: user.id, email: user.email, name: user.name },
       activeWorkspace,
       workspaces: memberships
-    };
+    } satisfies AuthResponseDto;
   });
 
   app.post("/api/logout", async (_request, reply) => {
@@ -122,7 +126,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: AppConfig
       activeWorkspace = undefined;
     }
 
-    return { user, activeWorkspace, workspaces };
+    return { user, activeWorkspace, workspaces } satisfies AuthResponseDto;
   });
 }
 

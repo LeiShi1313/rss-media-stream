@@ -37,7 +37,9 @@ describe("downloader response serialization", () => {
       _count: { jobs: 3 }
     }]);
 
-    expect(JSON.parse(JSON.stringify(await listDownloaders("tenant-1")))).toEqual([{
+    const downloaders = await listDownloaders("tenant-1");
+    expect(downloaders[0]?.createdAt).toBe("2026-08-10T12:00:00.000Z");
+    expect(downloaders).toEqual([{
       id: "downloader-1",
       name: "qBittorrent",
       type: "QBITTORRENT",

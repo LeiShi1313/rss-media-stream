@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import type { WorkspaceDto } from "@rss-media/shared/apiContracts";
 import { prisma } from "../db.js";
 import { conflict, unauthorized } from "./errors.js";
 
@@ -95,7 +96,7 @@ export async function resolveTenantContext(request: FastifyRequest) {
   };
 }
 
-export async function listUserWorkspaces(userId: string) {
+export async function listUserWorkspaces(userId: string): Promise<WorkspaceDto[]> {
   const memberships = await prisma.tenantMembership.findMany({
     where: { userId },
     include: { tenant: { select: { id: true, name: true, createdAt: true, updatedAt: true } } },
@@ -106,8 +107,8 @@ export async function listUserWorkspaces(userId: string) {
     id: membership.tenant.id,
     name: membership.tenant.name,
     role: membership.role,
-    createdAt: membership.tenant.createdAt,
-    updatedAt: membership.tenant.updatedAt
+    createdAt: membership.tenant.createdAt.toISOString(),
+    updatedAt: membership.tenant.updatedAt.toISOString()
   }));
 }
 

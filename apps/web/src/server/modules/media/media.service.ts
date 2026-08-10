@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import type {
+  ItemDto,
+  MediaDetailDto,
+  MediaSearchResultDto,
+  MediaTitleDto,
+  ResolvedMediaTitleDto,
+  TrendingMediaPageDto
+} from "@rss-media/shared/apiContracts";
 import { toJsonStorageValue } from "@rss-media/shared/json";
 import { redactSecrets } from "@rss-media/shared/redact";
 import { normalizeTitleKey } from "@rss-media/shared/titleNormalization";
@@ -124,7 +132,7 @@ export async function searchExternalMedia(
   tenantId: string,
   query: MediaSearchQuery,
   logger?: ProviderSearchLogger
-) {
+): Promise<MediaSearchResultDto[]> {
   const providerSource = canonicalProviderSource(query.providerSource ?? query.provider);
   const targets = (providerSource
     ? [{ providerSource, mediaType: query.mediaType }]
@@ -144,7 +152,7 @@ export async function smartSearchExternalMedia(
   tenantId: string,
   query: SmartProviderTitleSearchInput,
   logger?: ProviderSearchLogger
-) {
+): Promise<MediaSearchResultDto[]> {
   const providerSource = canonicalProviderSource(query.providerSource ?? query.provider);
   const metadataProviders = providerSource
     ? [getMetadataProvider(adapterIdForProviderSource(providerSource))]
@@ -209,7 +217,7 @@ export async function resolveProviderMediaTitle(
   config: AppConfig,
   tenantId: string,
   input: ProviderTitleResolveInput
-) {
+): Promise<ResolvedMediaTitleDto> {
   const providerSource = canonicalProviderSource(input.providerSource);
   if (!providerSource) {
     throw conflict("UNSUPPORTED_PROVIDER_SOURCE", "Provider title resolution requires a supported provider source");
@@ -238,7 +246,7 @@ export async function resolveProviderMediaTitle(
 
   return {
     mediaTitleId: resolved.mediaTitle.id,
-    mediaType: resolved.mediaTitle.mediaType,
+    mediaType: resolved.mediaTitle.mediaType as ResolvedMediaTitleDto["mediaType"],
     title: presentation.title,
     originalTitle: presentation.originalTitle,
     year: presentation.releaseYear,
@@ -252,7 +260,10 @@ export async function resolveProviderMediaTitle(
   };
 }
 
-export async function searchLocalMedia(tenantId: string, query: LocalMediaSearchQuery) {
+export async function searchLocalMedia(
+  tenantId: string,
+  query: LocalMediaSearchQuery
+): Promise<MediaTitleDto[]> {
   const normalizedQuery = query.q ? normalizeTitle(query.q) : undefined;
   const media = await prisma.mediaTitle.findMany({
     where: {
@@ -301,7 +312,10 @@ export async function searchLocalMedia(tenantId: string, query: LocalMediaSearch
   );
 }
 
-export async function listTrendingMedia(tenantId: string, query: TrendingMediaQuery) {
+export async function listTrendingMedia(
+  tenantId: string,
+  query: TrendingMediaQuery
+): Promise<TrendingMediaPageDto> {
   const cursor = decodeTrendingCursor(query.cursor);
   const mediaType = effectiveTrendingMediaType(query.mediaType, cursor);
   const windowDays = effectiveTrendingWindowDays(query.windowDays, cursor);
@@ -494,7 +508,10 @@ function isConcreteMediaType(value: unknown): value is ConcreteMediaType {
   return value === "MOVIE" || value === "TV_SERIES";
 }
 
-export async function getMedia(tenantId: string, mediaTitleId: string) {
+export async function getMedia(
+  tenantId: string,
+  mediaTitleId: string
+): Promise<MediaTitleDto> {
   const media = await prisma.mediaTitle.findUnique({
     where: { id: mediaTitleId },
     include: {
@@ -517,7 +534,10 @@ export async function getMedia(tenantId: string, mediaTitleId: string) {
   }, presentationPreferences);
 }
 
-export async function listMediaItems(tenantId: string, mediaTitleId: string) {
+export async function listMediaItems(
+  tenantId: string,
+  mediaTitleId: string
+): Promise<ItemDto[]> {
   const media = await assertMediaTitleExists(mediaTitleId);
   const presentationPreferences = await loadPresentationPreferences(
     tenantId,
@@ -545,7 +565,10 @@ export async function listMediaItems(tenantId: string, mediaTitleId: string) {
   return items.map((item) => serializeItem(item, presentationPreferences));
 }
 
-export async function getMediaDetail(tenantId: string, mediaTitleId: string) {
+export async function getMediaDetail(
+  tenantId: string,
+  mediaTitleId: string
+): Promise<MediaDetailDto> {
   const media = await getMedia(tenantId, mediaTitleId);
   const releases = await listMediaItems(tenantId, mediaTitleId);
   return { media, releases };
@@ -1820,7 +1843,7 @@ function concreteMediaTypeList(mediaType?: string | null): Array<"MOVIE" | "TV_S
 function serializeMediaTitle(
   media: any,
   presentationPreferences: PresentationPreferences = EMPTY_PRESENTATION_PREFERENCES
-) {
+): MediaTitleDto {
   const presentation = serializeMediaPresentation({
     mediaTitle: media,
     providerMetadata: media.selectedProviderMetadata,

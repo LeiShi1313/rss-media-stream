@@ -1,3 +1,7 @@
+import type {
+  ProviderSettingsDto,
+  ProviderSettingsResponseDto
+} from "@rss-media/shared/apiContracts";
 import type { MediaProvider, ProviderSource } from "@rss-media/shared/types";
 import type { AppConfig } from "../../config.js";
 import { badRequest } from "../../core/errors.js";
@@ -6,37 +10,6 @@ import { decryptSecret, encryptSecret } from "../../secrets.js";
 import { getMetadataProvider, listProviderSourceDefinitions } from "./index.js";
 import { getProviderSourceDefinition, providerSourceForLegacyProvider } from "./sources.js";
 import type { ProviderRuntimeContext, ProviderSecrets } from "./types.js";
-
-export type ProviderCredentialSource = "workspace" | "environment";
-
-export type ProviderSettingsStatus = {
-  id: ProviderSource;
-  provider: MediaProvider;
-  label: string;
-  supportedMediaTypes: readonly string[];
-  ratingSupportedMediaTypes: readonly string[];
-  authFields: readonly {
-    key: string;
-    label: string;
-    secret: boolean;
-    required: boolean;
-  }[];
-  supportsMetadataLanguage: boolean;
-  supportsRegion: boolean;
-  baseUrlOptions: readonly {
-    label: string;
-    value: string;
-  }[];
-  enabled: boolean;
-  configured: boolean;
-  credentialSource: ProviderCredentialSource | null;
-  configuredAt?: Date | null;
-  lastValidatedAt?: Date | null;
-  lastError?: string | null;
-  metadataLanguage?: string | null;
-  region?: string | null;
-  baseUrl?: string | null;
-};
 
 export async function resolveProviderRuntime(
   config: AppConfig,
@@ -72,26 +45,29 @@ export async function resolveProviderRuntime(
   };
 }
 
-export async function listProviderSettings(config: AppConfig, tenantId: string) {
+export async function listProviderSettings(
+  config: AppConfig,
+  tenantId: string
+): Promise<ProviderSettingsResponseDto> {
   const statuses = await Promise.all(
-    listProviderSourceDefinitions().map(async (definition): Promise<ProviderSettingsStatus> => {
+    listProviderSourceDefinitions().map(async (definition): Promise<ProviderSettingsDto> => {
       const runtime = await resolveProviderRuntime(config, tenantId, definition.id);
       const row = await findProviderSourceConfig(tenantId, definition.id);
       return {
         id: definition.id,
         provider: definition.provider,
         label: definition.label,
-        supportedMediaTypes: definition.supportedMediaTypes,
-        ratingSupportedMediaTypes: definition.ratingSupportedMediaTypes,
-        authFields: definition.authFields,
+        supportedMediaTypes: [...definition.supportedMediaTypes],
+        ratingSupportedMediaTypes: [...definition.ratingSupportedMediaTypes],
+        authFields: definition.authFields.map((field) => ({ ...field })),
         supportsMetadataLanguage: definition.supportsMetadataLanguage,
         supportsRegion: definition.supportsRegion,
-        baseUrlOptions: definition.baseUrlOptions ?? [],
+        baseUrlOptions: (definition.baseUrlOptions ?? []).map((option) => ({ ...option })),
         enabled: runtime.enabled,
         configured: providerRuntimeConfigured(runtime),
         credentialSource: runtime.credential?.source ?? null,
-        configuredAt: row?.configuredAt ?? null,
-        lastValidatedAt: row?.lastValidatedAt ?? null,
+        configuredAt: row?.configuredAt?.toISOString() ?? null,
+        lastValidatedAt: row?.lastValidatedAt?.toISOString() ?? null,
         lastError: row?.lastError ?? null,
         metadataLanguage: runtime.metadataLanguage ?? null,
         region: runtime.region ?? null,

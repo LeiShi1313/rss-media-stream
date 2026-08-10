@@ -15,6 +15,10 @@ import type {
   ProviderTitleRuleView,
   SubscriptionRuleInput
 } from "@rss-media/shared/types";
+import type {
+  SubscriptionDto,
+  SubscriptionRuleDto
+} from "@rss-media/shared/apiContracts";
 import type { Prisma } from "@prisma/client";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
@@ -1042,14 +1046,17 @@ function candidateFromItem(item: any): CandidateInput {
   };
 }
 
-export async function serializeSubscriptionForTenant(tenantId: string, subscription: any) {
+export async function serializeSubscriptionForTenant(
+  tenantId: string,
+  subscription: any
+): Promise<SubscriptionDto> {
   return serializeSubscription(subscription, await loadPresentationPreferences(tenantId));
 }
 
 export function serializeSubscription(
   subscription: any,
   presentationPreferences: PresentationPreferences = EMPTY_PRESENTATION_PREFERENCES
-) {
+): SubscriptionDto {
   const mediaPresentation = subscription.mediaTitle
     ? serializeMediaPresentation({
         mediaTitle: subscription.mediaTitle,
@@ -1086,22 +1093,25 @@ export function serializeSubscription(
     autoDownload: subscription.autoDownload,
     enabled: subscription.enabled,
     rule: subscription.rule ? serializeRule(subscription.rule, subscription.mediaTitleId) : undefined,
-    createdAt: subscription.createdAt,
-    updatedAt: subscription.updatedAt
+    createdAt: subscription.createdAt.toISOString(),
+    updatedAt: subscription.updatedAt.toISOString()
   };
 }
 
-function serializeRule(rule: any, subscriptionMediaTitleId?: string | null) {
+function serializeRule(
+  rule: any,
+  subscriptionMediaTitleId?: string | null
+): SubscriptionRuleDto {
   const ruleInput = ruleFromRow(rule, subscriptionMediaTitleId);
   return {
     id: rule.id,
-    mode: ruleInput.mode,
+    mode: ruleInput.mode as SubscriptionRuleDto["mode"],
     mediaType: rule.mediaType,
-    mediaTitleId: ruleInput.mediaTitleId,
-    selectedProvider: ruleInput.selectedProvider,
-    linkedProviders: ruleInput.linkedProviders,
-    providerRatings: ruleInput.providerRatings,
-    feedIds: ruleInput.feedIds,
+    mediaTitleId: ruleInput.mediaTitleId as SubscriptionRuleDto["mediaTitleId"],
+    selectedProvider: ruleInput.selectedProvider as SubscriptionRuleDto["selectedProvider"],
+    linkedProviders: ruleInput.linkedProviders as SubscriptionRuleDto["linkedProviders"],
+    providerRatings: ruleInput.providerRatings as SubscriptionRuleDto["providerRatings"],
+    feedIds: ruleInput.feedIds as SubscriptionRuleDto["feedIds"],
     titleRegex: rule.titleRegex,
     includeRegex: rule.includeRegex,
     excludeRegex: rule.excludeRegex,
@@ -1120,12 +1130,12 @@ function serializeRule(rule: any, subscriptionMediaTitleId?: string | null) {
     season: rule.season,
     episodeStart: rule.episodeStart,
     episodeEnd: rule.episodeEnd,
-    upgradePolicy: ruleInput.upgradePolicy,
-    allowCrossSeed: ruleInput.allowCrossSeed,
-    separateVariants: ruleInput.separateVariants,
-    seasonPackAllowed: ruleInput.seasonPackAllowed,
-    createdAt: rule.createdAt,
-    updatedAt: rule.updatedAt
+    upgradePolicy: ruleInput.upgradePolicy as SubscriptionRuleDto["upgradePolicy"],
+    allowCrossSeed: ruleInput.allowCrossSeed as SubscriptionRuleDto["allowCrossSeed"],
+    separateVariants: ruleInput.separateVariants as SubscriptionRuleDto["separateVariants"],
+    seasonPackAllowed: ruleInput.seasonPackAllowed as SubscriptionRuleDto["seasonPackAllowed"],
+    createdAt: rule.createdAt.toISOString(),
+    updatedAt: rule.updatedAt.toISOString()
   };
 }
 

@@ -356,6 +356,7 @@ describe("subscription response serialization", () => {
       updatedAt: new Date("2026-08-10T13:00:00.000Z")
     });
 
+    expect(serialized.createdAt).toBe("2026-08-10T12:00:00.000Z");
     expect(JSON.parse(JSON.stringify(serialized))).toMatchObject({
       id: "subscription-1",
       autoDownload: true,

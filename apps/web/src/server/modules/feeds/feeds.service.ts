@@ -1,4 +1,5 @@
 import Parser from "rss-parser";
+import type { FeedDto } from "@rss-media/shared/apiContracts";
 import { redactSecrets } from "@rss-media/shared/redact";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
@@ -48,19 +49,6 @@ type FeedRefreshResult = {
 
 type FeedRequestHeaders = Record<string, string>;
 
-export type FeedResponse = {
-  id: string;
-  name: string;
-  urlPreview: string | null;
-  hasRequestHeaders: boolean;
-  enabled: boolean;
-  pollIntervalSeconds: number;
-  lastPolledAt?: string | null;
-  lastError?: string | null;
-  deletedAt?: string | null;
-  itemCount: number;
-};
-
 const parserOptions = {
   customFields: {
     item: [
@@ -72,7 +60,7 @@ const parserOptions = {
   }
 } satisfies ConstructorParameters<typeof Parser>[0];
 
-export async function listFeeds(tenantId: string): Promise<FeedResponse[]> {
+export async function listFeeds(tenantId: string): Promise<FeedDto[]> {
   const feeds = await prisma.rssFeed.findMany({
     where: { tenantId, deletedAt: null },
     orderBy: { createdAt: "desc" },
@@ -85,7 +73,7 @@ export async function listFeeds(tenantId: string): Promise<FeedResponse[]> {
 export async function getFeed(
   tenantId: string,
   feedId: string
-): Promise<FeedResponse> {
+): Promise<FeedDto> {
   const feed = await prisma.rssFeed.findFirst({
     where: { id: feedId, tenantId, deletedAt: null },
     include: { _count: { select: { items: true } } }
@@ -118,7 +106,7 @@ export async function updateFeed(input: {
   tenantId: string;
   feedId: string;
   patch: PatchFeedInput;
-}): Promise<FeedResponse> {
+}): Promise<FeedDto> {
   await assertFeedInTenant(input.tenantId, input.feedId, { activeOnly: true });
 
   const feed = await prisma.rssFeed.update({
@@ -453,7 +441,7 @@ function serializeFeed(feed: {
   lastError: string | null;
   deletedAt?: Date | null;
   _count: { items: number };
-}): FeedResponse {
+}): FeedDto {
   return {
     id: feed.id,
     name: feed.name,

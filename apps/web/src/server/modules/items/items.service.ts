@@ -1,12 +1,16 @@
 import { ParsedReleaseMatchStatus, type Prisma } from "@prisma/client";
+import type {
+  ItemDto,
+  ItemPageDto,
+  ParsedReleaseDto
+} from "@rss-media/shared/apiContracts";
 import { prisma } from "../../db.js";
 import { notFound } from "../../core/errors.js";
 import { decryptAead } from "../../secrets.js";
 import {
   legacyKindFromMediaType,
   selectReleaseMatchForPresentation,
-  serializeReleaseMatch,
-  type ReleaseMatchDto
+  serializeReleaseMatch
 } from "../media/presentation.js";
 import { parsedReleaseMatchInclude } from "../media/parsedReleaseMatchInclude.js";
 import {
@@ -47,42 +51,16 @@ export const itemRelations = {
   }
 } satisfies Prisma.RssItemInclude;
 
-export type ItemResponse = {
-  id: string;
-  feed: { id: string; name: string };
-  rawTitle: string;
-  sourceUrl?: string | null;
-  sizeBytes?: string | null;
-  publishDate?: string | null;
-  firstSeenAt: string;
-  dedupeKeyType: "INFO_HASH" | "RELEASE_SIGNATURE" | "LINK_HASH";
-  parsedRelease?: unknown;
-  enrichmentState: "MATCHED" | "UNMATCHED" | "PENDING" | "UNPARSED";
-  match?: ReleaseMatchDto;
-  downloadJobs: Array<{
-    id: string;
-    status: string;
-    error?: string | null;
-    clientHash?: string | null;
-    createdAt: string;
-  }>;
-};
-
 type ItemWithRelations = Prisma.RssItemGetPayload<{ include: typeof itemRelations }>;
-
-export type ItemPageResponse = {
-  items: ItemResponse[];
-  nextCursor?: string;
-};
 
 export async function listItems(
   tenantId: string,
   query: ItemQueryInput
-): Promise<ItemPageResponse> {
+): Promise<ItemPageDto> {
   const where = itemListWhere(tenantId, query);
 
   const presentationPreferences = await loadPresentationPreferences(tenantId);
-  const items: ItemResponse[] = [];
+  const items: ItemDto[] = [];
   let cursorId = query.cursor;
   const scanLimit = query.q || query.category || query.status
     ? Math.min(200, Math.max(query.limit * 4, query.limit + 1))
@@ -237,7 +215,7 @@ function stringContains(value: string): Prisma.StringFilter {
 export async function getItem(
   tenantId: string,
   itemId: string
-): Promise<ItemResponse> {
+): Promise<ItemDto> {
   const item = await prisma.rssItem.findFirst({
     where: { id: itemId, tenantId },
     include: itemRelations
@@ -251,7 +229,7 @@ export async function getItem(
 export function serializeItem(
   item: ItemWithRelations,
   presentationPreferences: PresentationPreferences = EMPTY_PRESENTATION_PREFERENCES
-): ItemResponse {
+): ItemDto {
   const release = item.parsedRelease;
   const releaseOptions = presentationOptionsForMediaType(presentationPreferences, release?.mediaType);
   const activeMatch = selectReleaseMatchForPresentation(release?.matches, releaseOptions.providerOrder);
@@ -297,14 +275,14 @@ function releaseEnrichmentState(release: any, activeMatch: any) {
   return "PENDING";
 }
 
-function itemMatchesSerializedFilters(row: ItemWithRelations, item: ItemResponse, query: ItemQueryInput) {
+function itemMatchesSerializedFilters(row: ItemWithRelations, item: ItemDto, query: ItemQueryInput) {
   if (query.q && !itemMatchesSearch(row, item, query.q)) return false;
   if (query.category && releaseCategory(item) !== query.category) return false;
   if (query.status && !itemBelongsToStatus(item, query.status)) return false;
   return true;
 }
 
-function itemMatchesSearch(row: ItemWithRelations, item: ItemResponse, query: string) {
+function itemMatchesSearch(row: ItemWithRelations, item: ItemDto, query: string) {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return true;
   return itemSearchCandidates(row, item).some((value) =>
@@ -312,7 +290,7 @@ function itemMatchesSearch(row: ItemWithRelations, item: ItemResponse, query: st
   );
 }
 
-function itemSearchCandidates(row: ItemWithRelations, item: ItemResponse) {
+function itemSearchCandidates(row: ItemWithRelations, item: ItemDto) {
   const release = item.parsedRelease as {
     title?: string | null;
     quality?: string | null;
@@ -368,7 +346,7 @@ function addProviderTitleSearchCandidates(candidates: unknown[], providerTitle: 
   candidates.push(providerTitle.title, providerTitle.originalTitle);
 }
 
-function releaseCategory(item: ItemResponse): "MOVIE" | "TV" | "OTHER" {
+function releaseCategory(item: ItemDto): "MOVIE" | "TV" | "OTHER" {
   const release = item.parsedRelease as { kind?: "MOVIE" | "TV" | "UNKNOWN" } | undefined;
   const kind = release?.kind && release.kind !== "UNKNOWN"
     ? release.kind
@@ -377,7 +355,7 @@ function releaseCategory(item: ItemResponse): "MOVIE" | "TV" | "OTHER" {
 }
 
 function itemBelongsToStatus(
-  item: ItemResponse,
+  item: ItemDto,
   status: NonNullable<ItemQueryInput["status"]>
 ) {
   const identity = releaseIdentityState(item);
@@ -387,19 +365,19 @@ function itemBelongsToStatus(
   return latestDownloadJob(item)?.status === "FAILED" || identity !== "resolved";
 }
 
-function releaseIdentityState(item: ItemResponse) {
+function releaseIdentityState(item: ItemDto) {
   if (item.match?.status === "MATCHED") {
     return item.match.attention.required ? "review" : "resolved";
   }
   return item.match ? "review" : "unresolved";
 }
 
-function isDownloadInProgress(item: ItemResponse) {
+function isDownloadInProgress(item: ItemDto) {
   const job = latestDownloadJob(item);
   return Boolean(job && !isTerminalDownloadStatus(job.status));
 }
 
-function latestDownloadJob(item: ItemResponse) {
+function latestDownloadJob(item: ItemDto) {
   return [...(item.downloadJobs ?? [])].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   )[0];
@@ -409,7 +387,7 @@ function isTerminalDownloadStatus(status?: string | null) {
   return Boolean(status && ["FAILED", "SENT", "COMPLETE", "COMPLETED", "SKIPPED"].includes(status));
 }
 
-function serializeParsedRelease(release: any) {
+function serializeParsedRelease(release: any): ParsedReleaseDto {
   return {
     id: release.id,
     title: release.title,

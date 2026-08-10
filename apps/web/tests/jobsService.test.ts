@@ -45,7 +45,9 @@ describe("download job response serialization", () => {
       subscription: null
     }]);
 
-    expect(JSON.parse(JSON.stringify(await listDownloadJobs("tenant-1")))).toEqual([{
+    const jobs = await listDownloadJobs("tenant-1");
+    expect(jobs[0]?.createdAt).toBe("2026-08-10T12:00:00.000Z");
+    expect(jobs).toEqual([{
       id: "job-1",
       itemId: "item-1",
       subscriptionId: null,
