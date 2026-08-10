@@ -4,7 +4,7 @@ import type { AppConfig } from "../../config.js";
 import { audit } from "../../core/audit.js";
 import { requireTenantRole } from "../../core/permissions.js";
 import { parseBody, parseParams, parseQuery } from "../../core/validation.js";
-import { evaluateAutoDownloadsForItem } from "../subscriptions/subscriptions.service.js";
+import { evaluateAutoDownloadsForItem } from "../subscriptions/subscriptionAutomation.js";
 import {
   getMediaDetail,
   getMedia,

@@ -34,7 +34,7 @@ vi.mock("../src/server/modules/media/media.service.js", () => ({
   invalidateMatchesForParsedRelease: mocks.invalidateMatchesForParsedRelease,
   matchParsedReleaseForItem: mocks.matchParsedReleaseForItem
 }));
-vi.mock("../src/server/modules/subscriptions/subscriptions.service.js", () => ({
+vi.mock("../src/server/modules/subscriptions/subscriptionAutomation.js", () => ({
   evaluateAutoDownloadsForItem: mocks.evaluateAutoDownloadsForItem
 }));
 

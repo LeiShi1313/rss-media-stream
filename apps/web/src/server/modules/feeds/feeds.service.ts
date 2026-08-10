@@ -9,7 +9,7 @@ import { decryptAead, encryptAead, hmacSecret } from "../../secrets.js";
 import { listItems } from "../items/items.service.js";
 import type { ItemQueryInput } from "../items/items.schemas.js";
 import { matchParsedReleaseForItem } from "../media/media.service.js";
-import { evaluateAutoDownloadsForItem } from "../subscriptions/subscriptions.service.js";
+import { evaluateAutoDownloadsForItem } from "../subscriptions/subscriptionAutomation.js";
 import type { CreateFeedInput, PatchFeedInput } from "./feeds.schemas.js";
 import {
   normalizeFeedItem,
