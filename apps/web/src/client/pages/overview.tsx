@@ -30,10 +30,20 @@ import type { RunAction } from "../types.js";
 import { AppDialog, FieldLabel, FormInput, SelectField, StatTile, UiButton } from "../components/ui/index.js";
 import { Empty, Pill, StatusPill } from "../components/common/feedback.js";
 import { ManualDownload } from "../components/common/manual-download.js";
+import { PosterFallback } from "../components/media/poster-fallback.js";
 import { RatingBadge } from "../components/media/rating-badge.js";
 import { errorMessage, formatBytes, relativeTime } from "../lib/format.js";
 import { formatNativeRating } from "../lib/ratings.js";
-import { isTerminalDownloadStatus, latestDownloadJob, matchRate, releaseIdentityState, releaseStatus, releaseTitle } from "../lib/releases.js";
+import {
+  isTerminalDownloadStatus,
+  latestDownloadJob,
+  matchRate,
+  releaseIdentityState,
+  releaseKindOrEpisodeLabel,
+  releaseNeedsAttention,
+  releaseStatus,
+  releaseTitle
+} from "../lib/releases.js";
 import { providerLabel } from "../lib/forms.js";
 import { legacyKindFromMediaType, mediaTypeFromKind } from "../lib/media.js";
 
@@ -91,7 +101,7 @@ export function OverviewPage({
   );
 
   const shelves = useMemo(() => buildShelves(items), [items]);
-  const needsAttentionCount = items.filter((item) => itemBelongsToShelf(item, "attention")).length;
+  const needsAttentionCount = items.filter(releaseNeedsAttention).length;
 
   useEffect(() => {
     if (!selectedMediaId) {
@@ -630,7 +640,7 @@ function ReleaseInspectorModal({
     [t("common.codecs"), item.parsedRelease?.codec ?? unknown],
     [t("common.audio"), item.parsedRelease?.audio ?? unknown],
     [t("common.group"), item.parsedRelease?.releaseGroup ?? unknown],
-    [t("common.episode"), episodeLabel(item, unknown)],
+    [t("common.episode"), releaseKindOrEpisodeLabel(item, unknown)],
     [t("common.size"), item.sizeBytes ? formatBytes(item.sizeBytes, unknown) : unknown]
   ] as const;
   const [correctionOpen, setCorrectionOpen] = useState(false);
@@ -1023,15 +1033,6 @@ function MediaInspectorModal({
   );
 }
 
-function PosterFallback({ title }: { title: string }) {
-  return (
-    <span className="poster-fallback">
-      <Film size={26} />
-      <b>{initials(title)}</b>
-    </span>
-  );
-}
-
 function buildShelves(items: ItemDto[]) {
   return {
     matched: items.filter((item) => itemBelongsToShelf(item, "matched")),
@@ -1046,14 +1047,14 @@ function itemBelongsToShelf(item: ItemDto, shelf: ShelfKey) {
   const identity = releaseIdentityState(item);
   if (shelf === "matched") return identity === "resolved";
   if (shelf === "downloading") return Boolean(latestJob && !isTerminalDownloadStatus(latestJob.status));
-  return status.group === "failed" || identity !== "resolved";
+  return releaseNeedsAttention(item);
 }
 
 function posterMetadata(item: ItemDto) {
   const presentation = item.match?.presentation;
   const parts = [
     presentation?.releaseYear,
-    episodeLabel(item),
+    releaseKindOrEpisodeLabel(item),
     item.parsedRelease?.quality,
     item.parsedRelease?.source,
     item.parsedRelease?.releaseGroup,
@@ -1064,7 +1065,7 @@ function posterMetadata(item: ItemDto) {
 
 function parsedReleaseTags(item: ItemDto) {
   const parsed = item.parsedRelease;
-  const episode = parsed?.kind === "TV" ? episodeLabel(item) : undefined;
+  const episode = parsed?.kind === "TV" ? releaseKindOrEpisodeLabel(item) : undefined;
   return [
     parsed?.kind && parsed.kind !== "UNKNOWN" ? parsed.kind : undefined,
     parsed?.year,
@@ -1079,12 +1080,6 @@ function parsedReleaseTags(item: ItemDto) {
     .filter(Boolean)
     .map(String)
     .slice(0, 8);
-}
-
-function episodeLabel(item: ItemDto, unknownLabel = "Unknown") {
-  const presentationKind = legacyKindFromMediaType(item.match?.presentation?.mediaType);
-  if (item.parsedRelease?.kind !== "TV") return presentationKind ?? item.parsedRelease?.kind ?? unknownLabel;
-  return `S${item.parsedRelease.season ?? "?"}E${item.parsedRelease.episode ?? "?"}`;
 }
 
 function releaseEpisodeLabel(item: ItemDto) {
@@ -1131,9 +1126,4 @@ function heroBackdropStyle(backdropUrl: string | undefined, alphas: [number, num
   if (!backdropUrl) return undefined;
   const stops = alphas.map((alpha) => `rgba(7,10,18,${alpha})`).join(", ");
   return { backgroundImage: `linear-gradient(90deg, ${stops}), url(${backdropUrl})` };
-}
-
-function initials(value: string) {
-  const words = value.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).slice(0, 2);
-  return words.map((word) => word[0]?.toUpperCase()).join("") || "RM";
 }

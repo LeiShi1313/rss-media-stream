@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Item } from "../src/client/api.js";
-import { itemMatchState, releaseIdentityState, releaseStatus, releaseTitle } from "../src/client/lib/releases.js";
+import {
+  itemMatchState,
+  releaseIdentityState,
+  releaseKindOrEpisodeLabel,
+  releaseNeedsAttention,
+  releaseStatus,
+  releaseTitle
+} from "../src/client/lib/releases.js";
 
 function item(input: Partial<Item>): Item {
   return {
@@ -164,7 +171,7 @@ describe("release identity", () => {
   });
 
   it("keeps failed downloads in attention regardless of identity", () => {
-    const status = releaseStatus(item({
+    const release = item({
       match: {
         id: "match-1",
         status: "MATCHED",
@@ -183,12 +190,59 @@ describe("release identity", () => {
         error: "Downloader rejected torrent",
         createdAt: new Date("2026-06-01T11:00:00Z").toISOString()
       }]
-    }));
+    });
+    const status = releaseStatus(release);
 
     expect(status).toMatchObject({
       labelKey: "release.status.failed",
       group: "failed",
       ok: false
     });
+    expect(releaseNeedsAttention(release)).toBe(true);
+  });
+
+  it("keeps resolved active downloads out of attention", () => {
+    const release = item({
+      match: {
+        id: "match-1",
+        status: "MATCHED",
+        source: "AUTO",
+        confidence: 1,
+        presentation: {
+          mediaType: "MOVIE",
+          title: "Canonical Movie",
+          hasCover: true
+        },
+        attention: { required: false, reasons: [] }
+      },
+      downloadJobs: [{
+        id: "job-1",
+        status: "DOWNLOADING",
+        createdAt: new Date("2026-06-01T11:00:00Z").toISOString()
+      }]
+    });
+
+    expect(releaseNeedsAttention(release)).toBe(false);
+    expect(releaseNeedsAttention(item({}))).toBe(true);
+  });
+
+  it("formats TV episodes and falls back to the release kind", () => {
+    expect(releaseKindOrEpisodeLabel(item({
+      parsedRelease: {
+        title: "Series",
+        kind: "TV",
+        season: 3,
+        episode: 7,
+        confidence: 1
+      }
+    }))).toBe("S3E7");
+    expect(releaseKindOrEpisodeLabel(item({
+      parsedRelease: {
+        title: "Movie",
+        kind: "MOVIE",
+        confidence: 1
+      }
+    }))).toBe("MOVIE");
+    expect(releaseKindOrEpisodeLabel(item({}), "Unknown title kind")).toBe("Unknown title kind");
   });
 });

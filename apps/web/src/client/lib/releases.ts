@@ -1,4 +1,5 @@
 import type { ItemDto } from "@rss-media/shared/apiContracts";
+import { legacyKindFromMediaType } from "./media.js";
 
 export type ReleaseIdentityState = "resolved" | "review" | "unresolved";
 export type ItemMatchState =
@@ -42,6 +43,18 @@ export function releaseIdentityState(item: ItemDto): ReleaseIdentityState {
 
 export function releaseTitle(item: ItemDto) {
   return item.match?.presentation?.title ?? item.parsedRelease?.title ?? item.rawTitle;
+}
+
+export function releaseNeedsAttention(item: ItemDto) {
+  return releaseStatus(item).group === "failed" || releaseIdentityState(item) !== "resolved";
+}
+
+export function releaseKindOrEpisodeLabel(item: ItemDto, unknownLabel = "Unknown") {
+  const presentationKind = legacyKindFromMediaType(item.match?.presentation?.mediaType);
+  if (item.parsedRelease?.kind !== "TV") {
+    return presentationKind ?? item.parsedRelease?.kind ?? unknownLabel;
+  }
+  return `S${item.parsedRelease.season ?? "?"}E${item.parsedRelease.episode ?? "?"}`;
 }
 
 export function latestDownloadJob(item: ItemDto) {
