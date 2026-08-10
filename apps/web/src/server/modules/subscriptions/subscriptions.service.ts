@@ -3,27 +3,15 @@ import { z } from "zod";
 import { redactSecrets } from "@rss-media/shared/redact";
 import {
   evaluateSubscriptionRule,
-  normalizeReleaseVariant,
-  normalizeReleaseGroup,
   normalizeRule,
-  normalizeResolution,
-  normalizeSource,
-  SubscriptionRuleValidationError,
   serializeRuleSnapshot
 } from "@rss-media/shared/subscriptionRules";
 import type {
   CandidateInput,
-  NormalizedSubscriptionRule,
-  ProviderTitleRuleView,
-  SubscriptionMode,
-  SubscriptionRuleInput,
-  SubscriptionUpgradePolicy
+  NormalizedSubscriptionRule
 } from "@rss-media/shared/types";
-import type {
-  SubscriptionDto,
-  SubscriptionRuleDto
-} from "@rss-media/shared/apiContracts";
-import type { Prisma, SubscriptionRule } from "@prisma/client";
+import type { SubscriptionDto } from "@rss-media/shared/apiContracts";
+import type { Prisma, SubscriptionAcquisition } from "@prisma/client";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { db } from "../../core/dbClient.js";
@@ -31,7 +19,6 @@ import { forbidden, notFound } from "../../core/errors.js";
 import { isAdminRole } from "../../core/permissions.js";
 import { createDownloadJob, sendDownloadJob } from "../jobs/jobs.service.js";
 import { legacyKindFromMediaType, serializeMediaPresentation } from "../media/presentation.js";
-import { parsedReleaseMatchInclude } from "../media/parsedReleaseMatchInclude.js";
 import {
   EMPTY_PRESENTATION_PREFERENCES,
   loadPresentationPreferences,
@@ -44,110 +31,30 @@ import type {
   subscriptionPatchSchema,
   subscriptionRuleSchema
 } from "./subscriptions.schemas.js";
+import {
+  decideAcquisition,
+  prepareAcquisition,
+  type AcquisitionDecision,
+  type AcquisitionState,
+  type ReleaseScore
+} from "./subscriptionAcquisitionPolicy.js";
+import {
+  candidateFromSubscriptionItem,
+  subscriptionCandidateInclude
+} from "./subscriptionCandidate.js";
+import {
+  normalizeSubscriptionRuleRecord,
+  serializeSubscriptionRuleRecord,
+  subscriptionRulePersistenceData
+} from "./subscriptionRuleRecord.js";
 
 type SubscriptionCreateInput = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionPatchInput = z.infer<typeof subscriptionPatchSchema>;
 type SubscriptionRuleBody = z.infer<typeof subscriptionRuleSchema>;
 type MatchHistoryQuery = z.infer<typeof matchHistoryQuerySchema>;
 
-type PersistedRuleInput = SubscriptionRuleInput & {
-  mode: SubscriptionMode;
-  linkedProviders: NonNullable<SubscriptionRuleInput["linkedProviders"]>;
-  providerRatings: NonNullable<SubscriptionRuleInput["providerRatings"]>;
-  feedIds: string[];
-  variantsInclude: string[];
-  variantsExclude: string[];
-  upgradePolicy: SubscriptionUpgradePolicy;
-  allowCrossSeed: boolean;
-  seasonPackAllowed: boolean;
-};
-
-const persistedProviderIdentitySchema = z.object({
-  provider: z.string(),
-  mediaType: z.enum(["MOVIE", "TV_SERIES"]).nullable().optional(),
-  providerEntityType: z.string().nullable().optional(),
-  providerId: z.string()
-});
-
-const persistedProviderRatingSchema = z.object({
-  provider: z.string(),
-  ratingType: z
-    .enum(["user_score", "critic_score", "popularity"])
-    .nullable()
-    .optional(),
-  comparison: z.enum(["gte", "lte", "gt", "lt", "eq"]),
-  value: z.number(),
-  scale: z.number().nullable().optional(),
-  minVoteCount: z.number().nullable().optional()
-});
-
-const persistedRuleCriteriaSchema = z.object({
-  mediaTitleId: z.string().nullable().optional(),
-  selectedProvider: persistedProviderIdentitySchema.nullable().optional(),
-  linkedProviders: z
-    .array(persistedProviderIdentitySchema)
-    .nullish()
-    .transform((value) => value ?? []),
-  providerRatings: z
-    .array(persistedProviderRatingSchema)
-    .nullish()
-    .transform((value) => value ?? []),
-  variantsInclude: z
-    .array(z.string())
-    .nullish()
-    .transform((value) => value ?? []),
-  variantsExclude: z
-    .array(z.string())
-    .nullish()
-    .transform((value) => value ?? []),
-  separateVariants: z.boolean().nullable().optional()
-});
-
-type RuleCriteria = z.output<typeof persistedRuleCriteriaSchema>;
-
-type AcquisitionUnit = {
-  contentKey: string;
-  mediaTitleId: string;
-  unitType: "MOVIE" | "TV_SEASON" | "TV_EPISODE" | "TV_SPECIAL";
-  season?: number;
-  episode?: number;
-  episodeEnd?: number;
-  specialNumber?: number;
-  episodePart?: string;
-  variant?: string;
-};
-
-type ReleaseScore = {
-  resolution: number | null;
-  source: string | null;
-  sourceRank: number;
-  releaseGroup: string | null;
-  preferredReleaseGroup: boolean;
-};
-
-type AcquisitionPlan =
-  | {
-      accepted: true;
-      unit?: AcquisitionUnit;
-      existing?: any;
-      score?: ReleaseScore;
-      forceDuplicate?: boolean;
-      reason?: string;
-    }
-  | {
-      accepted: false;
-      reason: string;
-    };
-
-const SOURCE_RANKS: Record<string, number> = {
-  REMUX: 60,
-  UHD: 55,
-  BLURAY: 50,
-  "WEB-DL": 40,
-  WEB: 35,
-  WEBRIP: 30,
-  HDTV: 20,
-  DVDRIP: 10
+type AcquisitionPlan = AcquisitionDecision & {
+  existing?: SubscriptionAcquisition;
 };
 
 const subscriptionInclude = {
@@ -244,7 +151,7 @@ export async function createSubscriptionWithRule(args: {
       data: {
         tenantId: args.tenantId,
         subscriptionId: created.id,
-        ...rulePersistenceData(rule)
+        ...subscriptionRulePersistenceData(rule)
       }
     });
 
@@ -326,9 +233,9 @@ export async function updateSubscriptionRule(input: {
     create: {
       tenantId: input.tenantId,
       subscriptionId: input.subscriptionId,
-      ...rulePersistenceData(normalized)
+      ...subscriptionRulePersistenceData(normalized)
     },
-    update: rulePersistenceData(normalized)
+    update: subscriptionRulePersistenceData(normalized)
   });
 
   const subscription = await db().subscription.findFirst({
@@ -385,18 +292,7 @@ export async function evaluateAutoDownloadsForItem(input: {
 }) {
   const item = await db().rssItem.findFirst({
     where: { id: input.itemId, tenantId: input.tenantId },
-    include: {
-      parsedRelease: {
-        include: {
-          matches: {
-            where: { status: "MATCHED", invalidatedAt: null },
-            take: 1,
-            include: parsedReleaseMatchInclude,
-            orderBy: [{ matchedAt: "desc" }, { updatedAt: "desc" }]
-          }
-        }
-      }
-    }
+    include: subscriptionCandidateInclude
   });
   if (!item?.parsedRelease) return [];
 
@@ -410,7 +306,8 @@ export async function evaluateAutoDownloadsForItem(input: {
   });
 
   const created: string[] = [];
-  const candidate = candidateFromItem(item);
+  const candidate = candidateFromSubscriptionItem(item);
+  if (!candidate) return [];
   for (const subscription of subscriptions) {
     if (!subscription.rule) {
       await recordDecision({
@@ -424,9 +321,11 @@ export async function evaluateAutoDownloadsForItem(input: {
       continue;
     }
 
-    const ruleInput = ruleFromRow(subscription.rule, subscription.mediaTitleId);
-    const normalizedRule = normalizeRule(ruleInput);
-    const decision = evaluateSubscriptionRule(ruleInput, candidate);
+    const normalizedRule = normalizeSubscriptionRuleRecord(
+      subscription.rule,
+      subscription.mediaTitleId
+    );
+    const decision = evaluateSubscriptionRule(normalizedRule, candidate);
 
     if (!decision.accepted) {
       await recordDecision({
@@ -435,14 +334,13 @@ export async function evaluateAutoDownloadsForItem(input: {
         itemId: item.id,
         accepted: false,
         reason: decision.reason,
-        ruleSnapshot: decision.ruleSnapshot ?? serializeRuleSnapshot(normalizeRule(ruleInput))
+        ruleSnapshot: decision.ruleSnapshot ?? serializeRuleSnapshot(normalizedRule)
       });
       continue;
     }
 
     const acquisition = await planAcquisition({
       tenantId: input.tenantId,
-      subscription,
       rule: normalizedRule,
       candidate,
       item
@@ -467,7 +365,10 @@ export async function evaluateAutoDownloadsForItem(input: {
         subscriptionId: subscription.id,
         downloaderId: subscription.downloaderId ?? undefined,
         source: "SUBSCRIPTION",
-        forceDuplicate: acquisition.forceDuplicate
+        forceDuplicate:
+          acquisition.accepted && acquisition.action === "CROSS_SEED"
+            ? acquisition.forceDuplicate
+            : undefined
       });
 
       await recordAcquisitionAccepted({
@@ -483,7 +384,10 @@ export async function evaluateAutoDownloadsForItem(input: {
         subscriptionId: subscription.id,
         itemId: item.id,
         accepted: true,
-        reason: acquisition.reason ?? decision.reason,
+        reason:
+          acquisition.action === "UPGRADE" || acquisition.action === "CROSS_SEED"
+            ? acquisition.reason
+            : decision.reason,
         ruleSnapshot: decision.ruleSnapshot ?? serializeRuleSnapshot(normalizedRule)
       });
 
@@ -498,7 +402,7 @@ export async function evaluateAutoDownloadsForItem(input: {
         itemId: item.id,
         accepted: isDuplicateDownloadError(error),
         reason: redactSecrets(error instanceof Error ? error.message : String(error)),
-        ruleSnapshot: decision.ruleSnapshot ?? serializeRuleSnapshot(normalizeRule(ruleInput))
+        ruleSnapshot: decision.ruleSnapshot ?? serializeRuleSnapshot(normalizedRule)
       });
     }
   }
@@ -590,66 +494,34 @@ async function recordDecision(input: {
 
 async function planAcquisition(input: {
   tenantId: string;
-  subscription: any;
   rule: NormalizedSubscriptionRule;
   candidate: CandidateInput;
-  item: any;
+  item: { feedId: string | null };
 }): Promise<AcquisitionPlan> {
-  if (input.rule.mode !== "MEDIA_TITLE") return { accepted: true };
-
-  const unit = acquisitionUnitFromCandidate(input.candidate, input.rule);
-  if (!unit) {
-    return {
-      accepted: false,
-      reason: "release cannot be mapped to a media unit"
-    };
+  const preparation = prepareAcquisition({
+    rule: input.rule,
+    candidate: input.candidate
+  });
+  if (!preparation.accepted || preparation.action === "DIRECT") {
+    return preparation;
   }
 
-  const score = scoreRelease(input.candidate, input.rule);
   const existing = await db().subscriptionAcquisition.findUnique({
     where: {
       tenantId_contentKey: {
         tenantId: input.tenantId,
-        contentKey: unit.contentKey
+        contentKey: preparation.unit.contentKey
       }
     }
   });
-
-  if (!existing) {
-    return { accepted: true, unit, score };
-  }
-
-  const feedHistory = crossSeedHistory(existing.crossSeedFeedsJson);
-  if (
-    input.rule.allowCrossSeed &&
-    input.item.feedId &&
-    !Object.hasOwn(feedHistory, input.item.feedId)
-  ) {
-    return {
-      accepted: true,
-      unit,
-      existing,
-      score,
-      forceDuplicate: true,
-      reason: "accepted for cross-seed feed"
-    };
-  }
-
-  const upgradeReason = acceptedUpgradeReason(input.rule, score, existing);
-  if (upgradeReason) {
-    return {
-      accepted: true,
-      unit,
-      existing,
-      score,
-      reason: upgradeReason
-    };
-  }
-
-  return {
-    accepted: false,
-    reason: "media unit is already satisfied"
-  };
+  const state = existing ? acquisitionState(existing) : null;
+  const decision = decideAcquisition({
+    preparation,
+    rule: input.rule,
+    feedId: input.item.feedId,
+    state
+  });
+  return existing ? { ...decision, existing } : decision;
 }
 
 async function recordAcquisitionAccepted(input: {
@@ -659,7 +531,7 @@ async function recordAcquisitionAccepted(input: {
   job: { id: string };
   acquisition: AcquisitionPlan;
 }) {
-  if (!input.acquisition.accepted || !input.acquisition.unit || !input.acquisition.score) {
+  if (!input.acquisition.accepted || input.acquisition.action === "DIRECT") {
     return;
   }
 
@@ -679,7 +551,7 @@ async function recordAcquisitionAccepted(input: {
     }
   };
 
-  if (input.acquisition.existing && input.acquisition.forceDuplicate) {
+  if (input.acquisition.existing && input.acquisition.action === "CROSS_SEED") {
     await db().subscriptionAcquisition.update({
       where,
       data: { crossSeedFeedsJson }
@@ -728,143 +600,16 @@ async function recordAcquisitionAccepted(input: {
   });
 }
 
-function acquisitionUnitFromCandidate(
-  candidate: CandidateInput,
-  rule: NormalizedSubscriptionRule
-): AcquisitionUnit | undefined {
-  const mediaTitle = candidate.activeMatch?.mediaTitle;
-  if (!mediaTitle) return undefined;
-
-  if (mediaTitle.mediaType === "MOVIE") {
-    return {
-      contentKey: `movie:${mediaTitle.id}`,
-      mediaTitleId: mediaTitle.id,
-      unitType: "MOVIE"
-    };
-  }
-
-  const season = candidate.release.season;
-  if (season === undefined) return undefined;
-
-  const seasonKey = `tv:${mediaTitle.id}:s${padNumber(season)}`;
-  if (candidate.release.tvUnitType === "SPECIAL") {
-    const specialNumber = candidate.release.specialNumber;
-    if (specialNumber === undefined) return undefined;
-    return {
-      contentKey: `${seasonKey}:sp:${specialNumber}`,
-      mediaTitleId: mediaTitle.id,
-      unitType: "TV_SPECIAL",
-      season,
-      specialNumber
-    };
-  }
-
-  if (candidate.release.episode === undefined) {
-    return {
-      contentKey: `${seasonKey}:season`,
-      mediaTitleId: mediaTitle.id,
-      unitType: "TV_SEASON",
-      season
-    };
-  }
-
-  const episodeEnd =
-    candidate.release.episodeEnd !== undefined &&
-    candidate.release.episodeEnd > candidate.release.episode
-      ? candidate.release.episodeEnd
-      : undefined;
-  const variant = rule.separateVariants
-    ? normalizeReleaseVariant(candidate.release.variant)
-    : undefined;
-  const episodePart = normalizeEpisodePart(candidate.release.episodePart);
-  const contentKeyParts = [
-    episodeEnd
-      ? `${seasonKey}:e${padNumber(candidate.release.episode)}-e${padNumber(episodeEnd)}`
-      : `${seasonKey}:e${padNumber(candidate.release.episode)}`,
-    variant ? `variant:${variant}` : undefined,
-    episodePart ? `part:${episodePart}` : undefined
-  ].filter((part): part is string => Boolean(part));
+function acquisitionState(existing: SubscriptionAcquisition): AcquisitionState {
   return {
-    contentKey: contentKeyParts.join(":"),
-    mediaTitleId: mediaTitle.id,
-    unitType: "TV_EPISODE",
-    season,
-    episode: candidate.release.episode,
-    episodeEnd,
-    episodePart,
-    variant
+    crossSeedFeedIds: Object.keys(crossSeedHistory(existing.crossSeedFeedsJson)),
+    currentResolution: numberOrNull(existing.currentResolution),
+    currentSourceRank: numberOrNull(existing.currentSourceRank),
+    currentReleaseGroup:
+      typeof existing.currentReleaseGroup === "string"
+        ? existing.currentReleaseGroup
+        : null
   };
-}
-
-function scoreRelease(
-  candidate: CandidateInput,
-  rule: NormalizedSubscriptionRule
-): ReleaseScore {
-  const source = normalizeSource(candidate.release.source) ?? null;
-  const releaseGroup = normalizeReleaseGroup(candidate.release.releaseGroup) ?? null;
-  return {
-    resolution: releaseResolution(candidate),
-    source,
-    sourceRank: source ? SOURCE_RANKS[source] ?? 0 : 0,
-    releaseGroup,
-    preferredReleaseGroup: Boolean(
-      releaseGroup && rule.preferredReleaseGroups.includes(releaseGroup)
-    )
-  };
-}
-
-function acceptedUpgradeReason(
-  rule: NormalizedSubscriptionRule,
-  score: ReleaseScore,
-  existing: any
-): string | undefined {
-  if (rule.upgradePolicy === "better_quality" && isBetterQuality(score, existing)) {
-    return "accepted as quality upgrade";
-  }
-
-  if (
-    rule.upgradePolicy === "preferred_release_group" &&
-    isPreferredReleaseGroupUpgrade(rule, score, existing)
-  ) {
-    return "accepted as preferred release group upgrade";
-  }
-
-  return undefined;
-}
-
-function isBetterQuality(score: ReleaseScore, existing: any) {
-  const existingResolution = numberOrNull(existing.currentResolution);
-  if (score.resolution !== null && score.resolution > (existingResolution ?? -1)) {
-    return true;
-  }
-
-  if (score.resolution !== existingResolution) return false;
-  return score.sourceRank > (numberOrNull(existing.currentSourceRank) ?? -1);
-}
-
-function isPreferredReleaseGroupUpgrade(
-  rule: NormalizedSubscriptionRule,
-  score: ReleaseScore,
-  existing: any
-) {
-  if (!score.releaseGroup || !rule.preferredReleaseGroups.includes(score.releaseGroup)) {
-    return false;
-  }
-  const existingGroup = normalizeReleaseGroup(existing.currentReleaseGroup);
-  return !existingGroup || !rule.preferredReleaseGroups.includes(existingGroup);
-}
-
-function releaseResolution(candidate: CandidateInput): number | null {
-  if (candidate.release.resolution !== undefined) return candidate.release.resolution;
-  if (candidate.release.quality) {
-    try {
-      return normalizeResolution(candidate.release.quality);
-    } catch {
-      // Quality strings frequently contain source names; fall back to the raw title.
-    }
-  }
-  const match = candidate.rawTitle.match(/\b(2160p|4k|1080p|720p|480p)\b/i);
-  return match ? normalizeResolution(match[1]) : null;
 }
 
 function crossSeedHistory(value: unknown): Record<string, unknown> {
@@ -906,216 +651,6 @@ function scoreJson(score: ReleaseScore) {
 
 function numberOrNull(value: unknown) {
   return typeof value === "number" ? value : null;
-}
-
-function padNumber(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-function normalizeEpisodePart(value: string | undefined): string | undefined {
-  const normalized = value?.trim();
-  if (!normalized) return undefined;
-  return /^\d+$/u.test(normalized)
-    ? String(Number(normalized))
-    : normalized.toUpperCase();
-}
-
-function rulePersistenceData(rule: ReturnType<typeof normalizeRule>) {
-  return {
-    mode: rule.mode,
-    mediaType: rule.mediaType ?? null,
-    provider: null,
-    providerEntityType: null,
-    providerId: null,
-    imdbId: null,
-    doubanId: null,
-    titleRegex: rule.titleRegex ?? null,
-    includeRegex: rule.includeRegex ?? null,
-    excludeRegex: rule.excludeRegex ?? null,
-    minResolution: rule.minResolution ?? null,
-    maxResolution: rule.maxResolution ?? null,
-    sources: rule.sources,
-    codecs: rule.codecs,
-    audio: rule.audio,
-    feedIds: rule.feedIds,
-    releaseGroupsInclude: rule.releaseGroupsInclude,
-    releaseGroupsExclude: rule.releaseGroupsExclude,
-    preferredReleaseGroups: rule.preferredReleaseGroups,
-    minSizeBytes: rule.minSizeBytes ?? null,
-    maxSizeBytes: rule.maxSizeBytes ?? null,
-    season: rule.season ?? null,
-    episodeStart: rule.episodeStart ?? null,
-    episodeEnd: rule.episodeEnd ?? null,
-    upgradePolicy: rule.upgradePolicy,
-    allowCrossSeed: rule.allowCrossSeed,
-    seasonPackAllowed: rule.seasonPackAllowed,
-    criteriaJson: ruleCriteriaJson(rule)
-  };
-}
-
-function ruleCriteriaJson(rule: ReturnType<typeof normalizeRule>) {
-  const criteria = {
-    mediaTitleId: rule.mediaTitleId,
-    selectedProvider: rule.selectedProvider,
-    linkedProviders: rule.linkedProviders,
-    providerRatings: rule.providerRatings,
-    variantsInclude: rule.variantsInclude,
-    variantsExclude: rule.variantsExclude,
-    separateVariants: rule.separateVariants ? true : undefined
-  };
-  const compact = Object.fromEntries(
-    Object.entries(criteria).filter(([, value]) =>
-      Array.isArray(value) ? value.length > 0 : value !== undefined
-    )
-  );
-  // Cast keeps the pre-existing runtime behavior (plain null) now that db() is typed.
-  return (Object.keys(compact).length > 0 ? compact : null) as Prisma.InputJsonValue;
-}
-
-function ruleFromRow(
-  rule: SubscriptionRule,
-  subscriptionMediaTitleId?: string | null
-): PersistedRuleInput {
-  const criteria = criteriaFromRow(rule.criteriaJson);
-  return {
-    mode: subscriptionModeFromRow(rule.mode),
-    mediaType: rule.mediaType ?? undefined,
-    mediaTitleId: subscriptionMediaTitleId ?? criteria.mediaTitleId,
-    selectedProvider: criteria.selectedProvider,
-    linkedProviders: criteria.linkedProviders,
-    providerRatings: criteria.providerRatings,
-    feedIds: rule.feedIds ?? [],
-    titleRegex: rule.titleRegex ?? undefined,
-    includeRegex: rule.includeRegex ?? undefined,
-    excludeRegex: rule.excludeRegex ?? undefined,
-    minResolution: rule.minResolution ?? undefined,
-    maxResolution: rule.maxResolution ?? undefined,
-    sources: rule.sources ?? [],
-    codecs: rule.codecs ?? [],
-    audio: rule.audio ?? [],
-    releaseGroupsInclude: rule.releaseGroupsInclude ?? [],
-    releaseGroupsExclude: rule.releaseGroupsExclude ?? [],
-    variantsInclude: criteria.variantsInclude,
-    variantsExclude: criteria.variantsExclude,
-    preferredReleaseGroups: rule.preferredReleaseGroups ?? [],
-    minSizeBytes: rule.minSizeBytes ?? undefined,
-    maxSizeBytes: rule.maxSizeBytes ?? undefined,
-    season: rule.season ?? undefined,
-    episodeStart: rule.episodeStart ?? undefined,
-    episodeEnd: rule.episodeEnd ?? undefined,
-    upgradePolicy: subscriptionUpgradePolicyFromRow(rule.upgradePolicy),
-    allowCrossSeed: rule.allowCrossSeed,
-    separateVariants: criteria.separateVariants,
-    seasonPackAllowed: rule.seasonPackAllowed
-  };
-}
-
-function criteriaFromRow(value: Prisma.JsonValue | null): RuleCriteria {
-  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  const result = persistedRuleCriteriaSchema.safeParse(input);
-  if (!result.success) {
-    throw new SubscriptionRuleValidationError("subscription criteria are invalid");
-  }
-  return result.data;
-}
-
-function subscriptionModeFromRow(value: string): SubscriptionMode {
-  if (value === "MEDIA_TITLE" || value === "REGEX") return value;
-  throw new SubscriptionRuleValidationError("subscription mode is unsupported");
-}
-
-function subscriptionUpgradePolicyFromRow(value: string): SubscriptionUpgradePolicy {
-  if (
-    value === "none" ||
-    value === "better_quality" ||
-    value === "preferred_release_group"
-  ) {
-    return value;
-  }
-  throw new SubscriptionRuleValidationError("subscription upgrade policy is unsupported");
-}
-
-function activeMatchFromRow(match: any): CandidateInput["activeMatch"] {
-  const selectedMetadata = match?.providerMediaMetadata ?? match?.providerTitle;
-  if (!match?.mediaTitle || !selectedMetadata) return null;
-  return {
-    id: match.id,
-    status: match.status,
-    source: match.source,
-    confidence: match.confidence ?? 0,
-    mediaTitle: {
-      id: match.mediaTitle.id,
-      mediaType: match.mediaTitle.mediaType,
-      canonicalTitle: match.mediaTitle.title ?? match.mediaTitle.canonicalTitle,
-      releaseYear: match.mediaTitle.releaseYear ?? null
-    },
-    selectedProviderTitle: providerTitleRuleView(selectedMetadata),
-    linkedProviderTitles: providerMetadataRows(match.mediaTitle)
-      .filter(Boolean)
-      .map(providerTitleRuleView)
-  };
-}
-
-function providerMetadataRows(mediaTitle: any) {
-  return (mediaTitle.providerIdentities ?? [])
-    .flatMap((identity: any) =>
-      (identity.metadata ?? []).map((metadata: any) => ({
-        ...metadata,
-        mediaProviderIdentity: metadata.mediaProviderIdentity ?? identity
-      }))
-    );
-}
-
-function providerTitleRuleView(providerTitle: any): ProviderTitleRuleView {
-  const identity = providerTitle.mediaProviderIdentity;
-  return {
-    providerTitleId: providerTitle.id,
-    provider: identity?.provider ?? providerTitle.provider,
-    providerSource: providerTitle.providerSource,
-    providerEntityType: providerTitle.providerEntityType,
-    providerId: identity?.providerId ?? providerTitle.providerId,
-    mediaType: identity?.mediaType ?? providerTitle.mediaType,
-    ratingValue: providerTitle.ratingValue ?? null,
-    ratingScale: providerTitle.ratingScale ?? null,
-    ratingVoteCount: providerTitle.ratingVoteCount ?? null,
-    ratingType: providerRatingType(providerTitle.ratingType)
-  };
-}
-
-function providerRatingType(value?: string | null): ProviderTitleRuleView["ratingType"] {
-  if (value === "USER_SCORE") return "user_score";
-  if (value === "CRITIC_SCORE") return "critic_score";
-  if (value === "POPULARITY") return "popularity";
-  return null;
-}
-
-function candidateFromItem(item: any): CandidateInput {
-  const match = item.parsedRelease.matches[0] ?? null;
-  return {
-    feedId: item.feedId,
-    rawTitle: item.rawTitle,
-    sizeBytes: item.sizeBytes,
-    release: {
-      title: item.parsedRelease.title,
-      year: item.parsedRelease.year ?? undefined,
-      mediaType: item.parsedRelease.mediaType,
-      tvUnitType: item.parsedRelease.tvUnitType ?? undefined,
-      season: item.parsedRelease.season ?? undefined,
-      episode: item.parsedRelease.episode ?? undefined,
-      episodeEnd: item.parsedRelease.episodeEnd ?? undefined,
-      specialNumber: item.parsedRelease.specialNumber ?? undefined,
-      episodePart: item.parsedRelease.episodePart ?? undefined,
-      resolution: item.parsedRelease.resolution ?? undefined,
-      quality: item.parsedRelease.quality ?? undefined,
-      source: item.parsedRelease.source ?? undefined,
-      codec: item.parsedRelease.codec ?? undefined,
-      audio: item.parsedRelease.audio ?? undefined,
-      releaseGroup: item.parsedRelease.releaseGroup ?? undefined,
-      variant: item.parsedRelease.variant ?? undefined,
-      parseConfidence: item.parsedRelease.parseConfidence
-    },
-    activeMatch: activeMatchFromRow(match)
-  };
 }
 
 export async function serializeSubscriptionForTenant(
@@ -1164,50 +699,11 @@ export function serializeSubscription(
       : undefined,
     autoDownload: subscription.autoDownload,
     enabled: subscription.enabled,
-    rule: subscription.rule ? serializeRule(subscription.rule, subscription.mediaTitleId) : undefined,
+    rule: subscription.rule
+      ? serializeSubscriptionRuleRecord(subscription.rule, subscription.mediaTitleId)
+      : undefined,
     createdAt: subscription.createdAt.toISOString(),
     updatedAt: subscription.updatedAt.toISOString()
-  };
-}
-
-function serializeRule(
-  rule: SubscriptionRule,
-  subscriptionMediaTitleId?: string | null
-): SubscriptionRuleDto {
-  const ruleInput = ruleFromRow(rule, subscriptionMediaTitleId);
-  return {
-    id: rule.id,
-    mode: ruleInput.mode,
-    mediaType: rule.mediaType,
-    mediaTitleId: ruleInput.mediaTitleId,
-    selectedProvider: ruleInput.selectedProvider,
-    linkedProviders: ruleInput.linkedProviders,
-    providerRatings: ruleInput.providerRatings,
-    feedIds: ruleInput.feedIds,
-    titleRegex: rule.titleRegex,
-    includeRegex: rule.includeRegex,
-    excludeRegex: rule.excludeRegex,
-    minResolution: rule.minResolution,
-    maxResolution: rule.maxResolution,
-    sources: rule.sources ?? [],
-    codecs: rule.codecs ?? [],
-    audio: rule.audio ?? [],
-    releaseGroupsInclude: rule.releaseGroupsInclude ?? [],
-    releaseGroupsExclude: rule.releaseGroupsExclude ?? [],
-    variantsInclude: ruleInput.variantsInclude,
-    variantsExclude: ruleInput.variantsExclude,
-    preferredReleaseGroups: rule.preferredReleaseGroups ?? [],
-    minSizeBytes: rule.minSizeBytes?.toString?.(),
-    maxSizeBytes: rule.maxSizeBytes?.toString?.(),
-    season: rule.season,
-    episodeStart: rule.episodeStart,
-    episodeEnd: rule.episodeEnd,
-    upgradePolicy: ruleInput.upgradePolicy,
-    allowCrossSeed: ruleInput.allowCrossSeed,
-    separateVariants: ruleInput.separateVariants,
-    seasonPackAllowed: ruleInput.seasonPackAllowed,
-    createdAt: rule.createdAt.toISOString(),
-    updatedAt: rule.updatedAt.toISOString()
   };
 }
 
