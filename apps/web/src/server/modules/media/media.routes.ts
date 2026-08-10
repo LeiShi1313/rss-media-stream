@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { ProviderSearchResponseDto } from "@rss-media/shared/apiContracts";
 import type { AppConfig } from "../../config.js";
 import { audit } from "../../core/audit.js";
 import { requireTenantRole } from "../../core/permissions.js";
@@ -61,7 +62,7 @@ export async function registerMediaRoutes(app: FastifyInstance, config: AppConfi
     async (request) => {
       const query = parseBody(smartProviderTitleSearchSchema, request);
       const results = await smartSearchExternalMedia(config, request.tenantId!, query, request.log);
-      return { results };
+      return { results } satisfies ProviderSearchResponseDto;
     }
   );
 

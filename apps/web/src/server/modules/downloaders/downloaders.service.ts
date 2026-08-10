@@ -1,5 +1,8 @@
 import type { DownloaderType } from "@prisma/client";
-import type { DownloaderDto } from "@rss-media/shared/apiContracts";
+import type {
+  DownloaderDto,
+  DownloaderTestDto
+} from "@rss-media/shared/apiContracts";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { createDownloaderClient } from "../../downloaders.js";
@@ -182,7 +185,7 @@ export async function testDownloader(
   tenantId: string,
   downloaderId: string,
   config: AppConfig
-) {
+): Promise<DownloaderTestDto> {
   const downloader = await prisma.downloader.findFirst({
     where: { id: downloaderId, tenantId }
   });
@@ -199,7 +202,7 @@ export async function testDownloaderConfig(
   tenantId: string,
   input: DownloaderConfigTestInput,
   config: AppConfig
-) {
+): Promise<DownloaderTestDto> {
   const existing =
     input.id && !input.password
       ? await prisma.downloader.findFirst({
