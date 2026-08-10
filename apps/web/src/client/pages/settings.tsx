@@ -3,13 +3,13 @@ import { KeyRound, SlidersHorizontal } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
-  api,
-  type MediaProviderPoliciesResponse,
-  type MediaProviderPolicy,
-  type ProviderSettings,
-  type ProviderSettingsResponse,
-  type Workspace
-} from "../api.js";
+  type MediaProviderPoliciesResponseDto,
+  type MediaProviderPolicyDto,
+  type ProviderSettingsDto,
+  type ProviderSettingsResponseDto,
+  type WorkspaceDto
+} from "@rss-media/shared/apiContracts";
+import { api } from "../api.js";
 import { Pill, StatusPill } from "../components/common/feedback.js";
 import { Panel } from "../components/common/surfaces.js";
 import { FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
@@ -23,7 +23,7 @@ type ProviderDraft = {
   secrets: Record<string, string>;
 };
 
-function draftFromProvider(provider: ProviderSettings): ProviderDraft {
+function draftFromProvider(provider: ProviderSettingsDto): ProviderDraft {
   return {
     enabled: provider.enabled,
     metadataLanguage: provider.metadataLanguage ?? "en-US",
@@ -40,18 +40,18 @@ export function SettingsPage({
 }: {
   busy: boolean;
   runAction: RunAction;
-  workspace: Workspace | null;
+  workspace: WorkspaceDto | null;
 }) {
   const { t } = useTranslation();
   const mediaLanguageOptions = languageOptions(t);
-  const [providerSettings, setProviderSettings] = useState<ProviderSettings[]>([]);
+  const [providerSettings, setProviderSettings] = useState<ProviderSettingsDto[]>([]);
   const [providerDrafts, setProviderDrafts] = useState<Record<string, ProviderDraft>>({});
-  const [policies, setPolicies] = useState<MediaProviderPoliciesResponse["mediaTypes"]>([]);
+  const [policies, setPolicies] = useState<MediaProviderPoliciesResponseDto["mediaTypes"]>([]);
 
   async function loadSettings() {
     const [nextProviders, nextPolicies] = await Promise.all([
-      api<ProviderSettingsResponse>("/api/settings/providers"),
-      api<MediaProviderPoliciesResponse>("/api/settings/media-provider-policies")
+      api<ProviderSettingsResponseDto>("/api/settings/providers"),
+      api<MediaProviderPoliciesResponseDto>("/api/settings/media-provider-policies")
     ]);
     setProviderSettings(nextProviders.providers);
     setProviderDrafts(Object.fromEntries(nextProviders.providers.map((provider) => [
@@ -65,13 +65,13 @@ export function SettingsPage({
     void loadSettings();
   }, []);
 
-  async function saveProvider(provider: ProviderSettings, { clearSecrets = false } = {}) {
+  async function saveProvider(provider: ProviderSettingsDto, { clearSecrets = false } = {}) {
     const draft = providerDrafts[provider.id];
     const secrets = Object.fromEntries(
       Object.entries(draft?.secrets ?? {}).filter(([, value]) => value.trim())
     );
     const result = await runAction(() =>
-      api<ProviderSettingsResponse>(`/api/settings/providers/${provider.id}`, {
+      api<ProviderSettingsResponseDto>(`/api/settings/providers/${provider.id}`, {
         method: "PUT",
         body: JSON.stringify({
           enabled: draft.enabled,
@@ -87,9 +87,9 @@ export function SettingsPage({
     if (result.ok) await loadSettings();
   }
 
-  async function savePolicies(group: MediaProviderPoliciesResponse["mediaTypes"][number]) {
+  async function savePolicies(group: MediaProviderPoliciesResponseDto["mediaTypes"][number]) {
     const result = await runAction(() =>
-      api<MediaProviderPoliciesResponse>("/api/settings/media-provider-policies", {
+      api<MediaProviderPoliciesResponseDto>("/api/settings/media-provider-policies", {
         method: "PUT",
         body: JSON.stringify({
           mediaType: group.mediaType,
@@ -172,7 +172,7 @@ function ProviderCard({
   onDraftChange: (draft: ProviderDraft) => void;
   onSave: () => void;
   ownerOnly: boolean;
-  provider: ProviderSettings;
+  provider: ProviderSettingsDto;
   t: TFunction;
 }) {
   const current = draft ?? draftFromProvider(provider);
@@ -286,12 +286,12 @@ function PolicyTable({
   t
 }: {
   busy: boolean;
-  group: MediaProviderPoliciesResponse["mediaTypes"][number];
-  onChange: (policies: MediaProviderPolicy[]) => void;
-  onRatingSourceChange: (providerSource: ProviderSettings["id"]) => void;
+  group: MediaProviderPoliciesResponseDto["mediaTypes"][number];
+  onChange: (policies: MediaProviderPolicyDto[]) => void;
+  onRatingSourceChange: (providerSource: ProviderSettingsDto["id"]) => void;
   onSave: () => void;
   ownerOnly: boolean;
-  providerSettings: ProviderSettings[];
+  providerSettings: ProviderSettingsDto[];
   t: TFunction;
 }) {
   const ratingProviders = providerSettings.filter((provider) =>
@@ -301,7 +301,7 @@ function PolicyTable({
     provider.id === group.ratingProviderSource
   );
 
-  function update(providerSource: string, patch: Partial<MediaProviderPolicy>) {
+  function update(providerSource: string, patch: Partial<MediaProviderPolicyDto>) {
     onChange(group.policies.map((policy) => policy.providerSource === providerSource ? { ...policy, ...patch } : policy));
   }
 
@@ -314,7 +314,7 @@ function PolicyTable({
             <span>{t("settings.ratingProviderSource")}</span>
             <SelectField
               disabled={busy || ownerOnly}
-              onValueChange={(value) => onRatingSourceChange(value as ProviderSettings["id"])}
+              onValueChange={(value) => onRatingSourceChange(value as ProviderSettingsDto["id"])}
               options={ratingProviders.map((provider) => ({
                 value: provider.id,
                 label: provider.label
@@ -373,7 +373,7 @@ function PolicyTable({
   );
 }
 
-function providerCredentialText(status: ProviderSettings, t: TFunction) {
+function providerCredentialText(status: ProviderSettingsDto, t: TFunction) {
   if (status.authFields.length === 0) return t("settings.noCredentialRequired");
   if (status.credentialSource === "workspace") return t("settings.workspaceCredential");
   if (status.credentialSource === "environment") return t("settings.environmentCredential");

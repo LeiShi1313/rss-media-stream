@@ -1,4 +1,4 @@
-import type { RatingDto } from "../api.js";
+import type { RatingDto } from "@rss-media/shared/apiContracts";
 
 type NativeRating = Pick<RatingDto, "value" | "scale" | "voteCount" | "fetchedAt">;
 

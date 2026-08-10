@@ -10,9 +10,9 @@ describe("overview item infinite scroll UI", () => {
     const appSource = readFileSync(resolve(__dirname, "../src/client/App.tsx"), "utf8");
     const overviewSource = readFileSync(resolve(__dirname, "../src/client/pages/overview.tsx"), "utf8");
 
-    expect(appSource).toContain("api<ItemPage>(\"/api/items?limit=120\")");
+    expect(appSource).toContain("api<ItemPageDto>(\"/api/items?limit=120\")");
     expect(overviewSource).toContain("useItemShelf({");
-    expect(overviewSource).toContain("api<ItemPage>(`/api/items?");
+    expect(overviewSource).toContain("api<ItemPageDto>(`/api/items?");
   });
 
   it("uses sentinels for both newly added and filtered release loading", () => {

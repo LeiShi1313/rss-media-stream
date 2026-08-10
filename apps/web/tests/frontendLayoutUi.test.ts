@@ -25,7 +25,7 @@ describe("dashboard layout UI", () => {
     expect(appSource).toContain('title: t(`page.${page}.title`)');
     expect(appSource).toContain('summary: t(`page.${page}.summary`)');
     expect(appSource).toContain("changeUiLanguage(value)");
-    expect(appSource).toContain('api<WorkspaceSettings>("/api/settings"');
+    expect(appSource).toContain('api<WorkspaceSettingsDto>("/api/settings"');
     expect(sidebarSource).toContain('className="app-sidebar"');
     expect(sidebarSource).toContain('className="app-sidebar-nav"');
     expect(sidebarSource).not.toContain("<h1>");

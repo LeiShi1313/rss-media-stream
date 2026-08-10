@@ -1,4 +1,4 @@
-import type { Subscription } from "../api.js";
+import type { SubscriptionDto } from "@rss-media/shared/apiContracts";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -43,7 +43,7 @@ function comparisonLabel(comparison: string) {
     "=";
 }
 
-export function ruleSummary(subscription: Subscription, t?: Translate) {
+export function ruleSummary(subscription: SubscriptionDto, t?: Translate) {
   const rule = subscription.rule;
   if (!rule) return t?.("subscriptions.noRule") ?? "No rule configured";
   return [

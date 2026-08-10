@@ -1,8 +1,8 @@
 import { useTranslation } from "react-i18next";
-import type { TimelinePoint } from "../../types.js";
+import type { TimelinePointDto } from "@rss-media/shared/apiContracts";
 import { Empty } from "./feedback.js";
 
-export function TimelineBars({ timeline }: { timeline: TimelinePoint[] }) {
+export function TimelineBars({ timeline }: { timeline: TimelinePointDto[] }) {
   const { t } = useTranslation();
   const maxCount = Math.max(1, ...timeline.map((point) => point.count));
   return (

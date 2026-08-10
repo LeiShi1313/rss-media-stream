@@ -2,19 +2,21 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { RefreshCw, Rss, Shield } from "lucide-react";
 import {
-  api,
-  type AuthResponse,
-  type Downloader,
-  type DownloadJob,
-  type Feed,
-  type Item,
-  type ItemPage,
-  type Subscription,
-  type User,
-  type Workspace,
-  type WorkspaceSettings,
-  type WorkspaceMember
-} from "./api.js";
+  type AuthResponseDto,
+  type DownloaderDto,
+  type DownloadJobDto,
+  type FeedDto,
+  type ItemDto,
+  type ItemPageDto,
+  type SetupStatusDto,
+  type SubscriptionDto,
+  type TimelinePointDto,
+  type UserDto,
+  type WorkspaceDto,
+  type WorkspaceMemberDto,
+  type WorkspaceSettingsDto
+} from "@rss-media/shared/apiContracts";
+import { api } from "./api.js";
 import { FieldLabel, FormInput, UiButton } from "./components/ui/index.js";
 import { ActivityPage } from "./pages/activity.js";
 import { DownloadersPage } from "./pages/downloaders.js";
@@ -23,7 +25,7 @@ import { RssPage } from "./pages/rss.js";
 import { SettingsPage } from "./pages/settings.js";
 import { SubscriptionsPage } from "./pages/subscriptions.js";
 import { WorkspacePage } from "./pages/workspace.js";
-import { pageIds, type ActionResult, type PageId, type RunAction, type TimelinePoint } from "./types.js";
+import { pageIds, type ActionResult, type PageId, type RunAction } from "./types.js";
 import { errorMessage, relativeTime } from "./lib/format.js";
 import { applyUiLanguage, normalizeUiLanguage } from "./i18n.js";
 import { AppSidebar } from "./components/layout/app-sidebar.js";
@@ -31,8 +33,8 @@ import { AppSidebar } from "./components/layout/app-sidebar.js";
 export function App() {
   const { t } = useTranslation();
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [user, setUser] = useState<UserDto | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceDto | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -41,10 +43,10 @@ export function App() {
 
   async function bootstrap() {
     try {
-      const setup = await api<{ required: boolean }>("/api/setup/status");
+      const setup = await api<SetupStatusDto>("/api/setup/status");
       setSetupRequired(setup.required);
       if (!setup.required) {
-        const session = await api<AuthResponse>("/api/me");
+        const session = await api<AuthResponseDto>("/api/me");
         setUser(session.user);
         setWorkspace(session.activeWorkspace ?? session.workspace ?? session.workspaces?.[0] ?? null);
         void syncUiLanguageFromSettings();
@@ -97,7 +99,7 @@ function AuthScreen({
   setupRequired: boolean;
   error: string;
   onError: (value: string) => void;
-  onDone: (session: AuthResponse) => void;
+  onDone: (session: AuthResponseDto) => void;
 }) {
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
@@ -107,7 +109,7 @@ function AuthScreen({
   async function submit(event: FormEvent) {
     event.preventDefault();
     try {
-      const session = await api<AuthResponse>(setupRequired ? "/api/setup" : "/api/login", {
+      const session = await api<AuthResponseDto>(setupRequired ? "/api/setup" : "/api/login", {
         method: "POST",
         body: JSON.stringify(setupRequired ? { email, name, password } : { email, password })
       });
@@ -164,19 +166,19 @@ function Dashboard({
   workspace,
   onLogout
 }: {
-  user: User;
-  workspace: Workspace | null;
+  user: UserDto;
+  workspace: WorkspaceDto | null;
   onLogout: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const [page, setPage] = useState<PageId>(() => readPageFromHash());
-  const [feeds, setFeeds] = useState<Feed[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
-  const [downloaders, setDownloaders] = useState<Downloader[]>([]);
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [jobs, setJobs] = useState<DownloadJob[]>([]);
-  const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
+  const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [items, setItems] = useState<ItemDto[]>([]);
+  const [downloaders, setDownloaders] = useState<DownloaderDto[]>([]);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionDto[]>([]);
+  const [jobs, setJobs] = useState<DownloadJobDto[]>([]);
+  const [members, setMembers] = useState<WorkspaceMemberDto[]>([]);
+  const [timeline, setTimeline] = useState<TimelinePointDto[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
@@ -195,13 +197,13 @@ function Dashboard({
 
   async function load() {
     const results = await Promise.allSettled([
-      api<Feed[]>("/api/feeds"),
-      api<ItemPage>("/api/items?limit=120"),
-      api<Downloader[]>("/api/downloaders"),
-      api<TimelinePoint[]>("/api/dashboard/timeline"),
+      api<FeedDto[]>("/api/feeds"),
+      api<ItemPageDto>("/api/items?limit=120"),
+      api<DownloaderDto[]>("/api/downloaders"),
+      api<TimelinePointDto[]>("/api/dashboard/timeline"),
       loadSubscriptions(),
-      api<DownloadJob[]>("/api/download-jobs"),
-      api<WorkspaceMember[]>("/api/workspace/members")
+      api<DownloadJobDto[]>("/api/download-jobs"),
+      api<WorkspaceMemberDto[]>("/api/workspace/members")
     ] as const);
 
     applyResult(results[0], setFeeds);
@@ -258,7 +260,7 @@ function Dashboard({
     const language = await applyUiLanguage(value);
     if (workspace?.role !== "OWNER") return;
     try {
-      await api<WorkspaceSettings>("/api/settings", {
+      await api<WorkspaceSettingsDto>("/api/settings", {
         method: "PUT",
         body: JSON.stringify({ webLanguage: language })
       });
@@ -341,7 +343,7 @@ function readPageFromHash(): PageId {
 
 async function syncUiLanguageFromSettings() {
   try {
-    const settings = await api<WorkspaceSettings>("/api/settings");
+    const settings = await api<WorkspaceSettingsDto>("/api/settings");
     await applyUiLanguage(settings.webLanguage);
   } catch {
     // Keep the locally detected language if settings are unavailable.
@@ -350,9 +352,9 @@ async function syncUiLanguageFromSettings() {
 
 async function loadSubscriptions() {
   try {
-    return await api<Subscription[]>("/api/subscriptions?scope=all");
+    return await api<SubscriptionDto[]>("/api/subscriptions?scope=all");
   } catch {
-    return api<Subscription[]>("/api/subscriptions");
+    return api<SubscriptionDto[]>("/api/subscriptions");
   }
 }
 
@@ -362,4 +364,3 @@ function applyResult<T>(
 ) {
   if (result.status === "fulfilled") setter(result.value);
 }
-
