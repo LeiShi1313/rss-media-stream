@@ -1,82 +1,40 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-  MediaPresentationDto,
-  MediaSearchResultDto,
-  ResolvedMediaTitleDto,
-  SubscriptionDto,
-  SubscriptionRuleDto
+  DownloaderDto,
+  FeedDto,
+  ItemDto,
+  SubscriptionDto
 } from "@rss-media/shared/apiContracts";
+import type { SubscriptionEditorSession } from "../../src/client/components/subscriptions/subscription-editor-dialog.js";
 import { SubscriptionsPage } from "../../src/client/pages/subscriptions.js";
 import type { RunAction } from "../../src/client/types.js";
 import { renderWithUser } from "./render.js";
 
 const mocks = vi.hoisted(() => ({
-  api: vi.fn()
+  editorProps: vi.fn()
 }));
 
-vi.mock("../../src/client/api.js", () => ({
-  api: mocks.api
+vi.mock("../../src/client/components/subscriptions/subscription-editor-dialog.js", () => ({
+  SubscriptionEditorDialog: (props: EditorProps) => {
+    mocks.editorProps(props);
+    return (
+      <div aria-label="Subscription editor test double" role="dialog">
+        <span>{props.session.kind}</span>
+        <button onClick={props.onClose} type="button">Close editor</button>
+      </div>
+    );
+  }
 }));
-
-const presentation: MediaPresentationDto = {
-  mediaType: "MOVIE",
-  title: "Dune",
-  releaseYear: 2021,
-  displaySource: {
-    provider: "tmdb",
-    providerId: "438631"
-  },
-  hasCover: true
-};
-
-const searchResult: MediaSearchResultDto = {
-  provider: "tmdb",
-  providerSource: "tmdb_api",
-  providerEntityType: "movie",
-  providerId: "438631",
-  mediaType: "MOVIE",
-  kind: "MOVIE",
-  title: "Dune",
-  year: 2021,
-  posterUrl: "https://images.example/dune.jpg",
-  presentation,
-  hasCover: true,
-  score: 0.92,
-  attributionText: "TMDB"
-};
-
-const resolvedMedia: ResolvedMediaTitleDto = {
-  mediaTitleId: "media-dune",
-  mediaType: "MOVIE",
-  title: "Dune",
-  year: 2021,
-  posterUrl: "https://images.example/dune.jpg",
-  hasCover: true,
-  provider: "tmdb",
-  providerSource: "tmdb_api",
-  providerEntityType: "movie",
-  providerId: "438631",
-  presentation
-};
 
 describe("SubscriptionsPage", () => {
   beforeEach(() => {
-    mocks.api.mockReset();
+    mocks.editorProps.mockReset();
   });
 
   it("filters subscriptions across their displayed management fields", async () => {
     const subscriptions = [
-      makeSubscription({
-        id: "subscription-dune",
-        title: "Dune 2160p+",
-        downloader: {
-          id: "downloader-primary",
-          name: "Primary qBittorrent",
-          type: "QBITTORRENT",
-          enabled: true
-        }
-      }),
+      makeSubscription(),
       makeSubscription({
         id: "subscription-foundation",
         title: "Foundation S03",
@@ -118,172 +76,77 @@ describe("SubscriptionsPage", () => {
     expect(screen.queryByText("No subscription rules yet")).not.toBeInTheDocument();
   });
 
-  it("creates a media-title subscription from provider search and resolution", async () => {
-    mocks.api.mockImplementation(async (url: string) => {
-      if (url.startsWith("/api/provider-titles/search?")) return [searchResult];
-      if (url === "/api/provider-titles/resolve") return resolvedMedia;
-      if (url === "/api/subscriptions") return undefined;
-      throw new Error(`Unexpected API request: ${url}`);
-    });
-    const { user } = renderWithUser(
-      <SubscriptionsPage {...pageProps([], runActionThroughApi)} />
-    );
-
-    await user.click(screen.getByRole("button", { name: "Create Subscription" }));
-    await user.type(screen.getByPlaceholderText("Search metadata"), "Dune");
-    await user.click(screen.getByRole("button", { name: "Search" }));
-    await user.click(await screen.findByRole("button", { name: /Dune.*2021.*TMDB.*92%/ }));
-    await user.click(screen.getByRole("button", { name: "Save Subscription" }));
-
-    expect(mocks.api).toHaveBeenCalledWith(
-      "/api/provider-titles/search?q=Dune&mediaType=MOVIE"
-    );
-    expect(mocks.api).toHaveBeenCalledWith("/api/provider-titles/resolve", {
-      method: "POST",
-      body: JSON.stringify({
-        providerSource: "tmdb_api",
-        providerEntityType: "movie",
-        providerId: "438631",
-        mediaType: "MOVIE"
-      })
-    });
-    const createCall = apiCall("/api/subscriptions");
-    expect(createCall?.[1]).toMatchObject({ method: "POST" });
-    expect(JSON.parse(createCall?.[1]?.body as string)).toEqual({
-      title: "Dune 2160p+",
-      mediaTitleId: "media-dune",
-      autoDownload: true,
-      enabled: true,
-      rule: {
-        mode: "MEDIA_TITLE",
-        mediaType: "MOVIE",
-        mediaTitleId: "media-dune",
-        selectedProvider: {
-          provider: "tmdb",
-          mediaType: "MOVIE",
-          providerId: "438631"
-        },
-        minResolution: 2160,
-        sources: [],
-        codecs: [],
-        audio: [],
-        releaseGroupsInclude: [],
-        releaseGroupsExclude: [],
-        preferredReleaseGroups: [],
-        feedIds: [],
-        upgradePolicy: "none",
-        allowCrossSeed: false,
-        separateVariants: false,
-        seasonPackAllowed: true
-      }
-    });
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Create Subscription" })).not.toBeInTheDocument();
-    });
-  });
-
-  it("keeps a failed regex subscription open with its error and identity-free payload", async () => {
-    mocks.api.mockImplementation(async (url: string) => {
-      if (url === "/api/subscriptions") throw new Error("Subscription was rejected");
-      throw new Error(`Unexpected API request: ${url}`);
-    });
-    const { user } = renderWithUser(
-      <SubscriptionsPage {...pageProps([], runActionThroughApi)} />
-    );
-
-    await user.click(screen.getByRole("button", { name: "Create Subscription" }));
-    await user.click(screen.getByRole("button", { name: "Raw regex rule" }));
-    await user.type(screen.getByLabelText("Title regex"), "Stand-Up.*S03");
-    await user.click(screen.getByRole("button", { name: "Save Subscription" }));
-
-    const createCall = apiCall("/api/subscriptions");
-    const payload = JSON.parse(createCall?.[1]?.body as string);
-    expect(payload).toMatchObject({
-      title: "Stand-Up.*S03",
-      autoDownload: true,
-      enabled: true,
-      rule: {
-        mode: "REGEX",
-        mediaType: "MOVIE",
-        titleRegex: "Stand-Up.*S03",
-        minResolution: 2160
-      }
-    });
-    expect(payload).not.toHaveProperty("mediaTitleId");
-    expect(payload.rule).not.toHaveProperty("mediaTitleId");
-    expect(payload.rule).not.toHaveProperty("selectedProvider");
-    expect(await screen.findByText("Subscription was rejected")).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Create Subscription" })).toBeInTheDocument();
-  });
-
-  it("updates subscription metadata before its existing media rule and closes on success", async () => {
+  it("opens and clears explicit create and edit editor sessions", async () => {
     const subscription = makeSubscription();
-    mocks.api.mockResolvedValue(undefined);
+    const subscriptions = [subscription];
+    const downloaders = [makeDownloader()];
+    const feeds = [makeFeed()];
+    const items = [makeItem()];
     const { user } = renderWithUser(
-      <SubscriptionsPage {...pageProps([subscription], runActionThroughApi)} />
+      <SubscriptionsPage
+        {...pageProps(subscriptions, { downloaders, feeds, items })}
+      />
     );
+
+    await user.click(screen.getByRole("button", { name: "Create Subscription" }));
+    expect(latestSession()).toEqual({ kind: "create" });
+    expect(latestEditorProps()).toMatchObject({ busy: false });
+    expect(latestEditorProps()?.downloaders).toBe(downloaders);
+    expect(latestEditorProps()?.feeds).toBe(feeds);
+    expect(latestEditorProps()?.items).toBe(items);
+    expect(latestEditorProps()?.subscriptions).toBe(subscriptions);
+    expect(latestEditorProps()?.runAction).toBe(successfulRunAction);
+    await user.click(screen.getByRole("button", { name: "Close editor" }));
+    expect(screen.queryByRole("dialog", { name: "Subscription editor test double" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: `Edit ${subscription.title}` }));
-    expect(screen.getByText("Selected media")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("Search metadata")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Save Subscription" }));
-
-    const mutationCalls = mocks.api.mock.calls.filter(([url]) =>
-      String(url).startsWith(`/api/subscriptions/${subscription.id}`)
-    );
-    expect(mutationCalls.map(([url]) => url)).toEqual([
-      `/api/subscriptions/${subscription.id}`,
-      `/api/subscriptions/${subscription.id}/rule`
-    ]);
-    expect(JSON.parse(mutationCalls[0]?.[1]?.body as string)).toEqual({
-      title: "Dune 2160p+",
-      mediaTitleId: "media-dune",
-      downloaderId: "downloader-primary",
-      autoDownload: true,
-      enabled: true
-    });
-    expect(JSON.parse(mutationCalls[1]?.[1]?.body as string)).toMatchObject({
-      mode: "MEDIA_TITLE",
-      mediaType: "MOVIE",
-      mediaTitleId: "media-dune",
-      selectedProvider: {
-        provider: "tmdb",
-        mediaType: "MOVIE",
-        providerId: "438631"
-      },
-      feedIds: ["feed-primary"],
-      minResolution: 2160,
-      sources: ["WEB-DL"],
-      preferredReleaseGroups: ["ADWeb"]
-    });
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Edit Subscription" })).not.toBeInTheDocument();
-    });
+    expect(latestSession()).toEqual({ kind: "edit", subscription });
+    await user.click(screen.getByRole("button", { name: "Close editor" }));
+    expect(screen.queryByRole("dialog", { name: "Subscription editor test double" })).not.toBeInTheDocument();
   });
 });
 
-function pageProps(subscriptions: SubscriptionDto[], runAction: RunAction = runActionThroughApi) {
+function latestSession() {
+  return latestEditorProps()?.session;
+}
+
+function latestEditorProps() {
+  return mocks.editorProps.mock.lastCall?.[0] as EditorProps | undefined;
+}
+
+const successfulRunAction: RunAction = async (action) => {
+  await action();
+  return { ok: true };
+};
+
+type EditorProps = {
+  session: SubscriptionEditorSession;
+  busy: boolean;
+  downloaders: DownloaderDto[];
+  feeds: FeedDto[];
+  items: ItemDto[];
+  subscriptions: SubscriptionDto[];
+  runAction: RunAction;
+  onClose: () => void;
+};
+
+function pageProps(
+  subscriptions: SubscriptionDto[],
+  overrides: Partial<{
+    downloaders: DownloaderDto[];
+    feeds: FeedDto[];
+    items: ItemDto[];
+  }> = {}
+) {
   return {
     busy: false,
     downloaders: [],
     feeds: [],
     items: [],
     subscriptions,
-    runAction
+    runAction: successfulRunAction,
+    ...overrides
   };
-}
-
-const runActionThroughApi: RunAction = async (action) => {
-  try {
-    await action();
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
-  }
-};
-
-function apiCall(url: string) {
-  return mocks.api.mock.calls.find(([candidate]) => candidate === url);
 }
 
 function makeSubscription(overrides: Partial<SubscriptionDto> = {}): SubscriptionDto {
@@ -294,8 +157,6 @@ function makeSubscription(overrides: Partial<SubscriptionDto> = {}): Subscriptio
     media: {
       id: "media-dune",
       provider: "tmdb",
-      providerSource: "tmdb_api",
-      providerEntityType: "movie",
       providerId: "438631",
       kind: "MOVIE",
       mediaType: "MOVIE",
@@ -311,50 +172,56 @@ function makeSubscription(overrides: Partial<SubscriptionDto> = {}): Subscriptio
     },
     autoDownload: true,
     enabled: true,
-    rule: makeRule(),
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z",
     ...overrides
   };
 }
 
-function makeRule(overrides: Partial<SubscriptionRuleDto> = {}): SubscriptionRuleDto {
+function makeDownloader(): DownloaderDto {
   return {
-    id: "rule-dune",
-    mode: "MEDIA_TITLE",
-    mediaType: "MOVIE",
-    mediaTitleId: "media-dune",
-    selectedProvider: {
-      provider: "tmdb",
-      mediaType: "MOVIE",
-      providerEntityType: "movie",
-      providerId: "438631"
-    },
-    linkedProviders: [],
-    providerRatings: [],
-    feedIds: ["feed-primary"],
-    titleRegex: null,
-    includeRegex: null,
-    excludeRegex: null,
-    minResolution: 2160,
-    maxResolution: null,
-    sources: ["WEB-DL"],
-    codecs: [],
-    audio: [],
-    releaseGroupsInclude: [],
-    releaseGroupsExclude: [],
-    variantsInclude: [],
-    variantsExclude: [],
-    preferredReleaseGroups: ["ADWeb"],
-    season: null,
-    episodeStart: null,
-    episodeEnd: null,
-    upgradePolicy: "none",
-    allowCrossSeed: false,
-    separateVariants: false,
-    seasonPackAllowed: true,
+    id: "downloader-primary",
+    name: "Primary qBittorrent",
+    type: "QBITTORRENT",
+    baseUrl: "http://qbittorrent:8080",
+    username: null,
+    defaultSavePath: null,
+    category: null,
+    tags: [],
+    enabled: true,
+    isDefault: true,
+    jobCount: 0,
     createdAt: "2026-08-01T00:00:00.000Z",
-    updatedAt: "2026-08-01T00:00:00.000Z",
-    ...overrides
+    updatedAt: "2026-08-01T00:00:00.000Z"
+  };
+}
+
+function makeFeed(): FeedDto {
+  return {
+    id: "feed-primary",
+    name: "Primary feed",
+    urlPreview: "https://tracker.example/rss…",
+    hasRequestHeaders: false,
+    pollIntervalSeconds: 300,
+    enabled: true,
+    lastPolledAt: null,
+    lastError: null,
+    deletedAt: null,
+    itemCount: 1
+  };
+}
+
+function makeItem(): ItemDto {
+  return {
+    id: "item-primary",
+    feed: { id: "feed-primary", name: "Primary feed" },
+    rawTitle: "Dune.2021.2160p.WEB-DL",
+    sourceUrl: null,
+    sizeBytes: null,
+    publishDate: "2026-08-01T00:00:00.000Z",
+    firstSeenAt: "2026-08-01T00:00:00.000Z",
+    dedupeKeyType: "RELEASE_SIGNATURE",
+    enrichmentState: "UNMATCHED",
+    downloadJobs: []
   };
 }

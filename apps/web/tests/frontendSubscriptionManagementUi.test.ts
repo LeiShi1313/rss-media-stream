@@ -8,29 +8,26 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 describe("Subscription management UI", () => {
   it("uses a flat searchable subscription table instead of row cards", () => {
     const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
-    const listSource = source.split("function SubscriptionEditorModal")[0];
 
-    expect(listSource).toContain('className="management-command"');
-    expect(listSource).toContain('className="management-table"');
-    expect(listSource).toContain('className="management-table-row subscription-table-row"');
-    expect(listSource).toContain("setQuery(event.target.value)");
-    expect(listSource).toContain("subscriptionTarget(subscription, t)");
-    expect(listSource).toContain("subscriptionMode(subscription, t)");
-    expect(listSource).not.toContain("<Panel");
-    expect(listSource).not.toContain("row-card subscription-card");
-    expect(listSource).not.toContain("StatusPill");
-    expect(listSource).not.toContain("<Pill");
+    expect(source).toContain('className="management-command"');
+    expect(source).toContain('className="management-table"');
+    expect(source).toContain('className="management-table-row subscription-table-row"');
+    expect(source).toContain("setQuery(event.target.value)");
+    expect(source).toContain("subscriptionTarget(subscription, t)");
+    expect(source).toContain("subscriptionMode(subscription, t)");
+    expect(source).not.toContain("<Panel");
+    expect(source).not.toContain("row-card subscription-card");
+    expect(source).not.toContain("StatusPill");
+    expect(source).not.toContain("<Pill");
   });
 
-  it("preserves create and edit actions in the flat management surface", () => {
+  it("keeps editor workflow behind the subscription editor dialog boundary", () => {
     const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
-    const listSource = source.split("function SubscriptionEditorModal")[0];
 
-    expect(listSource).toContain("setCreateOpen(true)");
-    expect(listSource).toContain("<SubscriptionEditorModal");
-    expect(listSource).toContain("releaseGroupOptions={releaseGroupOptions}");
-    expect(listSource).toContain('aria-label={t("subscriptions.editSubscriptionNamed", { name: subscription.title })}');
-    expect(listSource).toContain("setEditingSubscription(subscription)");
+    expect(source).toContain("components/subscriptions/subscription-editor-dialog.js");
+    expect(source).toContain("<SubscriptionEditorDialog");
+    expect(source).not.toContain('from "../api.js"');
+    expect(source).not.toContain("/api/");
   });
 
   it("defines subscription table columns using the shared management styles", () => {
@@ -44,29 +41,4 @@ describe("Subscription management UI", () => {
     expect(source).toContain("overflow-y: auto");
   });
 
-  it("exposes Sonarr-style rule controls without nested cards", () => {
-    const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
-
-    expect(source).toContain("RuleModeChooser");
-    expect(source).toContain("feedIds");
-    expect(source).toContain("preferredReleaseGroups");
-    expect(source).toContain("upgradePolicy");
-    expect(source).toContain("allowCrossSeed");
-    expect(source).toContain("seasonPackAllowed");
-    expect(source).toContain("subscription-multi-menu");
-    expect(source).toContain("ReleaseGroupInput");
-    expect(source).toContain("item.parsedRelease?.releaseGroup");
-    expect(source).not.toContain("disabled={options.length === 0}");
-    expect(source).not.toContain("subscription-rule-card");
-  });
-
-  it("searches provider media before showing media-title rule controls", () => {
-    const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
-
-    expect(source).toContain("/api/provider-titles/search?");
-    expect(source).toContain("/api/provider-titles/resolve");
-    expect(source).toContain("mediaTitleId: selectedMedia.mediaTitleId");
-    expect(source).toContain("subscription-result-list");
-    expect(source).toContain("subscription-selected-media");
-  });
 });
