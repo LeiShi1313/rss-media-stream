@@ -1,18 +1,15 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ItemDto, MediaDetailDto, MediaTitleDto } from "@rss-media/shared/apiContracts";
+import type { DownloaderDto, ItemDto } from "@rss-media/shared/apiContracts";
 import type { OverviewCatalogProps } from "../../src/client/components/overview/overview-catalog.js";
+import type { OverviewInspectorProps } from "../../src/client/components/overview/overview-inspector.js";
 import { OverviewPage } from "../../src/client/pages/overview.js";
 import type { RunAction } from "../../src/client/types.js";
 import { renderWithUser } from "./render.js";
 
 const mocks = vi.hoisted(() => ({
-  api: vi.fn(),
-  catalogProps: null as OverviewCatalogProps | null
-}));
-
-vi.mock("../../src/client/api.js", () => ({
-  api: mocks.api
+  catalogProps: null as OverviewCatalogProps | null,
+  inspectorProps: null as OverviewInspectorProps | null
 }));
 
 vi.mock("../../src/client/components/overview/overview-catalog.js", () => ({
@@ -36,73 +33,64 @@ vi.mock("../../src/client/components/overview/overview-catalog.js", () => ({
   }
 }));
 
+vi.mock("../../src/client/components/overview/overview-inspector.js", () => ({
+  OverviewInspector: (props: OverviewInspectorProps) => {
+    mocks.inspectorProps = props;
+    const label = props.target.type === "release"
+      ? `Release ${props.target.item.id}`
+      : `Media ${props.target.mediaId}`;
+    return (
+      <section aria-label="Inspector seam">
+        <span>{label}</span>
+        <button onClick={props.onClose} type="button">Close inspector</button>
+      </section>
+    );
+  }
+}));
+
 describe("OverviewPage", () => {
   beforeEach(() => {
-    mocks.api.mockReset();
     mocks.catalogProps = null;
+    mocks.inspectorProps = null;
   });
 
-  it("forwards items and opens the release inspector from the catalog callback", async () => {
+  it("forwards page data and maps a release inspection to the inspector target", async () => {
     const release = makeItem("release-inspect", "Release to inspect");
     const items = [release];
-    const { user } = renderWithUser(<OverviewPage {...pageProps({ items })} />);
+    const downloaders = [makeDownloader()];
+    const runAction = successfulRunAction;
+    const { user } = renderWithUser(
+      <OverviewPage {...pageProps({ busy: true, downloaders, items, runAction })} />
+    );
 
     expect(mocks.catalogProps?.items).toBe(items);
     await user.click(screen.getByRole("button", { name: "Inspect release" }));
 
-    expect(await screen.findByRole("dialog", { name: "Release to inspect" })).toBeInTheDocument();
+    expect(mocks.inspectorProps?.target).toEqual({ type: "release", item: release });
+    expect(mocks.inspectorProps?.busy).toBe(true);
+    expect(mocks.inspectorProps?.downloaders).toBe(downloaders);
+    expect(mocks.inspectorProps?.runAction).toBe(runAction);
+    expect(screen.getByText("Release release-inspect")).toBeInTheDocument();
   });
 
-  it("loads grouped media detail from the catalog callback", async () => {
-    const detail = mediaDetail(makeMedia("media-dune", "Dune"), "A desert world caught in a struggle for power.");
-    mocks.api.mockResolvedValue(detail);
-    const { user } = renderWithUser(<OverviewPage {...pageProps()} />);
+  it("replaces the active target with media selections and clears it on close", async () => {
+    const release = makeItem("release-inspect", "Release to inspect");
+    const { user } = renderWithUser(<OverviewPage {...pageProps({ items: [release] })} />);
 
+    await user.click(screen.getByRole("button", { name: "Inspect release" }));
+    expect(screen.getByText("Release release-inspect")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Inspect Dune" }));
+    expect(mocks.inspectorProps?.target).toEqual({ type: "media", mediaId: "media-dune" });
+    expect(screen.queryByText("Release release-inspect")).not.toBeInTheDocument();
+    expect(screen.getByText("Media media-dune")).toBeInTheDocument();
 
-    expect(await screen.findByRole("dialog", { name: "Dune" })).toBeInTheDocument();
-    expect(screen.getByText("A desert world caught in a struggle for power.")).toBeInTheDocument();
-    expect(mocks.api).toHaveBeenCalledWith("/api/media-titles/media-dune/detail");
-  });
+    await user.click(screen.getByRole("button", { name: "Inspect Arrakis" }));
+    expect(mocks.inspectorProps?.target).toEqual({ type: "media", mediaId: "media-arrakis" });
+    expect(screen.getAllByLabelText("Inspector seam")).toHaveLength(1);
+    expect(screen.getByText("Media media-arrakis")).toBeInTheDocument();
 
-  it("ignores a late media-detail response after selecting another title", async () => {
-    const duneRequest = deferred<MediaDetailDto>();
-    const arrakisDetail = mediaDetail(makeMedia("media-arrakis", "Arrakis"), "The current selection.");
-    mocks.api.mockImplementation(async (url: string) => {
-      if (url === "/api/media-titles/media-dune/detail") return duneRequest.promise;
-      if (url === "/api/media-titles/media-arrakis/detail") return arrakisDetail;
-      throw new Error(`Unexpected API request: ${url}`);
-    });
-    const { user } = renderWithUser(<OverviewPage {...pageProps()} />);
-
-    await user.click(screen.getByRole("button", { name: "Inspect Dune" }));
-    expect(await screen.findByRole("dialog", { name: "Loading media" })).toBeInTheDocument();
-    act(() => mocks.catalogProps?.onInspectMedia("media-arrakis"));
-    expect(await screen.findByRole("dialog", { name: "Arrakis" })).toBeInTheDocument();
-
-    await act(async () => {
-      duneRequest.resolve(mediaDetail(makeMedia("media-dune", "Dune"), "This response arrived too late."));
-      await duneRequest.promise;
-    });
-    expect(screen.getByRole("dialog", { name: "Arrakis" })).toBeInTheDocument();
-    expect(screen.queryByText("This response arrived too late.")).not.toBeInTheDocument();
-  });
-
-  it("ignores a late media-detail response after the inspector closes", async () => {
-    const detailRequest = deferred<MediaDetailDto>();
-    mocks.api.mockReturnValue(detailRequest.promise);
-    const { user } = renderWithUser(<OverviewPage {...pageProps()} />);
-
-    await user.click(screen.getByRole("button", { name: "Inspect Dune" }));
-    expect(await screen.findByRole("dialog", { name: "Loading media" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Close" }));
-
-    await act(async () => {
-      detailRequest.resolve(mediaDetail(makeMedia("media-dune", "Dune"), "This response arrived too late."));
-      await detailRequest.promise;
-    });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.queryByText("This response arrived too late.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close inspector" }));
+    expect(screen.queryByLabelText("Inspector seam")).not.toBeInTheDocument();
   });
 
   it("combines unresolved releases and failed jobs in the attention stat", () => {
@@ -123,7 +111,10 @@ const successfulRunAction: RunAction = async (action) => {
 };
 
 function pageProps(overrides: Partial<{
+  busy: boolean;
+  downloaders: DownloaderDto[];
   items: ItemDto[];
+  runAction: RunAction;
   stats: ReturnType<typeof emptyStats>;
 }> = {}) {
   return {
@@ -162,31 +153,20 @@ function makeItem(id: string, rawTitle: string): ItemDto {
   };
 }
 
-function makeMedia(id: string, title: string): MediaTitleDto {
+function makeDownloader(): DownloaderDto {
   return {
-    id,
-    kind: "MOVIE",
-    mediaType: "MOVIE",
-    title,
-    year: 2021,
-    posterUrl: null,
-    hasCover: false
+    id: "downloader-main",
+    name: "Main downloader",
+    type: "QBITTORRENT",
+    baseUrl: "https://downloader.example",
+    username: null,
+    defaultSavePath: null,
+    category: null,
+    tags: [],
+    enabled: true,
+    isDefault: true,
+    jobCount: 0,
+    createdAt: "2026-08-10T10:00:00.000Z",
+    updatedAt: "2026-08-10T10:00:00.000Z"
   };
-}
-
-function mediaDetail(media: MediaTitleDto, overview: string): MediaDetailDto {
-  return {
-    media: { ...media, overview },
-    releases: []
-  };
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
 }
