@@ -1,7 +1,7 @@
 import { redactSecrets } from "@rss-media/shared/redact";
 import { loadConfig } from "../server/config.js";
 import { prisma } from "../server/db.js";
-import { matchParsedReleaseForItem } from "../server/modules/media/media.service.js";
+import { matchParsedReleaseForItem } from "../server/modules/media/releaseMatcher.js";
 import { evaluateAutoDownloadsForItem } from "../server/modules/subscriptions/subscriptionAutomation.js";
 import { pollDueFeeds } from "./feedWorker.js";
 import { backfillMissingRatings } from "./ratingBackfill.js";

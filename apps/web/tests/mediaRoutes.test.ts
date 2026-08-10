@@ -39,7 +39,7 @@ vi.mock("../src/server/core/validation.js", () => ({
 vi.mock("../src/server/modules/subscriptions/subscriptionAutomation.js", () => ({
   evaluateAutoDownloadsForItem: mocks.evaluateAutoDownloadsForItem
 }));
-vi.mock("../src/server/modules/media/media.service.js", () => ({
+vi.mock("../src/server/modules/media/releaseMatcher.js", () => ({
   manuallyMatchParsedReleaseWithProvider: mocks.manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem: mocks.matchParsedReleaseForItem
 }));

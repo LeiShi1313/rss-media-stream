@@ -16,7 +16,7 @@ import {
 import {
   manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem
-} from "./media.service.js";
+} from "./releaseMatcher.js";
 import {
   searchExternalMedia,
   smartSearchExternalMedia

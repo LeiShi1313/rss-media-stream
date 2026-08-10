@@ -9,7 +9,7 @@ import {
   providerSourceForLegacyProviderEntity,
   getProviderSourceDefinition
 } from "../src/server/integrations/providers/index.js";
-import { matchParsedReleaseForItem } from "../src/server/modules/media/media.service.js";
+import { matchParsedReleaseForItem } from "../src/server/modules/media/releaseMatcher.js";
 import { upsertProviderMediaMetadata } from "../src/server/modules/media/providerIdentity.js";
 
 const dryRun = process.argv.includes("--dry-run");

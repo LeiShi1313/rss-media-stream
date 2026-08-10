@@ -3,7 +3,7 @@ import { buildReleaseSignature } from "@rss-media/shared/releaseSignature";
 import type { Prisma } from "@prisma/client";
 import { loadConfig } from "../src/server/config.js";
 import { prisma } from "../src/server/db.js";
-import { matchParsedReleaseForItem } from "../src/server/modules/media/media.service.js";
+import { matchParsedReleaseForItem } from "../src/server/modules/media/releaseMatcher.js";
 import { invalidateMatchesForParsedRelease } from "../src/server/modules/media/releaseMatchLedger.js";
 
 const dryRun = process.argv.includes("--dry-run");
