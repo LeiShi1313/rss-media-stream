@@ -8,7 +8,7 @@ import { registerItemRoutes } from "./items/index.js";
 import { registerJobRoutes } from "./jobs/index.js";
 import { registerMediaRoutes } from "./media/index.js";
 import { registerMemberRoutes } from "./members/members.routes.js";
-import { registerSubscriptionRoutes } from "./subscriptions/index.js";
+import { registerSubscriptionRoutes } from "./subscriptions/subscriptions.routes.js";
 import { registerWorkspaceRoutes } from "./workspaces/workspaces.routes.js";
 
 export async function registerAppRoutes(app: FastifyInstance, config: AppConfig) {
