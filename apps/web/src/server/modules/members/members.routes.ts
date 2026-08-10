@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import type { WorkspaceMemberDto } from "@rss-media/shared/apiContracts";
 import { prisma } from "../../db.js";
 import { audit } from "../../core/audit.js";
 import { conflict, notFound } from "../../core/errors.js";
@@ -32,13 +33,13 @@ export async function registerMemberRoutes(app: FastifyInstance) {
         orderBy: [{ role: "asc" }, { createdAt: "asc" }]
       });
 
-      return members.map((member) => ({
+      return members.map((member): WorkspaceMemberDto => ({
         userId: member.userId,
         email: member.user.email,
         name: member.user.name,
         role: member.role,
-        createdAt: member.createdAt,
-        updatedAt: member.updatedAt
+        createdAt: member.createdAt.toISOString(),
+        updatedAt: member.updatedAt.toISOString()
       }));
     }
   );

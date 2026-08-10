@@ -1,4 +1,8 @@
 import type { DownloaderType } from "@prisma/client";
+import type {
+  DownloaderDto,
+  DownloaderTestDto
+} from "@rss-media/shared/apiContracts";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { createDownloaderClient } from "../../downloaders.js";
@@ -23,23 +27,7 @@ type DownloaderRecord = {
   enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
-  _count?: { jobs: number };
-};
-
-export type DownloaderResponse = {
-  id: string;
-  name: string;
-  type: DownloaderType;
-  baseUrl: string;
-  username: string | null;
-  defaultSavePath: string | null;
-  category: string | null;
-  tags: string[];
-  enabled: boolean;
-  isDefault: boolean;
-  jobCount?: number;
-  createdAt: Date;
-  updatedAt: Date;
+  _count: { jobs: number };
 };
 
 async function getDefaultDownloaderId(tenantId: string): Promise<string | null> {
@@ -197,7 +185,7 @@ export async function testDownloader(
   tenantId: string,
   downloaderId: string,
   config: AppConfig
-) {
+): Promise<DownloaderTestDto> {
   const downloader = await prisma.downloader.findFirst({
     where: { id: downloaderId, tenantId }
   });
@@ -214,7 +202,7 @@ export async function testDownloaderConfig(
   tenantId: string,
   input: DownloaderConfigTestInput,
   config: AppConfig
-) {
+): Promise<DownloaderTestDto> {
   const existing =
     input.id && !input.password
       ? await prisma.downloader.findFirst({
@@ -260,7 +248,7 @@ export async function listDownloaderTorrents(
 function serializeDownloader(
   downloader: DownloaderRecord,
   defaultDownloaderId: string | null
-): DownloaderResponse {
+): DownloaderDto {
   return {
     id: downloader.id,
     name: downloader.name,
@@ -272,9 +260,9 @@ function serializeDownloader(
     tags: normalizeTags(downloader.tags),
     enabled: downloader.enabled,
     isDefault: defaultDownloaderId === downloader.id,
-    jobCount: downloader._count?.jobs,
-    createdAt: downloader.createdAt,
-    updatedAt: downloader.updatedAt
+    jobCount: downloader._count.jobs,
+    createdAt: downloader.createdAt.toISOString(),
+    updatedAt: downloader.updatedAt.toISOString()
   };
 }
 

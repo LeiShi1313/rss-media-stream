@@ -14,7 +14,18 @@ import {
   Sparkles,
   XCircle
 } from "lucide-react";
-import { api, type Downloader, type Item, type ItemPage, type Media, type MediaDetail, type MediaSearchResult, type TrendingMedia, type TrendingMediaPage } from "../api.js";
+import type {
+  DownloaderDto,
+  ItemDto,
+  ItemPageDto,
+  MediaDetailDto,
+  MediaSearchResultDto,
+  MediaTitleDto,
+  ProviderSearchResponseDto,
+  TrendingMediaDto,
+  TrendingMediaPageDto
+} from "@rss-media/shared/apiContracts";
+import { api } from "../api.js";
 import type { RunAction } from "../types.js";
 import { AppDialog, FieldLabel, FormInput, SelectField, StatTile, UiButton } from "../components/ui/index.js";
 import { Empty, Pill, StatusPill } from "../components/common/feedback.js";
@@ -38,8 +49,8 @@ export function OverviewPage({
   runAction
 }: {
   busy: boolean;
-  downloaders: Downloader[];
-  items: Item[];
+  downloaders: DownloaderDto[];
+  items: ItemDto[];
   stats: {
     totalItems: number;
     matched: number;
@@ -51,9 +62,9 @@ export function OverviewPage({
   runAction: RunAction;
 }) {
   const { t } = useTranslation();
-  const [selectedRelease, setSelectedRelease] = useState<Item | null>(null);
+  const [selectedRelease, setSelectedRelease] = useState<ItemDto | null>(null);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
-  const [selectedMediaDetail, setSelectedMediaDetail] = useState<MediaDetail | null>(null);
+  const [selectedMediaDetail, setSelectedMediaDetail] = useState<MediaDetailDto | null>(null);
   const [query, setQuery] = useState("");
   const [feedFilter, setFeedFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<ReleaseCategoryFilter>("");
@@ -89,7 +100,7 @@ export function OverviewPage({
     }
     setSelectedMediaDetail(null);
     let cancelled = false;
-    api<MediaDetail>(`/api/media-titles/${selectedMediaId}/detail`)
+    api<MediaDetailDto>(`/api/media-titles/${selectedMediaId}/detail`)
       .then((detail) => {
         if (!cancelled) setSelectedMediaDetail(detail);
       })
@@ -257,7 +268,7 @@ function TrendingMediaShelf({
   shelf,
   title
 }: {
-  onInspect: (media: Media) => void;
+  onInspect: (media: MediaTitleDto) => void;
   shelf: TrendingShelfState;
   title: string;
 }) {
@@ -296,7 +307,7 @@ function TrendingMediaShelf({
 }
 
 type TrendingShelfState = {
-  items: TrendingMedia[];
+  items: TrendingMediaDto[];
   loading: boolean;
   error: string;
   exhausted: boolean;
@@ -306,7 +317,7 @@ type TrendingShelfState = {
 };
 
 type ItemShelfState = {
-  items: Item[];
+  items: ItemDto[];
   loading: boolean;
   error: string;
   exhausted: boolean;
@@ -438,12 +449,12 @@ function useItemShelf({
     if (feedId) params.set("feedId", feedId);
     if (category) params.set("category", category);
     if (status) params.set("status", status);
-    return api<ItemPage>(`/api/items?${params.toString()}`, { signal });
+    return api<ItemPageDto>(`/api/items?${params.toString()}`, { signal });
   }, [category, feedId, query, status]);
   return useCursorShelf({ enabled, fetchPage, keyOf: itemKey });
 }
 
-function itemKey(item: Item) {
+function itemKey(item: ItemDto) {
   return item.id;
 }
 
@@ -451,16 +462,16 @@ function useTrendingMediaShelf(mediaType: "MOVIE" | "TV_SERIES"): TrendingShelfS
   const fetchPage = useCallback((cursor: string | undefined, signal: AbortSignal) => {
     const params = new URLSearchParams({ windowDays: "7", limit: "24", mediaType });
     if (cursor) params.set("cursor", cursor);
-    return api<TrendingMediaPage>(`/api/media-titles/trending?${params.toString()}`, { signal });
+    return api<TrendingMediaPageDto>(`/api/media-titles/trending?${params.toString()}`, { signal });
   }, [mediaType]);
   return useCursorShelf({ fetchPage, keyOf: trendingKey });
 }
 
-function trendingKey(entry: TrendingMedia) {
+function trendingKey(entry: TrendingMediaDto) {
   return entry.media.id;
 }
 
-function TrendingMediaCard({ entry, onInspect }: { entry: TrendingMedia; onInspect: () => void }) {
+function TrendingMediaCard({ entry, onInspect }: { entry: TrendingMediaDto; onInspect: () => void }) {
   const { t } = useTranslation();
   const posterUrl = entry.media.posterUrl ?? undefined;
   return (
@@ -497,11 +508,11 @@ function PosterShelf({
   emptyLabel: string;
   error?: string;
   icon: ReactNode;
-  items: Item[];
+  items: ItemDto[];
   layout?: "rail" | "grid";
   limit?: number | null;
   loading?: boolean;
-  onInspect: (item: Item) => void;
+  onInspect: (item: ItemDto) => void;
   onRetry?: () => void;
   railRef?: RefObject<HTMLDivElement | null>;
   sentinelRef?: RefObject<HTMLSpanElement | null>;
@@ -554,7 +565,7 @@ function ReleasePosterCard({
   onInspect,
   variant
 }: {
-  item: Item;
+  item: ItemDto;
   onInspect: () => void;
   variant: "status" | "parsed";
 }) {
@@ -598,8 +609,8 @@ function ReleaseInspectorModal({
   runAction
 }: {
   busy: boolean;
-  downloaders: Downloader[];
-  item: Item;
+  downloaders: DownloaderDto[];
+  item: ItemDto;
   onClose: () => void;
   runAction: RunAction;
 }) {
@@ -624,7 +635,7 @@ function ReleaseInspectorModal({
   ] as const;
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [titleSearchQuery, setTitleSearchQuery] = useState(item.parsedRelease?.title ?? title);
-  const [titleSearchResults, setTitleSearchResults] = useState<MediaSearchResult[]>([]);
+  const [titleSearchResults, setTitleSearchResults] = useState<MediaSearchResultDto[]>([]);
   const [titleSearchBusy, setTitleSearchBusy] = useState(false);
   const [titleSearchError, setTitleSearchError] = useState("");
   const [titleSearchSubmitted, setTitleSearchSubmitted] = useState(false);
@@ -656,7 +667,7 @@ function ReleaseInspectorModal({
     setTitleSearchError("");
     setTitleSearchSubmitted(true);
     try {
-      const response = await api<{ results: MediaSearchResult[] }>("/api/provider-titles/search", {
+      const response = await api<ProviderSearchResponseDto>("/api/provider-titles/search", {
         method: "POST",
         body: JSON.stringify({
           input: q,
@@ -927,8 +938,8 @@ function MediaInspectorModal({
   runAction
 }: {
   busy: boolean;
-  detail: MediaDetail | null;
-  downloaders: Downloader[];
+  detail: MediaDetailDto | null;
+  downloaders: DownloaderDto[];
   onClose: () => void;
   runAction: RunAction;
 }) {
@@ -1021,7 +1032,7 @@ function PosterFallback({ title }: { title: string }) {
   );
 }
 
-function buildShelves(items: Item[]) {
+function buildShelves(items: ItemDto[]) {
   return {
     matched: items.filter((item) => itemBelongsToShelf(item, "matched")),
     downloading: items.filter((item) => itemBelongsToShelf(item, "downloading")),
@@ -1029,7 +1040,7 @@ function buildShelves(items: Item[]) {
   };
 }
 
-function itemBelongsToShelf(item: Item, shelf: ShelfKey) {
+function itemBelongsToShelf(item: ItemDto, shelf: ShelfKey) {
   const status = releaseStatus(item);
   const latestJob = latestDownloadJob(item);
   const identity = releaseIdentityState(item);
@@ -1038,7 +1049,7 @@ function itemBelongsToShelf(item: Item, shelf: ShelfKey) {
   return status.group === "failed" || identity !== "resolved";
 }
 
-function posterMetadata(item: Item) {
+function posterMetadata(item: ItemDto) {
   const presentation = item.match?.presentation;
   const parts = [
     presentation?.releaseYear,
@@ -1051,7 +1062,7 @@ function posterMetadata(item: Item) {
   return parts.join(" · ") || relativeTime(item.firstSeenAt);
 }
 
-function parsedReleaseTags(item: Item) {
+function parsedReleaseTags(item: ItemDto) {
   const parsed = item.parsedRelease;
   const episode = parsed?.kind === "TV" ? episodeLabel(item) : undefined;
   return [
@@ -1070,13 +1081,13 @@ function parsedReleaseTags(item: Item) {
     .slice(0, 8);
 }
 
-function episodeLabel(item: Item, unknownLabel = "Unknown") {
+function episodeLabel(item: ItemDto, unknownLabel = "Unknown") {
   const presentationKind = legacyKindFromMediaType(item.match?.presentation?.mediaType);
   if (item.parsedRelease?.kind !== "TV") return presentationKind ?? item.parsedRelease?.kind ?? unknownLabel;
   return `S${item.parsedRelease.season ?? "?"}E${item.parsedRelease.episode ?? "?"}`;
 }
 
-function releaseEpisodeLabel(item: Item) {
+function releaseEpisodeLabel(item: ItemDto) {
   const parsed = item.parsedRelease;
   if (parsed?.kind !== "TV") return undefined;
 
@@ -1088,7 +1099,7 @@ function releaseEpisodeLabel(item: Item) {
     : `S${season}E${episode}`;
 }
 
-function formatSearchRating(result: MediaSearchResult) {
+function formatSearchRating(result: MediaSearchResultDto) {
   const rating = result.presentation?.rating;
   if (!rating) return "";
   const source = searchResultSourceLabel(result);
@@ -1098,18 +1109,18 @@ function formatSearchRating(result: MediaSearchResult) {
   return `${source ? `${source} ` : ""}${formatNativeRating(rating)}${votes}`;
 }
 
-function searchResultSourceLabel(result: MediaSearchResult) {
+function searchResultSourceLabel(result: MediaSearchResultDto) {
   if (result.provider === "ptgen") {
     return ptgenSourceLabel(result) ?? "PTGen";
   }
   return providerLabel(result.provider);
 }
 
-function searchResultBackendLabel(result: MediaSearchResult) {
+function searchResultBackendLabel(result: MediaSearchResultDto) {
   return result.provider === "ptgen" ? "via PTGen" : undefined;
 }
 
-function ptgenSourceLabel(result: MediaSearchResult) {
+function ptgenSourceLabel(result: MediaSearchResultDto) {
   const identity = `${result.providerEntityType ?? ""}:${result.providerId}`.toLowerCase();
   if (identity.includes("ptgen_douban") || result.providerId.toLowerCase().startsWith("douban-")) return "Douban";
   if (identity.includes("ptgen_imdb") || result.providerId.toLowerCase().startsWith("imdb-")) return "IMDb";

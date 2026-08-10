@@ -1,67 +1,18 @@
+import type {
+  AttentionReasonDto,
+  MediaPresentationDto,
+  MediaSearchResultDto,
+  ProviderRefDto,
+  RatingDto,
+  ReleaseMatchDto
+} from "@rss-media/shared/apiContracts";
 import { getProviderSourceDefinition } from "../../integrations/providers/sources.js";
 import { LOW_CONFIDENCE_THRESHOLD } from "./matchingPolicy.js";
-
-export type MediaPresentationDto = {
-  mediaTitleId?: string;
-  mediaType: "MOVIE" | "TV_SERIES" | "UNKNOWN";
-  title: string;
-  originalTitle?: string | null;
-  releaseYear?: number | null;
-  overview?: string | null;
-  posterUrl?: string | null;
-  backdropUrl?: string | null;
-  displaySource?: ProviderRefDto;
-  rating?: RatingDto;
-  hasCover: boolean;
-};
-
-export type ProviderRefDto = {
-  provider: string;
-  providerSource?: string;
-  providerEntityType?: string;
-  providerId: string;
-};
-
-export type RatingDto = ProviderRefDto & {
-  providerSource: string;
-  providerLabel: string;
-  providerSourceLabel: string;
-  value: number;
-  scale: number;
-  voteCount?: number | null;
-  type: "user_score" | "critic_score" | "popularity";
-  fetchedAt?: string;
-};
 
 export type PresentationOptions = {
   providerOrder?: string[];
   ratingProviderSource?: string;
 };
-
-export type ReleaseMatchDto = {
-  id?: string;
-  status: "MATCHED" | "UNMATCHED" | "REJECTED";
-  source?: "AUTO" | "MANUAL";
-  confidence?: number | null;
-  reason?: string | null;
-  matchedAt?: string | null;
-  providerTitle?: ProviderRefDto;
-  providerMetadata?: ProviderRefDto;
-  presentation?: MediaPresentationDto;
-  attention: {
-    required: boolean;
-    reasons: AttentionReason[];
-  };
-};
-
-export type AttentionReason =
-  | "low_confidence"
-  | "unmatched"
-  | "provider_not_configured"
-  | "no_result"
-  | "unknown_media_type"
-  | "no_cover"
-  | "failed_download";
 
 export function serializeProviderRef(providerMetadata: any): ProviderRefDto | undefined {
   if (!providerMetadata) return undefined;
@@ -236,7 +187,7 @@ export function serializeProviderTitleSearchResult(result: {
   ratingType?: string;
   matchConfidence?: number;
   externalUrl?: string;
-}) {
+}): MediaSearchResultDto {
   const presentation = serializeMediaPresentation({
     providerTitle: result
   }, {
@@ -265,8 +216,8 @@ function releaseAttentionReasons(
   match: any,
   presentation: MediaPresentationDto,
   downloadJobs?: Array<{ status?: string | null }>
-): AttentionReason[] {
-  const reasons = new Set<AttentionReason>();
+): AttentionReasonDto[] {
+  const reasons = new Set<AttentionReasonDto>();
   if (downloadJobs?.some((job) => job.status === "FAILED")) reasons.add("failed_download");
 
   if (match.status === "UNMATCHED") {
@@ -514,6 +465,10 @@ function providerTitleToMetadata(providerTitle: any) {
   };
 }
 
+export function legacyKindFromMediaType(
+  mediaType: "MOVIE" | "TV_SERIES" | "UNKNOWN"
+): "MOVIE" | "TV" | "UNKNOWN";
+export function legacyKindFromMediaType(mediaType?: string | null): string | undefined;
 export function legacyKindFromMediaType(mediaType?: string | null) {
   if (!mediaType) return undefined;
   return mediaType === "TV_SERIES" ? "TV" : mediaType;

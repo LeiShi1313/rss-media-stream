@@ -1,7 +1,7 @@
 import { DownloadCloud } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Downloader } from "../../api.js";
+import type { DownloaderDto } from "@rss-media/shared/apiContracts";
 import { SelectField, UiButton } from "../ui/index.js";
 
 export function ManualDownload({
@@ -12,7 +12,7 @@ export function ManualDownload({
 }: {
   buttonLabel?: string;
   disabled: boolean;
-  downloaders: Downloader[];
+  downloaders: DownloaderDto[];
   onDownload: (downloaderId: string) => void;
 }) {
   const { t } = useTranslation();

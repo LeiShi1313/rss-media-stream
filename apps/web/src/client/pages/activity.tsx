@@ -1,7 +1,6 @@
 import { CheckCircle2, Clock3, DownloadCloud, ListFilter, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { DownloadJob } from "../api.js";
-import type { TimelinePoint } from "../types.js";
+import type { DownloadJobDto, TimelinePointDto } from "@rss-media/shared/apiContracts";
 import { Empty, StatusPill } from "../components/common/feedback.js";
 import { Metric, Panel } from "../components/common/surfaces.js";
 import { TimelineBars } from "../components/common/charts.js";
@@ -11,8 +10,8 @@ export function ActivityPage({
   jobs,
   timeline
 }: {
-  jobs: DownloadJob[];
-  timeline: TimelinePoint[];
+  jobs: DownloadJobDto[];
+  timeline: TimelinePointDto[];
 }) {
   const { t } = useTranslation();
   return (

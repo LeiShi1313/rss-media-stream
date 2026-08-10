@@ -1,4 +1,8 @@
 import type { Prisma } from "@prisma/client";
+import type {
+  MediaProviderPoliciesResponseDto,
+  MediaProviderPolicyDto
+} from "@rss-media/shared/apiContracts";
 import type { MediaProvider, MediaType, ParsedMediaType, ProviderSource } from "@rss-media/shared/types";
 import { badRequest } from "../../core/errors.js";
 import { prisma } from "../../db.js";
@@ -14,17 +18,6 @@ import {
   setRatingSourcePreference
 } from "./ratingPreference.js";
 import type { ProviderDefaultPolicy } from "./types.js";
-
-export type ProviderPolicyDto = {
-  providerSource: ProviderSource;
-  provider: MediaProvider;
-  label: string;
-  mediaType: MediaType;
-  enabledForMatching: boolean;
-  enabledForPresentation: boolean;
-  matchingPriority: number;
-  presentationPriority: number;
-};
 
 export type ProviderPolicyInput = {
   providerSource?: ProviderSource | string;
@@ -42,7 +35,9 @@ export type BroadSearchTarget = {
 
 const CONCRETE_MEDIA_TYPES = ["MOVIE", "TV_SERIES"] as const satisfies readonly MediaType[];
 
-export async function getProviderPolicies(tenantId: string) {
+export async function getProviderPolicies(
+  tenantId: string
+): Promise<MediaProviderPoliciesResponseDto> {
   const [policies, ratingPreferences] = await Promise.all([
     Promise.all(
       CONCRETE_MEDIA_TYPES.map(async (mediaType) => ({
@@ -153,7 +148,7 @@ async function replacePolicyRows(
 async function getPoliciesForMediaType(
   tenantId: string,
   mediaType: MediaType
-): Promise<ProviderPolicyDto[]> {
+): Promise<MediaProviderPolicyDto[]> {
   assertConcreteMediaType(mediaType);
   const sourcePolicyModel = (prisma as any).tenantProviderSourcePolicy ?? prisma.tenantMediaProviderPolicy;
   const rows = await sourcePolicyModel.findMany({

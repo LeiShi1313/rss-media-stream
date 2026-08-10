@@ -1,6 +1,6 @@
 import { Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { User, Workspace, WorkspaceMember } from "../api.js";
+import type { UserDto, WorkspaceDto, WorkspaceMemberDto } from "@rss-media/shared/apiContracts";
 import { Empty, Pill } from "../components/common/feedback.js";
 import { Panel } from "../components/common/surfaces.js";
 
@@ -10,9 +10,9 @@ export function WorkspacePage({
   members,
   stats
 }: {
-  user: User;
-  workspace: Workspace | null;
-  members: WorkspaceMember[];
+  user: UserDto;
+  workspace: WorkspaceDto | null;
+  members: WorkspaceMemberDto[];
   stats: {
     feeds: number;
     subscriptions: number;

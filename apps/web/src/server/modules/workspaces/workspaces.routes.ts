@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import type { WorkspaceSettingsDto } from "@rss-media/shared/apiContracts";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import { authenticateUser, listUserWorkspaces } from "../../core/context.js";
@@ -214,7 +215,7 @@ async function updateSettings(
   return getSettings(request.tenantId!);
 }
 
-async function getSettings(tenantId: string) {
+async function getSettings(tenantId: string): Promise<WorkspaceSettingsDto> {
   const settings = await prisma.tenantSettings.findUnique({
     where: { tenantId },
     select: { webLanguage: true }

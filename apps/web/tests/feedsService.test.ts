@@ -56,6 +56,36 @@ afterEach(() => {
 });
 
 describe("feed service deletion", () => {
+  it("serializes required nullable feed fields as JSON values", async () => {
+    mocks.prisma.rssFeed.findMany.mockResolvedValue([{
+      id: "feed-1",
+      name: "Audience",
+      encryptedUrl: null,
+      encryptedRequestHeadersJson: null,
+      pollIntervalSeconds: 600,
+      enabled: true,
+      lastPolledAt: new Date("2026-08-10T12:00:00.000Z"),
+      lastError: null,
+      deletedAt: null,
+      _count: { items: 12 }
+    }]);
+
+    const feeds = JSON.parse(JSON.stringify(await listFeeds("tenant-1")));
+
+    expect(feeds).toEqual([{
+      id: "feed-1",
+      name: "Audience",
+      urlPreview: null,
+      hasRequestHeaders: false,
+      enabled: true,
+      pollIntervalSeconds: 600,
+      lastPolledAt: "2026-08-10T12:00:00.000Z",
+      lastError: null,
+      deletedAt: null,
+      itemCount: 12
+    }]);
+  });
+
   it("retires the feed URL without deleting the feed row or its items", async () => {
     mocks.prisma.rssFeed.findFirst.mockResolvedValue({ id: "feed-1" });
     mocks.prisma.rssFeed.update.mockResolvedValue({ id: "feed-1" });

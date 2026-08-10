@@ -1,4 +1,4 @@
-import type { Item } from "../api.js";
+import type { ItemDto } from "@rss-media/shared/apiContracts";
 
 export type ReleaseIdentityState = "resolved" | "review" | "unresolved";
 export type ItemMatchState =
@@ -10,7 +10,7 @@ export type ItemMatchState =
   | "manual_override"
   | "review";
 
-export function itemMatchState(item: Item): ItemMatchState {
+export function itemMatchState(item: ItemDto): ItemMatchState {
   const match = item.match;
   if (!match && item.enrichmentState === "PENDING") return "pending";
   if (!match && item.enrichmentState === "UNPARSED") return "unparsed";
@@ -33,18 +33,18 @@ export function itemMatchState(item: Item): ItemMatchState {
   return "unmatched";
 }
 
-export function releaseIdentityState(item: Item): ReleaseIdentityState {
+export function releaseIdentityState(item: ItemDto): ReleaseIdentityState {
   if (item.match?.status === "MATCHED") {
     return item.match.attention.required ? "review" : "resolved";
   }
   return item.match ? "review" : "unresolved";
 }
 
-export function releaseTitle(item: Item) {
+export function releaseTitle(item: ItemDto) {
   return item.match?.presentation?.title ?? item.parsedRelease?.title ?? item.rawTitle;
 }
 
-export function latestDownloadJob(item: Item) {
+export function latestDownloadJob(item: ItemDto) {
   return [...(item.downloadJobs ?? [])].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   )[0];
@@ -54,7 +54,7 @@ export function isTerminalDownloadStatus(status?: string | null) {
   return Boolean(status && ["FAILED", "SENT", "COMPLETE", "COMPLETED", "SKIPPED"].includes(status));
 }
 
-export function releaseStatus(item: Item): {
+export function releaseStatus(item: ItemDto): {
   label: string;
   labelKey: string;
   ok: boolean;

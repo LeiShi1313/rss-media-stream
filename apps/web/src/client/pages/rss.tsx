@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
-import { api, type Feed } from "../api.js";
+import type { FeedDto } from "@rss-media/shared/apiContracts";
+import { api } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, UiButton } from "../components/ui/index.js";
 import { Empty } from "../components/common/feedback.js";
@@ -17,12 +18,12 @@ export function RssPage({
   runAction
 }: {
   busy: boolean;
-  feeds: Feed[];
+  feeds: FeedDto[];
   runAction: RunAction;
 }) {
   const { t } = useTranslation();
-  const [feedModal, setFeedModal] = useState<Feed | "new" | null>(null);
-  const [deleteFeed, setDeleteFeed] = useState<Feed | null>(null);
+  const [feedModal, setFeedModal] = useState<FeedDto | "new" | null>(null);
+  const [deleteFeed, setDeleteFeed] = useState<FeedDto | null>(null);
   const [query, setQuery] = useState("");
   const filteredFeeds = useMemo(
     () => filterByQuery(feeds, query, (feed) => [feed.name, feed.urlPreview]),
@@ -167,7 +168,7 @@ function DeleteFeedConfirmation({
   onConfirm
 }: {
   busy: boolean;
-  feed: Feed;
+  feed: FeedDto;
   onCancel: () => void;
   onConfirm: () => Promise<ActionResult>;
 }) {
@@ -208,7 +209,7 @@ function FeedModalForm({
   onSubmit
 }: {
   busy: boolean;
-  feed?: Feed;
+  feed?: FeedDto;
   onCancel: () => void;
   onSubmit: (body: string) => Promise<ActionResult>;
 }) {

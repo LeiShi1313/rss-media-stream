@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { TimelinePointDto } from "@rss-media/shared/apiContracts";
 import { requireTenantRole } from "../../core/permissions.js";
 import { prisma } from "../../db.js";
 import {
@@ -28,7 +29,9 @@ export function registerDashboardRoutes(app: FastifyInstance) {
         const key = item.firstSeenAt.toISOString().slice(0, 13) + ":00:00.000Z";
         buckets.set(key, (buckets.get(key) ?? 0) + 1);
       }
-      return [...buckets.entries()].map(([time, count]) => ({ time, count })).reverse();
+      return [...buckets.entries()]
+        .map(([time, count]): TimelinePointDto => ({ time, count }))
+        .reverse();
     }
   );
 

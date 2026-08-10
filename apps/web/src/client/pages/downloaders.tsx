@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil, Plus, Search, ServerCog } from "lucide-react";
-import { api, type Downloader } from "../api.js";
+import type { DownloaderDto, DownloaderTestDto } from "@rss-media/shared/apiContracts";
+import { api } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
 import { Empty } from "../components/common/feedback.js";
@@ -15,11 +16,11 @@ export function DownloadersPage({
   runAction
 }: {
   busy: boolean;
-  downloaders: Downloader[];
+  downloaders: DownloaderDto[];
   runAction: RunAction;
 }) {
   const { t } = useTranslation();
-  const [downloaderModal, setDownloaderModal] = useState<Downloader | "new" | null>(null);
+  const [downloaderModal, setDownloaderModal] = useState<DownloaderDto | "new" | null>(null);
   const [query, setQuery] = useState("");
   const filteredDownloaders = useMemo(
     () => filterByQuery(downloaders, query, (downloader) => [
@@ -150,13 +151,13 @@ function DownloaderModalForm({
   onSubmit
 }: {
   busy: boolean;
-  downloader?: Downloader;
+  downloader?: DownloaderDto;
   onCancel: () => void;
   onSubmit: (body: string) => Promise<ActionResult>;
 }) {
   const { t } = useTranslation();
   const editing = Boolean(downloader);
-  const [type, setType] = useState<Downloader["type"]>(downloader?.type ?? "QBITTORRENT");
+  const [type, setType] = useState<DownloaderDto["type"]>(downloader?.type ?? "QBITTORRENT");
   const [name, setName] = useState(downloader?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(downloader?.baseUrl ?? "");
   const [username, setUsername] = useState(downloader?.username ?? "");
@@ -197,7 +198,7 @@ function DownloaderModalForm({
 
     setTestBusy(true);
     try {
-      const result = await api<{ ok: true; version?: string }>("/api/downloaders/test", {
+      const result = await api<DownloaderTestDto>("/api/downloaders/test", {
         method: "POST",
         body: JSON.stringify(payload(true))
       });
@@ -227,7 +228,7 @@ function DownloaderModalForm({
           <span>{t("common.type")}</span>
           <SelectField
             value={type}
-            onValueChange={(value) => setType(value as Downloader["type"])}
+            onValueChange={(value) => setType(value as DownloaderDto["type"])}
             options={[
               { value: "QBITTORRENT", label: "qBittorrent" },
               { value: "TRANSMISSION", label: "Transmission" }
@@ -295,4 +296,3 @@ function DownloaderModalForm({
     </form>
   );
 }
-

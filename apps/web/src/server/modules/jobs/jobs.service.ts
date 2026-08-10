@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import type { DownloadJobDto } from "@rss-media/shared/apiContracts";
 import { redactSecrets } from "@rss-media/shared/redact";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
@@ -11,14 +12,7 @@ import { isAdminRole } from "../../core/permissions.js";
 import { publishTenantEvent } from "../../core/events.js";
 
 export type DownloadSource = "MANUAL" | "SUBSCRIPTION" | "RETRY";
-type DownloadStatus =
-  | "QUEUED"
-  | "SENDING"
-  | "SENT"
-  | "FAILED"
-  | "SKIPPED"
-  | "DOWNLOADING"
-  | "COMPLETE";
+type DownloadStatus = DownloadJobDto["status"];
 
 export type CreateDownloadJobInput = {
   tenantId: string;
@@ -46,21 +40,21 @@ type DownloadJobRecord = {
   source: DownloadSource;
   status: DownloadStatus;
   clientHash: string | null;
-  attemptCount?: number;
-  lastAttemptAt?: Date | null;
-  nextRetryAt?: Date | null;
-  sentAt?: Date | null;
-  completedAt?: Date | null;
+  attemptCount: number;
+  lastAttemptAt: Date | null;
+  nextRetryAt: Date | null;
+  sentAt: Date | null;
+  completedAt: Date | null;
   error: string | null;
   createdAt: Date;
   updatedAt: Date;
-  item?: {
+  item: {
     id: string;
     rawTitle: string;
     feed?: { id: string; name: string } | null;
   };
-  downloader?: { id: string; name: string; type: string };
-  subscription?: { id: string; title: string } | null;
+  downloader: { id: string; name: string; type: string };
+  subscription: { id: string; title: string } | null;
 };
 
 export async function createDownloadJob(input: CreateDownloadJobInput) {
@@ -397,7 +391,7 @@ async function assertCanMutateJob(jobId: string, actor: JobActor) {
   throw forbidden();
 }
 
-function serializeDownloadJob(job: DownloadJobRecord) {
+function serializeDownloadJob(job: DownloadJobRecord): DownloadJobDto {
   return {
     id: job.id,
     itemId: job.itemId,
@@ -408,20 +402,18 @@ function serializeDownloadJob(job: DownloadJobRecord) {
     status: job.status,
     clientHash: job.clientHash,
     attemptCount: job.attemptCount,
-    lastAttemptAt: job.lastAttemptAt,
-    nextRetryAt: job.nextRetryAt,
-    sentAt: job.sentAt,
-    completedAt: job.completedAt,
+    lastAttemptAt: job.lastAttemptAt?.toISOString() ?? null,
+    nextRetryAt: job.nextRetryAt?.toISOString() ?? null,
+    sentAt: job.sentAt?.toISOString() ?? null,
+    completedAt: job.completedAt?.toISOString() ?? null,
     error: job.error,
-    createdAt: job.createdAt,
-    updatedAt: job.updatedAt,
-    item: job.item
-      ? {
-          id: job.item.id,
-          rawTitle: job.item.rawTitle,
-          feed: job.item.feed
-        }
-      : undefined,
+    createdAt: job.createdAt.toISOString(),
+    updatedAt: job.updatedAt.toISOString(),
+    item: {
+      id: job.item.id,
+      rawTitle: job.item.rawTitle,
+      feed: job.item.feed ?? null
+    },
     downloader: job.downloader,
     subscription: job.subscription
   };

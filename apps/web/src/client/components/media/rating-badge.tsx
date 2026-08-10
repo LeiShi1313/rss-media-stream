@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import type { RatingDto } from "../../api.js";
+import type { RatingDto } from "@rss-media/shared/apiContracts";
 import {
   formatNativeRating,
   formatRatingFetchedAt,

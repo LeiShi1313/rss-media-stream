@@ -2,7 +2,15 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, ChevronDown, Film, Pencil, Plus, Search } from "lucide-react";
-import { api, type Downloader, type Feed, type Item, type MediaSearchResult, type ResolvedMediaTitle, type Subscription } from "../api.js";
+import type {
+  DownloaderDto,
+  FeedDto,
+  ItemDto,
+  MediaSearchResultDto,
+  ResolvedMediaTitleDto,
+  SubscriptionDto
+} from "@rss-media/shared/apiContracts";
+import { api } from "../api.js";
 import type { ActionResult, RunAction } from "../types.js";
 import { CheckboxField, FieldLabel, FormInput, SelectField, UiButton } from "../components/ui/index.js";
 import { Empty } from "../components/common/feedback.js";
@@ -20,15 +28,15 @@ export function SubscriptionsPage({
   runAction
 }: {
   busy: boolean;
-  downloaders: Downloader[];
-  feeds: Feed[];
-  items: Item[];
-  subscriptions: Subscription[];
+  downloaders: DownloaderDto[];
+  feeds: FeedDto[];
+  items: ItemDto[];
+  subscriptions: SubscriptionDto[];
   runAction: RunAction;
 }) {
   const { t } = useTranslation();
   const [createOpen, setCreateOpen] = useState(false);
-  const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
+  const [editingSubscription, setEditingSubscription] = useState<SubscriptionDto | null>(null);
   const [query, setQuery] = useState("");
   const releaseGroupOptions = useMemo(() => releaseGroupOptionsFromData(subscriptions, items), [items, subscriptions]);
   const filteredSubscriptions = useMemo(
@@ -149,21 +157,21 @@ export function SubscriptionsPage({
   );
 }
 
-function subscriptionTarget(subscription: Subscription, t: (key: string) => string) {
+function subscriptionTarget(subscription: SubscriptionDto, t: (key: string) => string) {
   return subscription.media?.title ??
     subscription.rule?.selectedProvider?.providerId ??
     subscription.rule?.titleRegex ??
     t("subscriptions.ruleOnly");
 }
 
-function subscriptionMode(subscription: Subscription, t: (key: string) => string) {
+function subscriptionMode(subscription: SubscriptionDto, t: (key: string) => string) {
   const ruleMode = subscription.rule?.mode === "REGEX"
     ? t("subscriptions.regexMode")
     : t("subscriptions.mediaTitleMode");
   return `${ruleMode} · ${subscription.autoDownload ? t("common.auto") : t("common.manual")}`;
 }
 
-function releaseGroupOptionsFromData(subscriptions: Subscription[], items: Item[]) {
+function releaseGroupOptionsFromData(subscriptions: SubscriptionDto[], items: ItemDto[]) {
   const seen = new Set<string>();
   const options: string[] = [];
   for (const item of items) {
@@ -221,10 +229,10 @@ function SubscriptionEditorModal({
   onUpdate
 }: {
   busy: boolean;
-  downloaders: Downloader[];
-  feeds: Feed[];
+  downloaders: DownloaderDto[];
+  feeds: FeedDto[];
   releaseGroupOptions: string[];
-  subscription?: Subscription;
+  subscription?: SubscriptionDto;
   onCancel: () => void;
   onCreate?: (body: string) => Promise<ActionResult>;
   onUpdate?: (patchBody: string, ruleBody: string) => Promise<ActionResult>;
@@ -238,9 +246,9 @@ function SubscriptionEditorModal({
   const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(initialMedia);
   const [query, setQuery] = useState(initialMedia?.title ?? "");
   const [kind, setKind] = useState<MediaKind>(
-    kindFromMediaType(rule?.mediaType) ?? initialMedia?.kind ?? "MOVIE"
+    kindFromMediaType(rule?.mediaType ?? undefined) ?? initialMedia?.kind ?? "MOVIE"
   );
-  const [results, setResults] = useState<MediaSearchResult[]>([]);
+  const [results, setResults] = useState<MediaSearchResultDto[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchBusy, setSearchBusy] = useState(false);
   const [resolveBusy, setResolveBusy] = useState(false);
@@ -304,7 +312,7 @@ function SubscriptionEditorModal({
         q: trimmedQuery,
         mediaType: mediaTypeFromKind(kind)
       });
-      setResults(await api<MediaSearchResult[]>(`/api/provider-titles/search?${params}`));
+      setResults(await api<MediaSearchResultDto[]>(`/api/provider-titles/search?${params}`));
     } catch (error) {
       setResults([]);
       setSearchError(errorMessage(error));
@@ -313,11 +321,11 @@ function SubscriptionEditorModal({
     }
   }
 
-  async function selectMedia(result: MediaSearchResult) {
+  async function selectMedia(result: MediaSearchResultDto) {
     setResolveBusy(true);
     setSearchError("");
     try {
-      const resolved = await api<ResolvedMediaTitle>("/api/provider-titles/resolve", {
+      const resolved = await api<ResolvedMediaTitleDto>("/api/provider-titles/resolve", {
         method: "POST",
         body: JSON.stringify({
           providerSource: result.providerSource ?? result.provider,
@@ -853,7 +861,7 @@ function FeedPicker({
   onClear,
   onToggle
 }: {
-  feeds: Feed[];
+  feeds: FeedDto[];
   feedIds: string[];
   onClear: () => void;
   onToggle: (feedId: string, checked: boolean) => void;
@@ -995,7 +1003,7 @@ function subscriptionRulePayload(input: {
   };
 }
 
-function selectedMediaFromResolved(resolved: ResolvedMediaTitle, source: MediaSearchResult): SelectedMedia {
+function selectedMediaFromResolved(resolved: ResolvedMediaTitleDto, source: MediaSearchResultDto): SelectedMedia {
   return {
     mediaTitleId: resolved.mediaTitleId,
     mediaType: resolved.mediaType,
@@ -1014,7 +1022,7 @@ function selectedMediaFromResolved(resolved: ResolvedMediaTitle, source: MediaSe
   };
 }
 
-function selectedMediaFromSubscription(subscription?: Subscription): SelectedMedia | null {
+function selectedMediaFromSubscription(subscription?: SubscriptionDto): SelectedMedia | null {
   if (!subscription?.media) return null;
   const mediaType = mediaTypeFromKind(subscription.media.kind);
   if (!mediaType) return null;
@@ -1057,7 +1065,7 @@ function defaultMediaSubscriptionTitle(media: SelectedMedia, season: string, min
   ].filter(Boolean).join(" ");
 }
 
-function resultMeta(result: MediaSearchResult, t: (key: string) => string) {
+function resultMeta(result: MediaSearchResultDto, t: (key: string) => string) {
   return [
     result.year ?? t("common.unknown"),
     result.attributionText,

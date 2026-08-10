@@ -1,3 +1,5 @@
+import type { DownloaderTestDto } from "@rss-media/shared/apiContracts";
+
 export type TorrentSnapshot = {
   id: string;
   name: string;
@@ -9,7 +11,7 @@ export type TorrentSnapshot = {
 };
 
 export type DownloaderClient = {
-  test(): Promise<{ ok: true; version?: string }>;
+  test(): Promise<DownloaderTestDto>;
   addTorrent(
     data: Buffer,
     options: { savePath?: string | null; category?: string | null; tags?: string[] | null }
