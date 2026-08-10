@@ -47,8 +47,10 @@ vi.mock("../src/server/modules/media/media.service.js", () => ({
   manuallyMatchParsedReleaseWithProvider: mocks.manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem: mocks.matchParsedReleaseForItem,
   resolveProviderMediaTitle: mocks.resolveProviderMediaTitle,
+  searchLocalMedia: mocks.searchLocalMedia
+}));
+vi.mock("../src/server/modules/media/providerDiscovery.js", () => ({
   searchExternalMedia: mocks.searchExternalMedia,
-  searchLocalMedia: mocks.searchLocalMedia,
   smartSearchExternalMedia: mocks.smartSearchExternalMedia
 }));
 

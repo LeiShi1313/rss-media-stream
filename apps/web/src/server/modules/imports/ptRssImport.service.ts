@@ -3,7 +3,7 @@ import type { MediaType } from "@rss-media/shared/types";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
 import type { ProviderMetadataCandidate } from "../../integrations/providers/types.js";
-import { lookupProviderMediaMetadata } from "../media/media.service.js";
+import { lookupProviderMediaMetadata } from "../media/providerDiscovery.js";
 import { upsertProviderMediaMetadata } from "../media/providerIdentity.js";
 import { createMatchedParsedReleaseMatch } from "../media/releaseMatchLedger.js";
 import type { ImportedProviderId } from "./ptRssImport.mapper.js";

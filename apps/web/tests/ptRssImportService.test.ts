@@ -22,7 +22,7 @@ vi.mock("../src/server/db.js", () => ({
   prisma: mocks.prisma
 }));
 
-vi.mock("../src/server/modules/media/media.service.js", () => ({
+vi.mock("../src/server/modules/media/providerDiscovery.js", () => ({
   lookupProviderMediaMetadata: mocks.media.lookupProviderMediaMetadata
 }));
 vi.mock("../src/server/modules/media/providerIdentity.js", () => ({

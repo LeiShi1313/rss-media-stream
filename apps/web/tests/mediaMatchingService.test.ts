@@ -162,10 +162,12 @@ const {
   manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem,
   resolveProviderMediaTitle,
-  searchExternalMedia,
-  searchLocalMedia,
-  smartSearchExternalMedia
+  searchLocalMedia
 } = await import("../src/server/modules/media/media.service.js");
+const {
+  searchExternalMedia,
+  smartSearchExternalMedia
+} = await import("../src/server/modules/media/providerDiscovery.js");
 const { upsertProviderMediaMetadata } = await import(
   "../src/server/modules/media/providerIdentity.js"
 );

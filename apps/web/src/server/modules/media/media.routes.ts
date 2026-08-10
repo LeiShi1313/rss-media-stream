@@ -13,10 +13,12 @@ import {
   manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem,
   resolveProviderMediaTitle,
-  searchLocalMedia,
+  searchLocalMedia
+} from "./media.service.js";
+import {
   searchExternalMedia,
   smartSearchExternalMedia
-} from "./media.service.js";
+} from "./providerDiscovery.js";
 import {
   itemParamsSchema,
   localMediaSearchQuerySchema,
