@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => {
     $transaction: vi.fn(async (callback: any) => callback(prisma)),
     $executeRaw: vi.fn(async () => 0),
     $queryRaw: vi.fn(),
-    rssItem: { findFirst: vi.fn() },
+    rssItem: { findFirst: vi.fn(), findMany: vi.fn() },
     parsedReleaseMatch: {
       findFirst: vi.fn(),
       findMany: vi.fn(),
@@ -156,11 +156,16 @@ vi.mock("../src/server/integrations/providers/runtime.js", () => ({
 
 const {
   createMatchedParsedReleaseMatch,
+  createUnmatchedParsedReleaseMatch,
+  getMedia,
+  getMediaDetail,
   listTrendingMedia,
+  listMediaItems,
   manuallyMatchParsedReleaseWithProvider,
   matchParsedReleaseForItem,
   resolveProviderMediaTitle,
   searchExternalMedia,
+  searchLocalMedia,
   smartSearchExternalMedia,
   upsertProviderMediaMetadata
 } = await import("../src/server/modules/media/media.service.js");
@@ -794,6 +799,118 @@ describe("smartSearchExternalMedia", () => {
   });
 });
 
+describe("media catalog reads", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.prisma.rssItem.findMany.mockResolvedValue([]);
+  });
+
+  it("searches the global canonical catalog with the existing ordering and aggregate counts", async () => {
+    mocks.prisma.mediaTitle.findMany.mockResolvedValue([catalogMedia({
+      _count: { releaseMatches: 7, subscriptions: 3 }
+    })]);
+
+    const result = await searchLocalMedia("tenant-1", {
+      q: "The Matrix",
+      mediaType: "MOVIE",
+      limit: 20
+    });
+
+    expect(mocks.prisma.mediaTitle.findMany).toHaveBeenCalledWith({
+      where: {
+        mediaType: "MOVIE",
+        OR: [
+          { titleKey: { contains: "the matrix", mode: "insensitive" } },
+          { title: { contains: "The Matrix", mode: "insensitive" } },
+          {
+            providerIdentities: {
+              some: {
+                metadata: {
+                  some: {
+                    OR: [
+                      { title: { contains: "The Matrix", mode: "insensitive" } },
+                      { originalTitle: { contains: "The Matrix", mode: "insensitive" } }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      include: {
+        providerIdentities: { include: { metadata: true } },
+        _count: { select: { releaseMatches: true, subscriptions: true } }
+      },
+      orderBy: [{ updatedAt: "desc" }, { title: "asc" }],
+      take: 20
+    });
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: "media-1",
+        mediaTitleId: "media-1",
+        mediaType: "MOVIE",
+        title: "The Matrix",
+        releaseYear: 1999,
+        matchCount: 7,
+        subscriptionCount: 3,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z"
+      })
+    ]);
+  });
+
+  it("gets a global media title while using the tenant only for presentation", async () => {
+    mocks.prisma.mediaTitle.findUnique.mockResolvedValue(catalogMedia({
+      _count: { releaseMatches: 4, subscriptions: 2 }
+    }));
+
+    const result = await getMedia("tenant-1", "media-1");
+
+    expect(mocks.prisma.mediaTitle.findUnique).toHaveBeenCalledWith({
+      where: { id: "media-1" },
+      include: {
+        providerIdentities: { include: { metadata: true } },
+        _count: { select: { releaseMatches: true, subscriptions: true } }
+      }
+    });
+    expect(result).toMatchObject({ id: "media-1", matchCount: 4, subscriptionCount: 2 });
+  });
+
+  it("lists only active matched items from the requested tenant", async () => {
+    mocks.prisma.mediaTitle.findUnique.mockResolvedValue({ id: "media-1", mediaType: "MOVIE" });
+
+    const result = await listMediaItems("tenant-1", "media-1");
+
+    expect(result).toEqual([]);
+    expect(mocks.prisma.rssItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        tenantId: "tenant-1",
+        parsedRelease: {
+          matches: {
+            some: {
+              tenantId: "tenant-1",
+              mediaTitleId: "media-1",
+              status: "MATCHED",
+              invalidatedAt: null
+            }
+          }
+        }
+      },
+      orderBy: { firstSeenAt: "desc" }
+    }));
+  });
+
+  it("short-circuits media detail item reads when the title does not exist", async () => {
+    mocks.prisma.mediaTitle.findUnique.mockResolvedValue(null);
+
+    await expect(getMediaDetail("tenant-1", "missing-media"))
+      .rejects.toMatchObject({ statusCode: 404, code: "NOT_FOUND" });
+
+    expect(mocks.prisma.rssItem.findMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("listTrendingMedia", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -944,6 +1061,85 @@ describe("listTrendingMedia", () => {
     expect(secondPage.items).toHaveLength(1);
     expect(secondPage.items[0].media.id).toBe("media-3");
     expect(mocks.prisma.$queryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects malformed cursors before querying", async () => {
+    await expect(listTrendingMedia("tenant-1", {
+      windowDays: 7,
+      limit: 18,
+      cursor: "not-a-cursor"
+    })).rejects.toMatchObject({ statusCode: 400, code: "BAD_REQUEST" });
+
+    expect(mocks.prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("rejects a query media type that conflicts with the cursor", async () => {
+    await expect(listTrendingMedia("tenant-1", {
+      windowDays: 7,
+      limit: 18,
+      mediaType: "TV_SERIES",
+      cursor: encodeTestTrendingCursor({ mediaType: "MOVIE" })
+    })).rejects.toMatchObject({ statusCode: 400, code: "BAD_REQUEST" });
+
+    expect(mocks.prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("freezes the timestamp and window from the first page cursor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
+    mocks.prisma.$queryRaw
+      .mockResolvedValueOnce([
+        trendingGroup("media-1", "metadata-1", 4, "2026-06-15T10:00:00Z", ["Feed 1"]),
+        trendingGroup("media-2", "metadata-2", 3, "2026-06-15T09:00:00Z", ["Feed 2"])
+      ])
+      .mockResolvedValueOnce([]);
+    mocks.prisma.mediaTitle.findMany.mockResolvedValueOnce([
+      catalogMedia({ id: "media-1" })
+    ]).mockResolvedValueOnce([]);
+
+    const firstPage = await listTrendingMedia("tenant-1", {
+      windowDays: 7,
+      limit: 1,
+      mediaType: "MOVIE"
+    });
+    vi.setSystemTime(new Date("2026-07-15T12:00:00Z"));
+    await listTrendingMedia("tenant-1", {
+      windowDays: 30,
+      limit: 1,
+      mediaType: "MOVIE",
+      cursor: firstPage.nextCursor
+    });
+
+    const secondQueryDates = mocks.prisma.$queryRaw.mock.calls[1]
+      .filter((value: unknown): value is Date => value instanceof Date)
+      .map((value: Date) => value.toISOString());
+    expect(secondQueryDates).toContain("2026-06-15T12:00:00.000Z");
+    expect(secondQueryDates).toContain("2026-06-08T12:00:00.000Z");
+  });
+
+  it("preserves SQL ranking when media rows arrive in a different order", async () => {
+    mocks.prisma.mediaTitle.findMany.mockResolvedValue([
+      catalogMedia({ id: "media-2", title: "Other Movie", titleKey: "other movie" }),
+      catalogMedia({ id: "media-1" })
+    ]);
+
+    const result = await listTrendingMedia("tenant-1", { windowDays: 7, limit: 18 });
+
+    expect(result.items.map((entry) => entry.media.id)).toEqual(["media-1", "media-2"]);
+  });
+
+  it("caps trending summary arrays without changing stored query results", async () => {
+    mocks.prisma.$queryRaw.mockResolvedValueOnce([{
+      ...trendingGroup("media-1", "metadata-1", 10, "2026-06-15T10:00:00Z", numbered("Feed", 9)),
+      qualities: numbered("Quality", 10),
+      releaseGroups: numbered("Group", 10)
+    }]);
+
+    const result = await listTrendingMedia("tenant-1", { windowDays: 7, limit: 18 });
+
+    expect(result.items[0].feeds).toHaveLength(6);
+    expect(result.items[0].qualities).toHaveLength(8);
+    expect(result.items[0].releaseGroups).toHaveLength(8);
   });
 });
 
@@ -2512,6 +2708,68 @@ describe("createMatchedParsedReleaseMatch", () => {
     vi.clearAllMocks();
   });
 
+  it("reuses an identical active unmatched decision", async () => {
+    const existing = {
+      id: "existing-unmatched",
+      status: "UNMATCHED",
+      reason: "no_result"
+    };
+    mocks.prisma.parsedReleaseMatch.findFirst.mockResolvedValue(existing);
+
+    const result = await createUnmatchedParsedReleaseMatch(mocks.prisma as any, {
+      tenantId: "tenant-1",
+      parsedReleaseId: "parsed-release-1",
+      reason: "no_result"
+    });
+
+    expect(result).toBe(existing);
+    expect(rawLockKeys()).toContain("parsed-release-match:tenant-1:parsed-release-1");
+    expect(mocks.prisma.parsedReleaseMatch.updateMany).not.toHaveBeenCalled();
+    expect(mocks.prisma.parsedReleaseMatch.create).not.toHaveBeenCalled();
+  });
+
+  it("invalidates an active decision before validating links and creating its replacement", async () => {
+    mocks.prisma.parsedReleaseMatch.findFirst.mockResolvedValue(null);
+    mocks.prisma.parsedReleaseMatch.updateMany.mockResolvedValue({ count: 1 });
+    mocks.prisma.mediaProviderIdentity.findFirst.mockResolvedValue({ id: "identity-1" });
+    mocks.prisma.providerMediaMetadata.findFirst.mockResolvedValue({ id: "metadata-1" });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({ id: "replacement-match" });
+
+    await createMatchedParsedReleaseMatch(mocks.prisma as any, matchedLedgerInput());
+
+    expect(mocks.prisma.parsedReleaseMatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ staleReason: "automatic_match" })
+    }));
+    expect(mocks.prisma.parsedReleaseMatch.updateMany.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.prisma.mediaProviderIdentity.findFirst.mock.invocationCallOrder[0]);
+    expect(mocks.prisma.mediaProviderIdentity.findFirst.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.prisma.providerMediaMetadata.findFirst.mock.invocationCallOrder[0]);
+    expect(mocks.prisma.providerMediaMetadata.findFirst.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.prisma.parsedReleaseMatch.create.mock.invocationCallOrder[0]);
+  });
+
+  it("creates a distinct active match without invalidation when replaceActive is false", async () => {
+    mocks.prisma.parsedReleaseMatch.findFirst
+      .mockResolvedValueOnce({
+        id: "different-active-match",
+        status: "MATCHED",
+        mediaTitleId: "different-media"
+      })
+      .mockResolvedValueOnce(null);
+    mocks.prisma.mediaProviderIdentity.findFirst.mockResolvedValue({ id: "identity-1" });
+    mocks.prisma.providerMediaMetadata.findFirst.mockResolvedValue({ id: "metadata-1" });
+    mocks.prisma.parsedReleaseMatch.create.mockResolvedValue({ id: "second-active-match" });
+
+    const result = await createMatchedParsedReleaseMatch(mocks.prisma as any, {
+      ...matchedLedgerInput(),
+      replaceActive: false
+    });
+
+    expect(result).toEqual({ id: "second-active-match" });
+    expect(mocks.prisma.parsedReleaseMatch.updateMany).not.toHaveBeenCalled();
+    expect(mocks.prisma.parsedReleaseMatch.create).toHaveBeenCalledTimes(1);
+  });
+
   it("reuses an equivalent active match when preserving multiple active provider matches", async () => {
     const existingImportedMatch = {
       id: "existing-imdb-match",
@@ -2678,6 +2936,70 @@ describe("upsertProviderMediaMetadata", () => {
         linkConfidence: 0.98
       })
     }));
+    expect(rawLockKeys()).toContain("media-title:TV_SERIES:意外调查组:2026");
+    expect(mocks.prisma.mediaTitle.findFirst.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.prisma.mediaProviderIdentity.upsert.mock.invocationCallOrder[0]);
+    expect(mocks.prisma.mediaProviderIdentity.upsert.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.prisma.providerMediaMetadata.upsert.mock.invocationCallOrder[0]);
+  });
+
+  it("rejects forced metadata persistence when the canonical title type differs", async () => {
+    mocks.prisma.mediaTitle.findUnique.mockResolvedValue({
+      id: "media-title-movie",
+      mediaType: "MOVIE"
+    });
+
+    await expect(upsertProviderMediaMetadata(mocks.prisma as any, {
+      provider: "tmdb",
+      providerSource: "tmdb_api",
+      providerEntityType: "tmdb_tv",
+      providerId: "323685",
+      mediaType: "TV_SERIES",
+      title: "意外调查组",
+      normalizedTitle: "意外调查组",
+      titleKey: "意外调查组",
+      titleAliases: [],
+      releaseYear: 2026,
+      localeKey: "zh-CN",
+      payload: {}
+    } as any, {
+      linkConfidence: 1,
+      linkSource: "SEARCH_MATCH",
+      mediaTitleId: "media-title-movie"
+    })).rejects.toMatchObject({ code: "MEDIA_TYPE_MISMATCH" });
+
+    expect(mocks.prisma.mediaProviderIdentity.upsert).not.toHaveBeenCalled();
+    expect(mocks.prisma.providerMediaMetadata.upsert).not.toHaveBeenCalled();
+  });
+
+  it("does not take the known-year canonical title lock when the year is absent", async () => {
+    mocks.prisma.mediaTitle.findFirst.mockResolvedValue(null);
+    mocks.prisma.mediaTitle.create.mockResolvedValue({
+      id: "media-title-no-year",
+      mediaType: "MOVIE",
+      title: "Unknown Year",
+      titleKey: "unknown year",
+      releaseYear: null
+    });
+
+    await upsertProviderMediaMetadata(mocks.prisma as any, {
+      provider: "tmdb",
+      providerSource: "tmdb_api",
+      providerEntityType: "tmdb_movie",
+      providerId: "999",
+      mediaType: "MOVIE",
+      title: "Unknown Year",
+      normalizedTitle: "unknown year",
+      titleKey: "unknown year",
+      titleAliases: [],
+      localeKey: "en-US",
+      payload: {}
+    } as any, {
+      linkConfidence: 1,
+      linkSource: "SEARCH_MATCH"
+    });
+
+    expect(rawLockKeys().filter((key) => String(key).startsWith("media-title:"))).toEqual([]);
   });
 });
 
@@ -2756,6 +3078,50 @@ function trendingGroup(
     feeds,
     qualities: ["WEB-DL"],
     releaseGroups: ["GROUP"]
+  };
+}
+
+function catalogMedia(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "media-1",
+    mediaType: "MOVIE",
+    title: "The Matrix",
+    titleKey: "the matrix",
+    releaseYear: 1999,
+    endYear: null,
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-02T00:00:00Z"),
+    providerIdentities: [],
+    ...overrides
+  };
+}
+
+function encodeTestTrendingCursor(overrides: Record<string, unknown> = {}) {
+  return Buffer.from(JSON.stringify({
+    timestamp: "2026-06-15T12:00:00.000Z",
+    windowDays: 7,
+    releaseCount: 4,
+    latestReleaseAt: "2026-06-15T10:00:00.000Z",
+    mediaTitleId: "media-1",
+    ...overrides
+  }), "utf8").toString("base64url");
+}
+
+function numbered(prefix: string, count: number) {
+  return Array.from({ length: count }, (_, index) => `${prefix} ${index + 1}`);
+}
+
+function matchedLedgerInput() {
+  return {
+    tenantId: "tenant-1",
+    parsedReleaseId: "parsed-release-1",
+    mediaTitleId: "media-1",
+    mediaProviderIdentityId: "identity-1",
+    providerMediaMetadataId: "metadata-1",
+    mediaType: "MOVIE" as const,
+    source: "AUTO" as const,
+    confidence: 0.95,
+    reason: "automatic_match"
   };
 }
 
