@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ItemDto,
@@ -106,6 +106,43 @@ describe("OverviewPage", () => {
     );
   });
 
+  it("keeps a resolved active download in both matched and downloading shelves", async () => {
+    const active = makeResolvedDownloadingItem();
+    mocks.api.mockImplementation(async (url: string) => {
+      if (url === "/api/items?limit=24") return emptyItemPage();
+      if (url.startsWith("/api/media-titles/trending?")) return emptyTrendingPage();
+      throw new Error(`Unexpected API request: ${url}`);
+    });
+    renderWithUser(<OverviewPage {...pageProps({ items: [active] })} />);
+
+    const matchedShelf = screen.getByRole("heading", { name: "Ready titles" }).closest("section");
+    const downloadingShelf = screen.getByRole("heading", { name: "Downloading" }).closest("section");
+    if (!matchedShelf || !downloadingShelf) throw new Error("Expected both static release shelves");
+
+    expect(within(matchedShelf).getByText("Resolved Dune")).toBeInTheDocument();
+    expect(within(downloadingShelf).getByText("Resolved Dune")).toBeInTheDocument();
+  });
+
+  it("retries a failed item shelf request", async () => {
+    let itemRequests = 0;
+    mocks.api.mockImplementation(async (url: string) => {
+      if (url === "/api/items?limit=24") {
+        itemRequests += 1;
+        if (itemRequests === 1) throw new Error("Catalog unavailable");
+        return { items: [makeItem("release-retry", "Recovered release")] } satisfies ItemPageDto;
+      }
+      if (url.startsWith("/api/media-titles/trending?")) return emptyTrendingPage();
+      throw new Error(`Unexpected API request: ${url}`);
+    });
+    const { user } = renderWithUser(<OverviewPage {...pageProps()} />);
+
+    expect(await screen.findByText("Catalog unavailable")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("Recovered release")).toBeInTheDocument();
+    expect(itemRequests).toBe(2);
+  });
+
   it("loads grouped media detail when a trending card is inspected", async () => {
     const media = makeMedia();
     const trending = makeTrending(media);
@@ -134,6 +171,35 @@ describe("OverviewPage", () => {
     expect(screen.getAllByText("Dune.2021.2160p.WEB-DL")).toHaveLength(2);
     expect(mocks.api).toHaveBeenCalledWith("/api/media-titles/media-dune/detail");
   });
+
+  it("ignores a late media-detail response after the inspector closes", async () => {
+    const media = makeMedia();
+    const detailRequest = deferred<MediaDetailDto>();
+    mocks.api.mockImplementation(async (url: string) => {
+      if (url === "/api/items?limit=24") return emptyItemPage();
+      if (url.includes("mediaType=MOVIE")) {
+        return { items: [makeTrending(media)] } satisfies TrendingMediaPageDto;
+      }
+      if (url.includes("mediaType=TV_SERIES")) return emptyTrendingPage();
+      if (url === "/api/media-titles/media-dune/detail") return detailRequest.promise;
+      throw new Error(`Unexpected API request: ${url}`);
+    });
+    const { user } = renderWithUser(<OverviewPage {...pageProps()} />);
+
+    await user.click(await screen.findByRole("button", { name: /Dune/ }));
+    expect(await screen.findByRole("dialog", { name: "Loading media" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    await act(async () => {
+      detailRequest.resolve({
+        media: { ...media, overview: "This response arrived too late." },
+        releases: []
+      });
+      await detailRequest.promise;
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("This response arrived too late.")).not.toBeInTheDocument();
+  });
 });
 
 const successfulRunAction: RunAction = async (action) => {
@@ -141,7 +207,17 @@ const successfulRunAction: RunAction = async (action) => {
   return { ok: true };
 };
 
-function pageProps() {
+function pageProps(overrides: Partial<{
+  items: ItemDto[];
+  stats: {
+    totalItems: number;
+    matched: number;
+    feeds: number;
+    failedJobs: number;
+    subscriptions: number;
+    downloaders: number;
+  };
+}> = {}) {
   return {
     busy: false,
     downloaders: [],
@@ -154,7 +230,8 @@ function pageProps() {
       subscriptions: 0,
       downloaders: 0
     },
-    runAction: successfulRunAction
+    runAction: successfulRunAction,
+    ...overrides
   };
 }
 
@@ -178,6 +255,34 @@ function makeItem(id: string, rawTitle: string): ItemDto {
     dedupeKeyType: "RELEASE_SIGNATURE",
     enrichmentState: "UNMATCHED",
     downloadJobs: []
+  };
+}
+
+function makeResolvedDownloadingItem(): ItemDto {
+  return {
+    ...makeItem("release-active", "Dune.2021.2160p.WEB-DL"),
+    enrichmentState: "MATCHED",
+    match: {
+      id: "match-dune",
+      status: "MATCHED",
+      source: "AUTO",
+      confidence: 1,
+      presentation: {
+        mediaTitleId: "media-dune",
+        mediaType: "MOVIE",
+        title: "Resolved Dune",
+        releaseYear: 2021,
+        hasCover: false
+      },
+      attention: { required: false, reasons: [] }
+    },
+    downloadJobs: [{
+      id: "job-active",
+      status: "DOWNLOADING",
+      error: null,
+      clientHash: "hash-active",
+      createdAt: "2026-08-10T10:05:00.000Z"
+    }]
   };
 }
 
