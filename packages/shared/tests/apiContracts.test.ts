@@ -122,6 +122,15 @@ describe("API wire contracts", () => {
       id: "subscription-1",
       title: "Stand-up Comedy",
       createdByUserId: "user-1",
+      media: {
+        id: "media-1",
+        provider: "internal",
+        providerId: "media-1",
+        kind: "UNKNOWN",
+        mediaType: "UNKNOWN",
+        title: "Stand-up Comedy",
+        hasCover: false
+      },
       autoDownload: true,
       enabled: true,
       rule: {

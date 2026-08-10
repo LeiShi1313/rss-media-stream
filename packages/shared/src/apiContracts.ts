@@ -393,7 +393,7 @@ export type SubscriptionDto = {
     providerEntityType?: string;
     providerId: string;
     kind: "MOVIE" | "TV" | "UNKNOWN";
-    mediaType: MediaType;
+    mediaType: ParsedMediaType;
     title: string;
     year?: number | null;
     posterUrl?: string | null;
