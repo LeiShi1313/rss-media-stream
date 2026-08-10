@@ -32,7 +32,7 @@ vi.mock("../src/server/integrations/providers/policy.js", () => ({
   getPresentationProviderOrder: mocks.getPresentationProviderOrder
 }));
 
-const { evaluateAutoDownloadsForItem } = await import(
+const { evaluateAutoDownloadsForItem, serializeSubscription } = await import(
   "../src/server/modules/subscriptions/subscriptions.service.js"
 );
 
@@ -332,6 +332,53 @@ describe("evaluateAutoDownloadsForItem", () => {
         specialNumber: 6
       })
     }));
+  });
+});
+
+describe("subscription response serialization", () => {
+  it("preserves null, omitted, array, BigInt, and timestamp wire semantics", () => {
+    const serialized = serializeSubscription({
+      id: "subscription-1",
+      title: "Stand-up Comedy",
+      createdByUserId: "user-1",
+      mediaTitleId: null,
+      mediaTitle: null,
+      downloader: null,
+      autoDownload: true,
+      enabled: true,
+      rule: {
+        ...rule({ mode: "REGEX", mediaType: "TV_SERIES", titleRegex: "Stand-up" }),
+        minSizeBytes: 1_000n,
+        createdAt: new Date("2026-08-10T12:00:00.000Z"),
+        updatedAt: new Date("2026-08-10T13:00:00.000Z")
+      },
+      createdAt: new Date("2026-08-10T12:00:00.000Z"),
+      updatedAt: new Date("2026-08-10T13:00:00.000Z")
+    });
+
+    expect(JSON.parse(JSON.stringify(serialized))).toMatchObject({
+      id: "subscription-1",
+      autoDownload: true,
+      enabled: true,
+      rule: {
+        mode: "REGEX",
+        mediaType: "TV_SERIES",
+        linkedProviders: [],
+        providerRatings: [],
+        feedIds: [],
+        titleRegex: "Stand-up",
+        includeRegex: null,
+        excludeRegex: null,
+        minSizeBytes: "1000",
+        sources: [],
+        variantsInclude: [],
+        variantsExclude: [],
+        createdAt: "2026-08-10T12:00:00.000Z",
+        updatedAt: "2026-08-10T13:00:00.000Z"
+      },
+      createdAt: "2026-08-10T12:00:00.000Z",
+      updatedAt: "2026-08-10T13:00:00.000Z"
+    });
   });
 });
 

@@ -28,6 +28,57 @@ beforeEach(() => {
 });
 
 describe("items service pagination", () => {
+  it("serializes the complete item wire shape with explicit database nulls", async () => {
+    mocks.prisma.rssItem.findMany.mockResolvedValue([
+      rssItem({
+        id: "matched",
+        parsedRelease: parsedRelease({ matches: [match({ status: "MATCHED" })] })
+      })
+    ]);
+
+    const page = await listItems("tenant-1", { limit: 1 });
+    const item = JSON.parse(JSON.stringify(page.items[0]));
+
+    expect(item).toMatchObject({
+      id: "matched",
+      feed: { id: "feed-1", name: "Feed" },
+      sourceUrl: null,
+      sizeBytes: null,
+      publishDate: null,
+      firstSeenAt: "2026-06-25T12:00:00.000Z",
+      dedupeKeyType: "LINK_HASH",
+      parsedRelease: {
+        year: 2026,
+        kind: "MOVIE",
+        mediaType: "MOVIE",
+        tvUnitType: null,
+        season: null,
+        episode: null,
+        episodeEnd: null,
+        specialNumber: null,
+        episodePart: null,
+        audio: null,
+        variant: null,
+        confidence: 1,
+        parseConfidence: 1,
+        parsedAt: "2026-06-25T12:00:00.000Z"
+      },
+      match: {
+        providerTitle: {
+          provider: "tmdb",
+          providerSource: "tmdb_api",
+          providerId: "1"
+        },
+        providerMetadata: {
+          provider: "tmdb",
+          providerSource: "tmdb_api",
+          providerId: "1"
+        }
+      },
+      downloadJobs: []
+    });
+  });
+
   it("returns items in a page envelope with a cursor when more rows exist", async () => {
     mocks.prisma.rssItem.findMany.mockResolvedValue([
       rssItem({ id: "item-3", firstSeenAt: "2026-06-25T12:00:00.000Z" }),
@@ -129,6 +180,7 @@ function rssItem(input: {
     feed: { id: "feed-1", name: "Feed" },
     rawTitle: `Release ${input.id}`,
     encryptedSourceUrl: null,
+    publishDate: null,
     sizeBytes: null,
     firstSeenAt: new Date(input.firstSeenAt ?? "2026-06-25T12:00:00.000Z"),
     dedupeKeyType: "LINK_HASH",
@@ -146,15 +198,19 @@ function parsedRelease(input: {
     title: input.title ?? "Example",
     year: 2026,
     mediaType: "MOVIE",
+    tvUnitType: null,
     season: null,
     episode: null,
     episodeEnd: null,
+    specialNumber: null,
+    episodePart: null,
     resolution: 1080,
     quality: "WEB-DL",
     source: "WEB",
     codec: "H264",
-    audio: "AAC",
+    audio: null,
     releaseGroup: "GROUP",
+    variant: null,
     parseConfidence: 1,
     parsedAt: new Date("2026-06-25T12:00:00.000Z"),
     matches: input.matches ?? []
