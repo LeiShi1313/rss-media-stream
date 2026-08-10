@@ -9,51 +9,33 @@ import type {
   ParsedReleaseDto,
   ProviderSearchResponseDto
 } from "@rss-media/shared/apiContracts";
-import type { OverviewCatalogProps } from "../../src/client/components/overview/overview-catalog.js";
-import { OverviewPage } from "../../src/client/pages/overview.js";
+import {
+  OverviewInspector,
+  type OverviewInspectorProps,
+  type OverviewInspectorTarget
+} from "../../src/client/components/overview/overview-inspector.js";
 import type { RunAction } from "../../src/client/types.js";
 import { renderWithUser } from "./render.js";
 
 const mocks = vi.hoisted(() => ({
-  api: vi.fn(),
-  catalogProps: null as OverviewCatalogProps | null
+  api: vi.fn()
 }));
 
 vi.mock("../../src/client/api.js", () => ({
   api: mocks.api
 }));
 
-vi.mock("../../src/client/components/overview/overview-catalog.js", () => ({
-  OverviewCatalog: (props: OverviewCatalogProps) => {
-    mocks.catalogProps = props;
-    return (
-      <section aria-label="Catalog seam">
-        {props.items[0] && (
-          <button onClick={() => props.onInspectRelease(props.items[0]!)} type="button">
-            Inspect release
-          </button>
-        )}
-        <button onClick={() => props.onInspectMedia("media-dune")} type="button">
-          Inspect media
-        </button>
-      </section>
-    );
-  }
-}));
-
 describe("overview inspector behavior", () => {
   beforeEach(() => {
     mocks.api.mockReset();
-    mocks.catalogProps = null;
   });
 
   it("shows the correct release action and resets correction state when the release changes", async () => {
     const releaseA = makeRelease("release-a", "Mystery.Show.S02E03", {
       parsedRelease: makeParsedRelease({ title: "Mystery Show" })
     });
-    const { user } = renderHarness({ items: [releaseA] });
+    const { setTarget, user } = renderHarness({ target: { type: "release", item: releaseA } });
 
-    await user.click(screen.getByRole("button", { name: "Inspect release" }));
     expect(screen.getByRole("button", { name: "Choose title" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download anyway" })).toBeDisabled();
     expect(screen.getByText("Reason")).toBeInTheDocument();
@@ -61,16 +43,17 @@ describe("overview inspector behavior", () => {
     await user.clear(screen.getByPlaceholderText("Search title or paste provider link"));
     await user.type(screen.getByPlaceholderText("Search title or paste provider link"), "stale query");
 
-    act(() => mocks.catalogProps?.onInspectRelease(makeResolvedRelease("release-b", "Resolved Movie")));
+    setTarget({ type: "release", item: makeResolvedRelease("release-b", "Resolved Movie") });
 
     await waitFor(() => {
       expect(screen.queryByPlaceholderText("Search title or paste provider link")).not.toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "Wrong title?" })).toBeInTheDocument();
 
-    act(() => mocks.catalogProps?.onInspectRelease(makeRelease("release-c", "Pending Release", {
-      enrichmentState: "PENDING"
-    })));
+    setTarget({
+      type: "release",
+      item: makeRelease("release-c", "Pending Release", { enrichmentState: "PENDING" })
+    });
     expect(screen.queryByRole("button", { name: "Choose title" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Wrong title?" })).not.toBeInTheDocument();
   });
@@ -102,9 +85,8 @@ describe("overview inspector behavior", () => {
       throw new Error(`Unexpected API request: ${url}`);
     });
     const runAction = successfulRunAction();
-    const { user } = renderHarness({ items: [release], runAction });
+    const { user } = renderHarness({ target: { type: "release", item: release }, runAction });
 
-    await user.click(screen.getByRole("button", { name: "Inspect release" }));
     await user.click(screen.getByRole("button", { name: "Choose title" }));
     await user.click(screen.getByText("Search options"));
     const correctionPanel = screen.getByText("Title correction").closest("section");
@@ -171,11 +153,13 @@ describe("overview inspector behavior", () => {
       return { ok: false as const, message: "Match failed" };
     });
     const { user } = renderHarness({
-      items: [makeRelease("release-failed", "Mystery Show", { parsedRelease: makeParsedRelease() })],
+      target: {
+        type: "release",
+        item: makeRelease("release-failed", "Mystery Show", { parsedRelease: makeParsedRelease() })
+      },
       runAction
     });
 
-    await user.click(screen.getByRole("button", { name: "Inspect release" }));
     await user.click(screen.getByRole("button", { name: "Choose title" }));
     await user.click(screen.getByRole("button", { name: "Search" }));
     await user.click(await screen.findByRole("button", { name: "Select" }));
@@ -193,10 +177,12 @@ describe("overview inspector behavior", () => {
       return { results: [] } satisfies ProviderSearchResponseDto;
     });
     const { user } = renderHarness({
-      items: [makeRelease("release-errors", "Mystery Show", { parsedRelease: makeParsedRelease() })]
+      target: {
+        type: "release",
+        item: makeRelease("release-errors", "Mystery Show", { parsedRelease: makeParsedRelease() })
+      }
     });
 
-    await user.click(screen.getByRole("button", { name: "Inspect release" }));
     await user.click(screen.getByRole("button", { name: "Choose title" }));
     await user.click(screen.getByRole("button", { name: "Search" }));
     expect(await screen.findByText("Search unavailable")).toBeInTheDocument();
@@ -211,11 +197,13 @@ describe("overview inspector behavior", () => {
     const runAction = successfulRunAction();
     const { user } = renderHarness({
       downloaders: [makeDownloader()],
-      items: [makeRelease("release-download", "Download Me")],
+      target: {
+        type: "release",
+        item: makeRelease("release-download", "Download Me")
+      },
       runAction
     });
 
-    await user.click(screen.getByRole("button", { name: "Inspect release" }));
     const downloadButton = screen.getByRole("button", { name: "Download anyway" });
     await waitFor(() => expect(downloadButton).toBeEnabled());
     await user.click(downloadButton);
@@ -252,9 +240,11 @@ describe("overview inspector behavior", () => {
       throw new Error(`Unexpected API request: ${url}`);
     });
     const runAction = successfulRunAction();
-    const { user } = renderHarness({ downloaders: [makeDownloader()], runAction });
-
-    await user.click(screen.getByRole("button", { name: "Inspect media" }));
+    const { user } = renderHarness({
+      downloaders: [makeDownloader()],
+      runAction,
+      target: { type: "media", mediaId: "media-dune" }
+    });
 
     const dialog = await screen.findByRole("dialog", { name: "Mystery Show" });
     expect(within(dialog).getByText("A grouped TV mystery.")).toBeInTheDocument();
@@ -281,33 +271,140 @@ describe("overview inspector behavior", () => {
       body: JSON.stringify({ downloaderId: "downloader-main" })
     });
   });
+
+  it("fully resets a release session before a late search response arrives", async () => {
+    const searchRequest = deferred<ProviderSearchResponseDto>();
+    mocks.api.mockReturnValue(searchRequest.promise);
+    const releaseA = makeRelease("release-a", "First Show", {
+      parsedRelease: makeParsedRelease({ title: "First Show" })
+    });
+    const releaseB = makeRelease("release-b", "Second Show", {
+      parsedRelease: makeParsedRelease({ title: "Second Show" })
+    });
+    const { setTarget, user } = renderHarness({ target: { type: "release", item: releaseA } });
+
+    await user.click(screen.getByRole("button", { name: "Choose title" }));
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledTimes(1));
+
+    setTarget({ type: "release", item: releaseB });
+    expect(screen.getByRole("dialog", { name: "Second Show" })).toBeInTheDocument();
+    await act(async () => {
+      searchRequest.resolve({
+        results: [makePtgenResult({ title: "Late First Result", providerId: "douban-late" })]
+      });
+      await searchRequest.promise;
+    });
+    await user.click(screen.getByRole("button", { name: "Choose title" }));
+
+    expect(screen.getByPlaceholderText("Search title or paste provider link")).toHaveValue("Second Show");
+    expect(screen.queryByText("Late First Result")).not.toBeInTheDocument();
+  });
+
+  it("aborts the previous media request and never renders its late response", async () => {
+    const duneRequest = deferred<MediaDetailDto>();
+    const arrakisRequest = deferred<MediaDetailDto>();
+    let duneSignal: AbortSignal | undefined;
+    let arrakisSignal: AbortSignal | undefined;
+    mocks.api.mockImplementation(async (url: string, options?: { signal?: AbortSignal }) => {
+      if (url === "/api/media-titles/media-dune/detail") {
+        duneSignal = options?.signal;
+        return duneRequest.promise;
+      }
+      if (url === "/api/media-titles/media-arrakis/detail") {
+        arrakisSignal = options?.signal;
+        return arrakisRequest.promise;
+      }
+      throw new Error(`Unexpected API request: ${url}`);
+    });
+    const { setTarget } = renderHarness({ target: { type: "media", mediaId: "media-dune" } });
+
+    await waitFor(() => expect(duneSignal).toBeDefined());
+    expect(screen.getByRole("dialog", { name: "Loading media" })).toBeInTheDocument();
+    setTarget({ type: "media", mediaId: "media-arrakis" });
+    expect(duneSignal?.aborted).toBe(true);
+    expect(screen.getByRole("dialog", { name: "Loading media" })).toBeInTheDocument();
+    await waitFor(() => expect(arrakisSignal).toBeDefined());
+
+    await act(async () => {
+      arrakisRequest.resolve({
+        media: { ...makeMedia("media-arrakis", "Arrakis"), overview: "The current selection." },
+        releases: []
+      });
+      await arrakisRequest.promise;
+    });
+    expect(screen.getByRole("dialog", { name: "Arrakis" })).toBeInTheDocument();
+
+    await act(async () => {
+      duneRequest.resolve({
+        media: { ...makeMedia("media-dune", "Dune"), overview: "This response arrived too late." },
+        releases: []
+      });
+      await duneRequest.promise;
+    });
+    expect(screen.getByRole("dialog", { name: "Arrakis" })).toBeInTheDocument();
+    expect(screen.queryByText("This response arrived too late.")).not.toBeInTheDocument();
+  });
+
+  it("aborts media detail loading when the inspector unmounts", async () => {
+    const detailRequest = deferred<MediaDetailDto>();
+    let signal: AbortSignal | undefined;
+    mocks.api.mockImplementation(async (_url: string, options?: { signal?: AbortSignal }) => {
+      signal = options?.signal;
+      return detailRequest.promise;
+    });
+    const { unmount } = renderHarness({ target: { type: "media", mediaId: "media-dune" } });
+
+    await waitFor(() => expect(signal).toBeDefined());
+    unmount();
+
+    expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      detailRequest.resolve({ media: makeMedia(), releases: [] });
+      await detailRequest.promise;
+    });
+  });
+
+  it("retains the loading and empty-release presentation when media detail fails", async () => {
+    mocks.api.mockRejectedValue(new Error("Detail unavailable"));
+    renderHarness({ target: { type: "media", mediaId: "media-dune" } });
+
+    expect(await screen.findByRole("dialog", { name: "Loading media" })).toBeInTheDocument();
+    expect(screen.getByText("Loading media detail and release versions.")).toBeInTheDocument();
+    expect(screen.getByText("No release versions loaded yet")).toBeInTheDocument();
+    expect(mocks.api).toHaveBeenCalledWith(
+      "/api/media-titles/media-dune/detail",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
 });
 
 function renderHarness({
+  busy = false,
   downloaders = [],
-  items = [],
+  onClose = vi.fn(),
+  target,
   runAction = successfulRunAction()
 }: {
+  busy?: boolean;
   downloaders?: DownloaderDto[];
-  items?: ItemDto[];
+  onClose?: () => void;
+  target: OverviewInspectorTarget;
   runAction?: RunAction;
-} = {}) {
-  return renderWithUser(
-    <OverviewPage
-      busy={false}
-      downloaders={downloaders}
-      items={items}
-      runAction={runAction}
-      stats={{
-        totalItems: items.length,
-        matched: 0,
-        feeds: 0,
-        failedJobs: 0,
-        subscriptions: 0,
-        downloaders: downloaders.length
-      }}
-    />
-  );
+}) {
+  const props: Omit<OverviewInspectorProps, "target"> = {
+    busy,
+    downloaders,
+    onClose,
+    runAction
+  };
+  const rendered = renderWithUser(<OverviewInspector {...props} target={target} />);
+  return {
+    ...rendered,
+    setTarget: (nextTarget: OverviewInspectorTarget) => {
+      rendered.rerender(<OverviewInspector {...props} target={nextTarget} />);
+    }
+  };
 }
 
 function successfulRunAction() {
@@ -434,12 +531,12 @@ function makePtgenResult({
   };
 }
 
-function makeMedia(): MediaTitleDto {
+function makeMedia(id = "media-dune", title = "Mystery Show"): MediaTitleDto {
   return {
-    id: "media-dune",
+    id,
     kind: "TV",
     mediaType: "TV_SERIES",
-    title: "Mystery Show",
+    title,
     year: 2026,
     posterUrl: null,
     hasCover: false
@@ -462,4 +559,14 @@ function makeDownloader(): DownloaderDto {
     createdAt: "2026-08-10T10:00:00.000Z",
     updatedAt: "2026-08-10T10:00:00.000Z"
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
