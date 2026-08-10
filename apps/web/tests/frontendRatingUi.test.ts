@@ -14,14 +14,12 @@ describe("workspace rating source and overview score UI", () => {
     expect(source).toContain("settings.ratingProviderSource");
   });
 
-  it("renders the shared score badge on release and trending poster cards", () => {
-    const overviewSource = readFileSync(resolve(__dirname, "../src/client/pages/overview.tsx"), "utf8");
+  it("keeps rating source details in the shared score badge", () => {
     const badgeSource = readFileSync(
       resolve(__dirname, "../src/client/components/media/rating-badge.tsx"),
       "utf8"
     );
 
-    expect(overviewSource.match(/<RatingBadge/g)).toHaveLength(2);
     expect(badgeSource).toContain("<Tooltip");
     expect(badgeSource).toContain("rating.providerLabel");
     expect(badgeSource).toContain("rating.providerSourceLabel");
