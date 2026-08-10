@@ -245,6 +245,7 @@ model RssFeed {
   pollIntervalSeconds         Int       @default(600)
   enabled                     Boolean   @default(true)
   lastPolledAt                DateTime?
+  nextAttemptAt               DateTime?
   lastError                   String?
   deletedAt                   DateTime?
   createdAt                   DateTime  @default(now())
@@ -257,6 +258,7 @@ model RssFeed {
   @@index([tenantId, enabled])
   @@index([tenantId, createdAt])
   @@index([urlHash])
+  @@index([nextAttemptAt])
 }
 
 model RssItem {

@@ -9,34 +9,27 @@ export async function pollDueFeeds(config: AppConfig) {
     where: {
       enabled: true,
       deletedAt: null,
-      encryptedUrl: { not: null }
+      encryptedUrl: { not: null },
+      OR: [
+        { nextAttemptAt: null },
+        { nextAttemptAt: { lte: now } }
+      ]
     },
-    orderBy: [{ lastPolledAt: "asc" }, { createdAt: "asc" }],
+    orderBy: [{ nextAttemptAt: "asc" }, { createdAt: "asc" }],
     take: 20,
     select: {
       id: true,
-      tenantId: true,
-      pollIntervalSeconds: true,
-      lastPolledAt: true
+      tenantId: true
     }
   });
 
   for (const feed of feeds) {
-    const dueAt = feed.lastPolledAt
-      ? new Date(feed.lastPolledAt.getTime() + feed.pollIntervalSeconds * 1000)
-      : new Date(0);
-    if (dueAt > now) continue;
-
     try {
       await refreshFeed(feed.id, { tenantId: feed.tenantId, actor: "worker" }, { config });
     } catch (error) {
       const message = redactSecrets(
         error instanceof Error ? error.message : String(error)
       );
-      await prisma.rssFeed.update({
-        where: { id_tenantId: { id: feed.id, tenantId: feed.tenantId } },
-        data: { lastError: message }
-      });
       console.error(`Feed ${feed.id} failed`, message);
     }
   }
