@@ -19,8 +19,7 @@ const mocks = vi.hoisted(() => ({
     }
   },
   createDownloadJob: vi.fn(),
-  sendDownloadJob: vi.fn(),
-  getPresentationProviderOrder: vi.fn()
+  sendDownloadJob: vi.fn()
 }));
 
 vi.mock("../src/server/db.js", () => ({ prisma: mocks.prisma }));
@@ -28,12 +27,8 @@ vi.mock("../src/server/modules/jobs/jobs.service.js", () => ({
   createDownloadJob: mocks.createDownloadJob,
   sendDownloadJob: mocks.sendDownloadJob
 }));
-vi.mock("../src/server/integrations/providers/policy.js", () => ({
-  getPresentationProviderOrder: mocks.getPresentationProviderOrder
-}));
-
-const { evaluateAutoDownloadsForItem, serializeSubscription } = await import(
-  "../src/server/modules/subscriptions/subscriptions.service.js"
+const { evaluateAutoDownloadsForItem } = await import(
+  "../src/server/modules/subscriptions/subscriptionAutomation.js"
 );
 
 const config = {
@@ -58,6 +53,212 @@ beforeEach(() => {
 });
 
 describe("evaluateAutoDownloadsForItem", () => {
+  it("returns without querying subscriptions when the item or parsed release is missing", async () => {
+    mocks.prisma.rssItem.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(rssItem({ parsedRelease: null as never }));
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "missing-item",
+      config
+    })).resolves.toEqual([]);
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "unparsed-item",
+      config
+    })).resolves.toEqual([]);
+
+    expect(mocks.prisma.subscription.findMany).not.toHaveBeenCalled();
+  });
+
+  it("records a rejection and continues when a subscription rule is missing", async () => {
+    mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
+      parsedRelease: parsedRelease({ matches: [] })
+    }));
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      { ...subscription({ id: "missing-rule", mediaTitleId: null, rule: rule({}) }), rule: null },
+      subscription({
+        id: "valid-rule",
+        mediaTitleId: null,
+        rule: rule({ mode: "REGEX", titleRegex: "Stand-up" })
+      })
+    ]);
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).resolves.toEqual(["job-1"]);
+
+    expect(mocks.prisma.subscriptionMatchDecision.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({
+        subscriptionId: "missing-rule",
+        accepted: false,
+        reason: "subscription rule is missing",
+        ruleSnapshot: {}
+      })
+    });
+    expect(mocks.createDownloadJob).toHaveBeenCalledWith(expect.objectContaining({
+      subscriptionId: "valid-rule"
+    }));
+  });
+
+  it("keeps subscription evaluation sequential in database return order", async () => {
+    mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
+      parsedRelease: parsedRelease({ matches: [] })
+    }));
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      subscription({
+        id: "subscription-b",
+        mediaTitleId: null,
+        rule: rule({ mode: "REGEX", titleRegex: "Stand-up" })
+      }),
+      subscription({
+        id: "subscription-a",
+        mediaTitleId: null,
+        rule: rule({ mode: "REGEX", titleRegex: "Stand-up" })
+      })
+    ]);
+    mocks.createDownloadJob
+      .mockResolvedValueOnce({ id: "job-b" })
+      .mockResolvedValueOnce({ id: "job-a" });
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).resolves.toEqual(["job-b", "job-a"]);
+
+    expect(mocks.prisma.subscription.findMany).toHaveBeenCalledWith({
+      where: { tenantId: "tenant-1", enabled: true, autoDownload: true },
+      include: { rule: true }
+    });
+    expect(mocks.createDownloadJob.mock.calls.map(([call]) => call.subscriptionId))
+      .toEqual(["subscription-b", "subscription-a"]);
+    expect(mocks.createDownloadJob.mock.invocationCallOrder[1])
+      .toBeGreaterThan(mocks.sendDownloadJob.mock.invocationCallOrder[0]);
+  });
+
+  it("records duplicate-job errors as accepted without returning a job id", async () => {
+    mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
+      parsedRelease: parsedRelease({ matches: [] })
+    }));
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      subscription({
+        id: "subscription-regex",
+        mediaTitleId: null,
+        rule: rule({ mode: "REGEX", titleRegex: "Stand-up" })
+      })
+    ]);
+    mocks.createDownloadJob.mockRejectedValue(
+      Object.assign(new Error("download already exists"), { code: "DOWNLOAD_DUPLICATE" })
+    );
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).resolves.toEqual([]);
+
+    expect(mocks.prisma.subscriptionMatchDecision.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ accepted: true, reason: "download already exists" })
+    });
+    expect(mocks.sendDownloadJob).not.toHaveBeenCalled();
+  });
+
+  it("records missing-default-downloader errors as rejected", async () => {
+    mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
+      parsedRelease: parsedRelease({ matches: [] })
+    }));
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      subscription({
+        id: "subscription-regex",
+        mediaTitleId: null,
+        rule: rule({ mode: "REGEX", titleRegex: "Stand-up" })
+      })
+    ]);
+    mocks.createDownloadJob.mockRejectedValue(
+      Object.assign(new Error("default downloader required"), {
+        code: "DEFAULT_DOWNLOADER_REQUIRED"
+      })
+    );
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).resolves.toEqual([]);
+
+    expect(mocks.prisma.subscriptionMatchDecision.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accepted: false,
+        reason: "default downloader required"
+      })
+    });
+  });
+
+  it("persists acquisition and acceptance before dispatching the job", async () => {
+    mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
+      parsedRelease: parsedRelease({ matches: [matchedMedia()] })
+    }));
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      subscription({
+        id: "subscription-tv",
+        mediaTitleId: "media-title-1",
+        rule: rule({
+          mode: "MEDIA_TITLE",
+          mediaTitleId: "media-title-1",
+          mediaType: "TV_SERIES"
+        })
+      })
+    ]);
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).resolves.toEqual(["job-1"]);
+
+    const order = [
+      mocks.createDownloadJob.mock.invocationCallOrder[0],
+      mocks.prisma.subscriptionAcquisition.upsert.mock.invocationCallOrder[0],
+      mocks.prisma.subscriptionMatchDecision.create.mock.invocationCallOrder[0],
+      mocks.sendDownloadJob.mock.invocationCallOrder[0]
+    ];
+    expect(order).toEqual([...order].sort((left, right) => left - right));
+  });
+
+  it("propagates unexpected dispatch errors and stops later subscriptions", async () => {
+    mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
+      parsedRelease: parsedRelease({ matches: [] })
+    }));
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      subscription({
+        id: "subscription-first",
+        mediaTitleId: null,
+        rule: rule({ mode: "REGEX", titleRegex: "Stand-up" })
+      }),
+      subscription({
+        id: "subscription-never-reached",
+        mediaTitleId: null,
+        rule: rule({ mode: "REGEX", titleRegex: "Stand-up" })
+      })
+    ]);
+    mocks.sendDownloadJob.mockRejectedValue(new Error("downloader offline"));
+
+    await expect(evaluateAutoDownloadsForItem({
+      tenantId: "tenant-1",
+      itemId: "item-1",
+      config
+    })).rejects.toThrow("downloader offline");
+
+    expect(mocks.createDownloadJob).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.subscriptionMatchDecision.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ subscriptionId: "subscription-first", accepted: true })
+    });
+  });
+
   it("lets regex subscriptions download raw releases without an active media match", async () => {
     mocks.prisma.rssItem.findFirst.mockResolvedValue(rssItem({
       rawTitle: "TV Stand-up Comedy S03 2160p WEB-DL H.265-GROUP",
@@ -332,159 +533,6 @@ describe("evaluateAutoDownloadsForItem", () => {
         specialNumber: 6
       })
     }));
-  });
-});
-
-describe("subscription response serialization", () => {
-  it("preserves structured filters, nulls, BigInt, and timestamp wire semantics", () => {
-    const serialized = serializeSubscription({
-      id: "subscription-1",
-      title: "Stand-up Comedy",
-      createdByUserId: "user-1",
-      mediaTitleId: "media-title-1",
-      mediaTitle: null,
-      downloader: null,
-      autoDownload: true,
-      enabled: true,
-      rule: {
-        ...rule({
-          mode: "MEDIA_TITLE",
-          mediaType: "TV_SERIES",
-          criteriaJson: {
-            selectedProvider: {
-              provider: "tmdb",
-              providerEntityType: "tmdb_tv",
-              providerId: "123"
-            },
-            linkedProviders: [{
-              provider: "tvdb",
-              providerEntityType: "tvdb_series",
-              providerId: "456"
-            }],
-            providerRatings: [{
-              provider: "douban",
-              ratingType: "user_score",
-              comparison: "gte",
-              value: 8,
-              scale: 10,
-              minVoteCount: 1000
-            }],
-            variantsInclude: ["PURE"],
-            variantsExclude: ["REPACK"],
-            separateVariants: true
-          }
-        }),
-        minSizeBytes: 1_000n,
-        createdAt: new Date("2026-08-10T12:00:00.000Z"),
-        updatedAt: new Date("2026-08-10T13:00:00.000Z")
-      },
-      createdAt: new Date("2026-08-10T12:00:00.000Z"),
-      updatedAt: new Date("2026-08-10T13:00:00.000Z")
-    });
-
-    expect(serialized.createdAt).toBe("2026-08-10T12:00:00.000Z");
-    expect(JSON.parse(JSON.stringify(serialized))).toEqual({
-      id: "subscription-1",
-      title: "Stand-up Comedy",
-      createdByUserId: "user-1",
-      autoDownload: true,
-      enabled: true,
-      rule: {
-        id: "rule-1",
-        mode: "MEDIA_TITLE",
-        mediaType: "TV_SERIES",
-        mediaTitleId: "media-title-1",
-        selectedProvider: {
-          provider: "tmdb",
-          providerEntityType: "tmdb_tv",
-          providerId: "123"
-        },
-        linkedProviders: [{
-          provider: "tvdb",
-          providerEntityType: "tvdb_series",
-          providerId: "456"
-        }],
-        providerRatings: [{
-          provider: "douban",
-          ratingType: "user_score",
-          comparison: "gte",
-          value: 8,
-          scale: 10,
-          minVoteCount: 1000
-        }],
-        feedIds: [],
-        titleRegex: null,
-        includeRegex: null,
-        excludeRegex: null,
-        minResolution: null,
-        maxResolution: null,
-        sources: [],
-        codecs: [],
-        audio: [],
-        releaseGroupsInclude: [],
-        releaseGroupsExclude: [],
-        variantsInclude: ["PURE"],
-        variantsExclude: ["REPACK"],
-        preferredReleaseGroups: [],
-        minSizeBytes: "1000",
-        season: null,
-        episodeStart: null,
-        episodeEnd: null,
-        upgradePolicy: "none",
-        allowCrossSeed: false,
-        separateVariants: true,
-        seasonPackAllowed: true,
-        createdAt: "2026-08-10T12:00:00.000Z",
-        updatedAt: "2026-08-10T13:00:00.000Z"
-      },
-      createdAt: "2026-08-10T12:00:00.000Z",
-      updatedAt: "2026-08-10T13:00:00.000Z"
-    });
-  });
-
-  it("keeps absent optional criteria out of the JSON response", () => {
-    const serialized = serializeSubscription({
-      id: "subscription-1",
-      title: "Regex subscription",
-      createdByUserId: "user-1",
-      mediaTitleId: null,
-      mediaTitle: null,
-      downloader: null,
-      autoDownload: true,
-      enabled: true,
-      rule: {
-        ...rule({ mode: "REGEX", titleRegex: "Stand-up", criteriaJson: null }),
-        createdAt: new Date("2026-08-10T12:00:00.000Z"),
-        updatedAt: new Date("2026-08-10T13:00:00.000Z")
-      },
-      createdAt: new Date("2026-08-10T12:00:00.000Z"),
-      updatedAt: new Date("2026-08-10T13:00:00.000Z")
-    });
-
-    const wire = JSON.parse(JSON.stringify(serialized));
-    expect(wire.rule).not.toHaveProperty("separateVariants");
-    expect(wire.rule).not.toHaveProperty("mediaTitleId");
-    expect(wire.rule.linkedProviders).toEqual([]);
-  });
-
-  it("rejects malformed persisted structured filters", () => {
-    expect(() => serializeSubscription({
-      id: "subscription-1",
-      title: "Malformed subscription",
-      createdByUserId: "user-1",
-      mediaTitleId: null,
-      mediaTitle: null,
-      downloader: null,
-      autoDownload: true,
-      enabled: true,
-      rule: {
-        ...rule({ criteriaJson: { linkedProviders: "not-an-array" } }),
-        createdAt: new Date("2026-08-10T12:00:00.000Z"),
-        updatedAt: new Date("2026-08-10T13:00:00.000Z")
-      },
-      createdAt: new Date("2026-08-10T12:00:00.000Z"),
-      updatedAt: new Date("2026-08-10T13:00:00.000Z")
-    })).toThrow("subscription criteria are invalid");
   });
 });
 

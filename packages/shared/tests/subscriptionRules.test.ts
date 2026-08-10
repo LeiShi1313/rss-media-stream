@@ -78,6 +78,19 @@ describe("evaluateSubscriptionRule", () => {
     expect(decision.accepted).toBe(true);
   });
 
+  it("keeps evaluating persisted UNKNOWN matches when no concrete type is required", () => {
+    const unknownMatch = candidate();
+    unknownMatch.activeMatch!.mediaTitle.mediaType = "UNKNOWN";
+    unknownMatch.activeMatch!.selectedProviderTitle.mediaType = "UNKNOWN";
+
+    const decision = evaluateSubscriptionRule(
+      { mediaTitleId: "media_1" },
+      unknownMatch
+    );
+
+    expect(decision.accepted).toBe(true);
+  });
+
   it("rejects candidates without an active matched release match", () => {
     const decision = evaluateSubscriptionRule(
       {

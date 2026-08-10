@@ -149,7 +149,7 @@ export type ProviderTitleRuleView = {
   providerSource?: string | null;
   providerEntityType?: string | null;
   providerId: string;
-  mediaType: MediaType;
+  mediaType: ParsedMediaType;
   ratingValue?: number | null;
   ratingScale?: number | null;
   ratingVoteCount?: number | null;
@@ -168,7 +168,7 @@ export type CandidateInput = {
     confidence: number;
     mediaTitle: {
       id: string;
-      mediaType: MediaType;
+      mediaType: ParsedMediaType;
       canonicalTitle: string;
       releaseYear?: number | null;
     };

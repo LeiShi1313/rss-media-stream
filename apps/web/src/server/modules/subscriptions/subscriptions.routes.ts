@@ -1,27 +1,24 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppConfig } from "../../config.js";
 import { audit } from "../../core/audit.js";
-import { forbidden } from "../../core/errors.js";
-import { isAdminRole, requireTenantRole } from "../../core/permissions.js";
+import { requireTenantRole } from "../../core/permissions.js";
 import { parseBody, parseParams, parseQuery } from "../../core/validation.js";
 import {
   createSubscriptionWithRule,
   deleteSubscription,
+  getSubscription,
   listMatchHistory,
   listSubscriptionHistory,
   listSubscriptions,
-  requireOwnSubscriptionOrAdmin,
-  serializeSubscriptionForTenant,
-  updateSubscription,
-  updateSubscriptionRule
-} from "./subscriptions.service.js";
+  replaceSubscriptionRule,
+  type SubscriptionActor,
+  updateSubscription
+} from "./subscriptionManagement.js";
 import {
   matchHistoryQuerySchema,
   subscriptionCreateSchema,
   subscriptionListQuerySchema,
-  subscriptionParamsSchema,
-  subscriptionPatchSchema,
-  subscriptionRuleSchema
+  subscriptionParamsSchema
 } from "./subscriptions.schemas.js";
 
 export async function registerSubscriptionRoutes(
@@ -33,14 +30,9 @@ export async function registerSubscriptionRoutes(
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const query = parseQuery(subscriptionListQuerySchema, request);
-      const canSeeAll = isAdminRole(request.currentMembership!.role);
-      if (query.scope === "all" && !canSeeAll) throw forbidden();
-
       return listSubscriptions({
-        tenantId: request.tenantId!,
-        userId: request.currentUser!.id,
-        scope: query.scope,
-        canSeeAll
+        actor: subscriptionActor(request),
+        scope: query.scope
       });
     }
   );
@@ -51,8 +43,7 @@ export async function registerSubscriptionRoutes(
     async (request) => {
       const input = parseBody(subscriptionCreateSchema, request);
       const subscription = await createSubscriptionWithRule({
-        tenantId: request.tenantId!,
-        userId: request.currentUser!.id,
+        actor: subscriptionActor(request),
         input
       });
 
@@ -66,8 +57,7 @@ export async function registerSubscriptionRoutes(
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const { id } = parseParams(subscriptionParamsSchema, request);
-      const subscription = await requireOwnSubscriptionOrAdmin(request, id);
-      return serializeSubscriptionForTenant(request.tenantId!, subscription);
+      return getSubscription({ actor: subscriptionActor(request), id });
     }
   );
 
@@ -76,12 +66,10 @@ export async function registerSubscriptionRoutes(
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const { id } = parseParams(subscriptionParamsSchema, request);
-      await requireOwnSubscriptionOrAdmin(request, id);
-      const patch = parseBody(subscriptionPatchSchema, request);
       const subscription = await updateSubscription({
-        tenantId: request.tenantId!,
+        actor: subscriptionActor(request),
         id,
-        patch
+        patch: request.body
       });
 
       await audit(request, "subscription.update", "subscription", id);
@@ -94,8 +82,10 @@ export async function registerSubscriptionRoutes(
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const { id } = parseParams(subscriptionParamsSchema, request);
-      await requireOwnSubscriptionOrAdmin(request, id);
-      const result = await deleteSubscription(request.tenantId!, id);
+      const result = await deleteSubscription({
+        actor: subscriptionActor(request),
+        id
+      });
 
       await audit(request, "subscription.delete", "subscription", id);
       return result;
@@ -107,12 +97,10 @@ export async function registerSubscriptionRoutes(
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const { id } = parseParams(subscriptionParamsSchema, request);
-      await requireOwnSubscriptionOrAdmin(request, id);
-      const rule = parseBody(subscriptionRuleSchema, request);
-      const subscription = await updateSubscriptionRule({
-        tenantId: request.tenantId!,
-        subscriptionId: id,
-        rule
+      const subscription = await replaceSubscriptionRule({
+        actor: subscriptionActor(request),
+        id,
+        rule: request.body
       });
 
       await audit(request, "subscription_rule.update", "subscription", id);
@@ -125,10 +113,9 @@ export async function registerSubscriptionRoutes(
     { preHandler: requireTenantRole("MEMBER") },
     async (request) => {
       const { id } = parseParams(subscriptionParamsSchema, request);
-      await requireOwnSubscriptionOrAdmin(request, id);
       return listSubscriptionHistory({
-        tenantId: request.tenantId!,
-        subscriptionId: id
+        actor: subscriptionActor(request),
+        id
       });
     }
   );
@@ -139,11 +126,17 @@ export async function registerSubscriptionRoutes(
     async (request) => {
       const query = parseQuery(matchHistoryQuerySchema, request);
       return listMatchHistory({
-        tenantId: request.tenantId!,
-        userId: request.currentUser!.id,
-        canSeeAll: isAdminRole(request.currentMembership!.role),
+        actor: subscriptionActor(request),
         query
       });
     }
   );
+}
+
+function subscriptionActor(request: FastifyRequest): SubscriptionActor {
+  return {
+    tenantId: request.tenantId!,
+    userId: request.currentUser!.id,
+    role: request.currentMembership!.role
+  };
 }
