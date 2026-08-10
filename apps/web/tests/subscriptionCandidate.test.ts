@@ -70,12 +70,24 @@ describe("subscription candidates", () => {
       });
   });
 
-  it("treats a matched row without a concrete provider identity as unresolved", () => {
+  it("preserves a persisted UNKNOWN selected provider identity for rule evaluation", () => {
     const match = modernMatch();
     match.providerMediaMetadata.mediaProviderIdentity.mediaType = "UNKNOWN";
 
     expect(candidateFromSubscriptionItem(itemRecord({ matches: [match] }))?.activeMatch)
-      .toBeNull();
+      .toMatchObject({
+        selectedProviderTitle: { mediaType: "UNKNOWN" }
+      });
+  });
+
+  it("preserves a persisted UNKNOWN matched media title for rule evaluation", () => {
+    const match = modernMatch();
+    match.mediaTitle.mediaType = "UNKNOWN";
+
+    expect(candidateFromSubscriptionItem(itemRecord({ matches: [match] }))?.activeMatch)
+      .toMatchObject({
+        mediaTitle: { mediaType: "UNKNOWN" }
+      });
   });
 
   it("returns null when the item has no parsed release", () => {

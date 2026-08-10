@@ -1,7 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import type {
   CandidateInput,
-  MediaType,
   ProviderTitleRuleView
 } from "@rss-media/shared/types";
 import {
@@ -70,9 +69,7 @@ export function candidateFromSubscriptionItem(
 function activeMatchFromRow(
   match: ActiveParsedReleaseMatch | undefined
 ): CandidateInput["activeMatch"] {
-  if (!match?.mediaTitle || !isConcreteMediaType(match.mediaTitle.mediaType)) {
-    return null;
-  }
+  if (!match?.mediaTitle) return null;
 
   const selectedProviderTitle = selectedProviderRuleView(match);
   if (!selectedProviderTitle) return null;
@@ -107,9 +104,8 @@ function selectedProviderRuleView(
 
 function modernProviderRuleView(
   metadata: ModernMetadata
-): ProviderTitleRuleView | null {
+): ProviderTitleRuleView {
   const identity = metadata.mediaProviderIdentity;
-  if (!isConcreteMediaType(identity.mediaType)) return null;
   return {
     providerTitleId: metadata.id,
     provider: identity.provider,
@@ -125,8 +121,7 @@ function modernProviderRuleView(
 
 function legacyProviderRuleView(
   providerTitle: LegacyProviderTitle
-): ProviderTitleRuleView | null {
-  if (!isConcreteMediaType(providerTitle.mediaType)) return null;
+): ProviderTitleRuleView {
   return {
     providerTitleId: providerTitle.id,
     provider: providerTitle.provider,
@@ -144,8 +139,7 @@ function linkedProviderRuleViews(mediaTitle: MatchedMediaTitle): ProviderTitleRu
   const views: ProviderTitleRuleView[] = [];
   for (const identity of mediaTitle.providerIdentities) {
     for (const metadata of identity.metadata) {
-      const view = linkedProviderRuleView(metadata, identity);
-      if (view) views.push(view);
+      views.push(linkedProviderRuleView(metadata, identity));
     }
   }
   return views;
@@ -154,8 +148,7 @@ function linkedProviderRuleViews(mediaTitle: MatchedMediaTitle): ProviderTitleRu
 function linkedProviderRuleView(
   metadata: LinkedMetadata,
   identity: LinkedIdentity
-): ProviderTitleRuleView | null {
-  if (!isConcreteMediaType(identity.mediaType)) return null;
+): ProviderTitleRuleView {
   return {
     providerTitleId: metadata.id,
     provider: identity.provider,
@@ -174,8 +167,4 @@ function providerRatingType(value?: string | null): ProviderTitleRuleView["ratin
   if (value === "CRITIC_SCORE") return "critic_score";
   if (value === "POPULARITY") return "popularity";
   return null;
-}
-
-function isConcreteMediaType(value: string): value is MediaType {
-  return value === "MOVIE" || value === "TV_SERIES";
 }

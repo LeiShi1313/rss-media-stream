@@ -152,7 +152,7 @@ export async function updateSubscription(input: {
   patch: unknown;
 }): Promise<SubscriptionDto> {
   const subscription = await prisma.$transaction(async (tx) => {
-    await requireManageableSubscription(input.actor, input.id, tx);
+    await requireSubscriptionAccess(input.actor, input.id, tx);
     const patch = subscriptionPatchSchema.parse(input.patch);
     await validateSubscriptionReferences(tx, {
       tenantId: input.actor.tenantId,
@@ -193,7 +193,7 @@ export async function deleteSubscription(input: {
   id: string;
 }) {
   await prisma.$transaction(async (tx) => {
-    await requireManageableSubscription(input.actor, input.id, tx);
+    await requireSubscriptionAccess(input.actor, input.id, tx);
     const result = await db(tx).subscription.deleteMany({
       where: { id: input.id, tenantId: input.actor.tenantId }
     });
@@ -208,7 +208,7 @@ export async function replaceSubscriptionRule(input: {
   rule: unknown;
 }): Promise<SubscriptionDto> {
   const subscription = await prisma.$transaction(async (tx) => {
-    await requireManageableSubscription(input.actor, input.id, tx);
+    await requireSubscriptionAccess(input.actor, input.id, tx);
     const normalized = normalizeRule(subscriptionRuleSchema.parse(input.rule));
 
     await db(tx).subscriptionRule.upsert({
@@ -247,7 +247,7 @@ export async function listSubscriptionHistory(input: {
   actor: SubscriptionActor;
   id: string;
 }) {
-  await requireManageableSubscription(input.actor, input.id);
+  await requireSubscriptionAccess(input.actor, input.id);
   const decisions = await db().subscriptionMatchDecision.findMany({
     where: {
       tenantId: input.actor.tenantId,
@@ -291,10 +291,31 @@ async function requireManageableSubscription(
     include: subscriptionInclude
   });
   if (!subscription) throw notFound("Subscription");
-  if (!isAdminRole(actor.role) && subscription.createdByUserId !== actor.userId) {
+  assertCanManageSubscription(actor, subscription.createdByUserId);
+  return subscription;
+}
+
+async function requireSubscriptionAccess(
+  actor: SubscriptionActor,
+  id: string,
+  tx?: Prisma.TransactionClient
+) {
+  const subscription = await db(tx).subscription.findFirst({
+    where: { id, tenantId: actor.tenantId },
+    select: { id: true, createdByUserId: true }
+  });
+  if (!subscription) throw notFound("Subscription");
+  assertCanManageSubscription(actor, subscription.createdByUserId);
+  return subscription;
+}
+
+function assertCanManageSubscription(
+  actor: SubscriptionActor,
+  createdByUserId: string
+) {
+  if (!isAdminRole(actor.role) && createdByUserId !== actor.userId) {
     throw forbidden();
   }
-  return subscription;
 }
 
 async function visibleSubscriptionIds(input: {
@@ -302,7 +323,7 @@ async function visibleSubscriptionIds(input: {
   query: MatchHistoryQuery;
 }) {
   if (input.query.subscriptionId) {
-    const subscription = await requireManageableSubscription(
+    const subscription = await requireSubscriptionAccess(
       input.actor,
       input.query.subscriptionId
     );

@@ -302,6 +302,74 @@ describe("subscription management commands", () => {
       updatedAt: "2026-08-10T13:00:00.000Z"
     });
   });
+
+  it("updates an owned subscription after authorization", async () => {
+    mocks.prisma.subscription.findFirst.mockResolvedValue(subscriptionRecord());
+    mocks.prisma.subscription.update.mockResolvedValue(subscriptionRecord({
+      title: "Updated title"
+    }));
+
+    await expect(updateSubscription({
+      actor: member,
+      id: "subscription-1",
+      patch: { title: "Updated title" }
+    })).resolves.toMatchObject({ title: "Updated title" });
+
+    expect(mocks.prisma.subscription.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id_tenantId: { id: "subscription-1", tenantId: "tenant-1" }
+        },
+        data: expect.objectContaining({ title: "Updated title" })
+      })
+    );
+  });
+
+  it("replaces the rule of an owned subscription", async () => {
+    mocks.prisma.subscription.findFirst.mockResolvedValue(subscriptionRecord());
+    mocks.prisma.subscription.findUniqueOrThrow.mockResolvedValue(subscriptionRecord({
+      rule: ruleRecord({ mode: "REGEX", titleRegex: "Stand-up" })
+    }));
+
+    await expect(replaceSubscriptionRule({
+      actor: member,
+      id: "subscription-1",
+      rule: regexRule()
+    })).resolves.toMatchObject({
+      rule: { mode: "REGEX", titleRegex: "Stand-up" }
+    });
+
+    expect(mocks.prisma.subscriptionRule.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ mode: "REGEX" }),
+        update: expect.objectContaining({ mode: "REGEX" })
+      })
+    );
+  });
+
+  it("deletes an owned subscription", async () => {
+    mocks.prisma.subscription.findFirst.mockResolvedValue(subscriptionRecord());
+
+    await expect(deleteSubscription({ actor: member, id: "subscription-1" }))
+      .resolves.toEqual({ ok: true });
+
+    expect(mocks.prisma.subscription.deleteMany).toHaveBeenCalledWith({
+      where: { id: "subscription-1", tenantId: "tenant-1" }
+    });
+  });
+
+  it("does not update when an authorized reference is missing", async () => {
+    mocks.prisma.subscription.findFirst.mockResolvedValue(subscriptionRecord());
+    mocks.prisma.mediaTitle.findUnique.mockResolvedValue(null);
+
+    await expect(updateSubscription({
+      actor: member,
+      id: "subscription-1",
+      patch: { mediaTitleId: "missing-media" }
+    })).rejects.toMatchObject({ statusCode: 404, code: "NOT_FOUND" });
+
+    expect(mocks.prisma.subscription.update).not.toHaveBeenCalled();
+  });
 });
 
 function subscriptionRecord(input: Record<string, unknown> = {}) {
