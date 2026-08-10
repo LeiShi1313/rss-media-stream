@@ -3,8 +3,7 @@ import type { AppConfig } from "../../config.js";
 import { conflict, notFound } from "../../core/errors.js";
 import { prisma } from "../../db.js";
 import {
-  isProviderSource,
-  providerSourceForLegacyProvider
+  normalizeProviderSource
 } from "../../integrations/providers/sources.js";
 import { getMatchingProviderOrder } from "../../integrations/providers/policy.js";
 import { providerRuntimeAvailable, resolveProviderRuntime } from "../../integrations/providers/runtime.js";
@@ -233,7 +232,7 @@ export async function manuallyMatchParsedReleaseWithProvider(input: {
     throw conflict("ITEM_NOT_PARSED", "Item has not been parsed");
   }
 
-  const providerSource = canonicalProviderSource(input.providerSource ?? input.provider);
+  const providerSource = normalizeProviderSource(input.providerSource ?? input.provider);
   if (!providerSource) {
     throw conflict("UNSUPPORTED_PROVIDER_SOURCE", "Manual match requires a supported provider source");
   }
@@ -290,10 +289,4 @@ export async function manuallyMatchParsedReleaseWithProvider(input: {
     selectedProviderSource: selected.providerSource
   });
   return persistedMatch.match;
-}
-
-function canonicalProviderSource(value?: string | null): ProviderSource | undefined {
-  if (!value) return undefined;
-  if (isProviderSource(value)) return value;
-  return providerSourceForLegacyProvider(value);
 }

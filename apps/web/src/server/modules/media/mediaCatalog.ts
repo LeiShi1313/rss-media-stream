@@ -7,14 +7,12 @@ import type {
   TrendingMediaPageDto
 } from "@rss-media/shared/apiContracts";
 import { normalizeTitleKey } from "@rss-media/shared/titleNormalization";
-import type { ProviderSource } from "@rss-media/shared/types";
 import type { z } from "zod";
 import type { AppConfig } from "../../config.js";
 import { badRequest, conflict, notFound } from "../../core/errors.js";
 import { prisma } from "../../db.js";
 import {
-  isProviderSource,
-  providerSourceForLegacyProvider
+  normalizeProviderSource
 } from "../../integrations/providers/sources.js";
 import { itemRelations, serializeItem } from "../items/items.service.js";
 import {
@@ -63,7 +61,7 @@ export async function resolveProviderMediaTitle(
   tenantId: string,
   input: ProviderTitleResolveInput
 ): Promise<ResolvedMediaTitleDto> {
-  const providerSource = canonicalProviderSource(input.providerSource);
+  const providerSource = normalizeProviderSource(input.providerSource);
   if (!providerSource) {
     throw conflict("UNSUPPORTED_PROVIDER_SOURCE", "Provider title resolution requires a supported provider source");
   }
@@ -425,12 +423,6 @@ async function assertMediaTitleExists(mediaTitleId: string) {
   });
   if (!media) throw notFound("Media title");
   return media;
-}
-
-function canonicalProviderSource(value?: string | null): ProviderSource | undefined {
-  if (!value) return undefined;
-  if (isProviderSource(value)) return value;
-  return providerSourceForLegacyProvider(value);
 }
 
 function concreteMediaTypeList(mediaType?: string | null): Array<"MOVIE" | "TV_SERIES"> | undefined {

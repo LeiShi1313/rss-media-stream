@@ -2,7 +2,6 @@ import type { MediaSearchResultDto } from "@rss-media/shared/apiContracts";
 import { redactSecrets } from "@rss-media/shared/redact";
 import { normalizeTitleKey } from "@rss-media/shared/titleNormalization";
 import type {
-  MediaProvider,
   MediaType,
   ParsedMediaType,
   ProviderSource,
@@ -26,8 +25,7 @@ import {
 } from "../../integrations/providers/searchExecution.js";
 import {
   getProviderSourceDefinition,
-  isProviderSource,
-  providerSourceForLegacyProvider,
+  normalizeProviderSource,
   providerSourceForLegacyProviderEntity
 } from "../../integrations/providers/sources.js";
 import type {
@@ -53,7 +51,7 @@ export async function searchExternalMedia(
   query: MediaSearchQuery,
   logger?: ProviderSearchLogger
 ): Promise<MediaSearchResultDto[]> {
-  const providerSource = canonicalProviderSource(query.providerSource ?? query.provider);
+  const providerSource = normalizeProviderSource(query.providerSource ?? query.provider);
   const targets = (providerSource
     ? [{ providerSource, mediaType: query.mediaType }]
     : await providerSearchTargets(tenantId, query.mediaType)
@@ -73,7 +71,7 @@ export async function smartSearchExternalMedia(
   query: SmartProviderTitleSearchInput,
   logger?: ProviderSearchLogger
 ): Promise<MediaSearchResultDto[]> {
-  const providerSource = canonicalProviderSource(query.providerSource ?? query.provider);
+  const providerSource = normalizeProviderSource(query.providerSource ?? query.provider);
   const metadataProviders = providerSource
     ? [getMetadataProvider(adapterIdForProviderSource(providerSource))]
     : getMetadataProviders();
@@ -94,7 +92,7 @@ export async function smartSearchExternalMedia(
           return await runProviderDetailLookup(
             config,
             tenantId,
-            canonicalProviderSource(probe.providerSource) ??
+            normalizeProviderSource(probe.providerSource) ??
               providerSourceForProbe(probe.provider, probe.providerEntityType) ??
               "tmdb_api",
             {
@@ -115,7 +113,7 @@ export async function smartSearchExternalMedia(
 
   const hintedTargets = probes.flatMap((probe) => {
     const targetProviderSource =
-      canonicalProviderSource(probe.providerSource) ??
+      normalizeProviderSource(probe.providerSource) ??
       providerSourceForProbe(probe.provider, probe.providerEntityType) ??
       providerSource;
     if (!probe.searchQuery || !probe.mediaType || !targetProviderSource) return [];
@@ -148,7 +146,7 @@ export async function lookupProviderMediaMetadata(
   providerSource: ProviderSource,
   input: { providerEntityType?: string; providerId: string; mediaType?: MediaType }
 ) {
-  const normalizedProviderSource = canonicalProviderSource(providerSource) ?? providerSource;
+  const normalizedProviderSource = normalizeProviderSource(providerSource) ?? providerSource;
   const providerEntityType = input.providerEntityType ?? (
     input.mediaType ? providerEntityTypeForSource(normalizedProviderSource, input.mediaType) : undefined
   );
@@ -178,7 +176,7 @@ export async function searchProviderWithRuntime(
   },
   logger?: ProviderSearchLogger
 ) {
-  const normalizedProviderSource = canonicalProviderSource(providerSource) ?? providerSource;
+  const normalizedProviderSource = normalizeProviderSource(providerSource) ?? providerSource;
   const results = await executeProviderSearch(
     {
       providerSource: normalizedProviderSource,
@@ -216,7 +214,7 @@ async function runProviderSearch(
   logger?: ProviderSearchLogger
 ) {
   try {
-    const normalizedProviderSource = canonicalProviderSource(providerSource) ?? providerSource;
+    const normalizedProviderSource = normalizeProviderSource(providerSource) ?? providerSource;
     const runtime = await resolveProviderRuntime(config, tenantId, normalizedProviderSource);
     if (!providerRuntimeAvailable(runtime)) {
       throw new Error(`${normalizedProviderSource.toUpperCase()} API key is not configured`);
@@ -303,7 +301,7 @@ async function runProviderDetailLookup(
   input: { providerEntityType: string; providerId: string; mediaType?: MediaType }
 ) {
   try {
-    const normalizedProviderSource = canonicalProviderSource(providerSource) ?? providerSource;
+    const normalizedProviderSource = normalizeProviderSource(providerSource) ?? providerSource;
     const runtime = await resolveProviderRuntime(config, tenantId, normalizedProviderSource);
     if (!providerRuntimeAvailable(runtime)) {
       throw new Error(`${normalizedProviderSource.toUpperCase()} API key is not configured`);
@@ -350,7 +348,7 @@ function normalizeProviderResult(
   return {
     ...result,
     providerSource,
-    provider: providerForProviderSource(providerSource) as Exclude<MediaProvider, "ptgen">,
+    provider: providerForProviderSource(providerSource),
     providerId,
     normalizedTitle: titleKey,
     titleKey,
@@ -359,25 +357,19 @@ function normalizeProviderResult(
   };
 }
 
-function canonicalProviderSource(value?: string | null): ProviderSource | undefined {
-  if (!value) return undefined;
-  if (isProviderSource(value)) return value;
-  return providerSourceForLegacyProvider(value);
-}
-
 function providerSourceForProbe(
   provider?: string | null,
   providerEntityType?: string | null
 ): ProviderSource | undefined {
   if (!provider) return undefined;
-  return providerSourceForLegacyProviderEntity(provider, providerEntityType) ?? canonicalProviderSource(provider);
+  return providerSourceForLegacyProviderEntity(provider, providerEntityType) ?? normalizeProviderSource(provider);
 }
 
 function adapterIdForProviderSource(providerSource: ProviderSource) {
   return getProviderSourceDefinition(providerSource).adapterId;
 }
 
-function providerForProviderSource(providerSource: ProviderSource): MediaProvider {
+function providerForProviderSource(providerSource: ProviderSource) {
   return getProviderSourceDefinition(providerSource).provider;
 }
 
