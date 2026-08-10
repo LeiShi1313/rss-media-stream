@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/server/db.js", () => ({ prisma: mocks.prisma }));
-vi.mock("../src/server/modules/media/media.service.js", () => ({
+vi.mock("../src/server/modules/media/releaseMatchLedger.js", () => ({
   invalidateMatchesForParsedRelease: mocks.invalidateMatchesForParsedRelease
 }));
 

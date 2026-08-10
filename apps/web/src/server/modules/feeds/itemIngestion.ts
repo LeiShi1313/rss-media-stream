@@ -14,7 +14,7 @@ import { stringifyJsonStorageValue } from "@rss-media/shared/json";
 import { redactSecrets } from "@rss-media/shared/redact";
 import { prisma } from "../../db.js";
 import { encryptAead, hmacSecret } from "../../secrets.js";
-import { invalidateMatchesForParsedRelease } from "../media/media.service.js";
+import { invalidateMatchesForParsedRelease } from "../media/releaseMatchLedger.js";
 
 export type RssParserItem = {
   title?: string;

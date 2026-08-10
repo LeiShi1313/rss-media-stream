@@ -155,8 +155,6 @@ vi.mock("../src/server/integrations/providers/runtime.js", () => ({
 }));
 
 const {
-  createMatchedParsedReleaseMatch,
-  createUnmatchedParsedReleaseMatch,
   getMedia,
   getMediaDetail,
   listTrendingMedia,
@@ -166,9 +164,15 @@ const {
   resolveProviderMediaTitle,
   searchExternalMedia,
   searchLocalMedia,
-  smartSearchExternalMedia,
-  upsertProviderMediaMetadata
+  smartSearchExternalMedia
 } = await import("../src/server/modules/media/media.service.js");
+const { upsertProviderMediaMetadata } = await import(
+  "../src/server/modules/media/providerIdentity.js"
+);
+const {
+  createMatchedParsedReleaseMatch,
+  createUnmatchedParsedReleaseMatch
+} = await import("../src/server/modules/media/releaseMatchLedger.js");
 const {
   serializeMediaPresentation,
   selectReleaseMatchForPresentation,
