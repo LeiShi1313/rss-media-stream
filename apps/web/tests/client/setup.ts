@@ -60,6 +60,9 @@ export const intersection = {
     if (!observer) throw new Error("Element is not observed");
     observer.intersect(target, isIntersecting);
   },
+  observedTargets() {
+    return [...new Set([...observers].flatMap((observer) => [...observer.targets]))];
+  },
   reset() {
     for (const observer of [...observers]) observer.disconnect();
     observers.clear();
@@ -136,4 +139,5 @@ afterEach(() => {
   vi.restoreAllMocks();
   intersection.reset();
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });

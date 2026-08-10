@@ -8,7 +8,10 @@ export default defineConfig({
         url: "http://localhost/"
       }
     },
+    clearMocks: true,
     include: ["tests/client/**/*.test.tsx"],
-    setupFiles: ["./tests/client/setup.ts"]
+    setupFiles: ["./tests/client/setup.ts"],
+    unstubEnvs: true,
+    unstubGlobals: true
   }
 });

@@ -87,13 +87,13 @@ describe("OverviewPage", () => {
       if (url.startsWith("/api/media-titles/trending?")) return emptyTrendingPage();
       throw new Error(`Unexpected API request: ${url}`);
     });
-    const { container } = renderWithUser(<OverviewPage {...pageProps()} />);
+    renderWithUser(<OverviewPage {...pageProps()} />);
 
     expect(await screen.findByText("Release One")).toBeInTheDocument();
     await waitFor(() => {
-      expect(container.querySelectorAll(".poster-rail-sentinel")).toHaveLength(1);
+      expect(intersection.observedTargets()).toHaveLength(1);
     });
-    const sentinel = container.querySelector(".poster-rail-sentinel");
+    const [sentinel] = intersection.observedTargets();
     if (!sentinel) throw new Error("Expected the release pagination sentinel");
 
     act(() => intersection.intersect(sentinel));
