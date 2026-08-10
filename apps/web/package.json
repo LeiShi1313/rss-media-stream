@@ -14,7 +14,9 @@
     "typecheck:client": "tsc -p tsconfig.client.json",
     "start": "node dist/server/index.js",
     "worker": "node dist/worker/index.js",
-    "test": "vitest run",
+    "test": "npm run test:node && npm run test:client",
+    "test:node": "vitest run",
+    "test:client": "vitest run --config vitest.client.config.ts",
     "import:pt-rss": "tsx scripts/import-pt-rss.ts",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:generate": "prisma generate --schema prisma/schema.prisma",
@@ -50,5 +52,10 @@
     "rss-parser": "^3.13.0",
     "tailwindcss": "^4.3.0",
     "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3"
   }
 }
