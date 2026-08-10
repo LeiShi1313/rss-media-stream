@@ -1,6 +1,11 @@
 import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SubscriptionDto } from "@rss-media/shared/apiContracts";
+import type {
+  DownloaderDto,
+  FeedDto,
+  ItemDto,
+  SubscriptionDto
+} from "@rss-media/shared/apiContracts";
 import type { SubscriptionEditorSession } from "../../src/client/components/subscriptions/subscription-editor-dialog.js";
 import { SubscriptionsPage } from "../../src/client/pages/subscriptions.js";
 import type { RunAction } from "../../src/client/types.js";
@@ -11,10 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/client/components/subscriptions/subscription-editor-dialog.js", () => ({
-  SubscriptionEditorDialog: (props: {
-    session: SubscriptionEditorSession;
-    onClose: () => void;
-  }) => {
+  SubscriptionEditorDialog: (props: EditorProps) => {
     mocks.editorProps(props);
     return (
       <div aria-label="Subscription editor test double" role="dialog">
@@ -76,10 +78,24 @@ describe("SubscriptionsPage", () => {
 
   it("opens and clears explicit create and edit editor sessions", async () => {
     const subscription = makeSubscription();
-    const { user } = renderWithUser(<SubscriptionsPage {...pageProps([subscription])} />);
+    const subscriptions = [subscription];
+    const downloaders = [makeDownloader()];
+    const feeds = [makeFeed()];
+    const items = [makeItem()];
+    const { user } = renderWithUser(
+      <SubscriptionsPage
+        {...pageProps(subscriptions, { downloaders, feeds, items })}
+      />
+    );
 
     await user.click(screen.getByRole("button", { name: "Create Subscription" }));
     expect(latestSession()).toEqual({ kind: "create" });
+    expect(latestEditorProps()).toMatchObject({ busy: false });
+    expect(latestEditorProps()?.downloaders).toBe(downloaders);
+    expect(latestEditorProps()?.feeds).toBe(feeds);
+    expect(latestEditorProps()?.items).toBe(items);
+    expect(latestEditorProps()?.subscriptions).toBe(subscriptions);
+    expect(latestEditorProps()?.runAction).toBe(successfulRunAction);
     await user.click(screen.getByRole("button", { name: "Close editor" }));
     expect(screen.queryByRole("dialog", { name: "Subscription editor test double" })).not.toBeInTheDocument();
 
@@ -91,7 +107,11 @@ describe("SubscriptionsPage", () => {
 });
 
 function latestSession() {
-  return mocks.editorProps.mock.lastCall?.[0]?.session as SubscriptionEditorSession | undefined;
+  return latestEditorProps()?.session;
+}
+
+function latestEditorProps() {
+  return mocks.editorProps.mock.lastCall?.[0] as EditorProps | undefined;
 }
 
 const successfulRunAction: RunAction = async (action) => {
@@ -99,14 +119,33 @@ const successfulRunAction: RunAction = async (action) => {
   return { ok: true };
 };
 
-function pageProps(subscriptions: SubscriptionDto[]) {
+type EditorProps = {
+  session: SubscriptionEditorSession;
+  busy: boolean;
+  downloaders: DownloaderDto[];
+  feeds: FeedDto[];
+  items: ItemDto[];
+  subscriptions: SubscriptionDto[];
+  runAction: RunAction;
+  onClose: () => void;
+};
+
+function pageProps(
+  subscriptions: SubscriptionDto[],
+  overrides: Partial<{
+    downloaders: DownloaderDto[];
+    feeds: FeedDto[];
+    items: ItemDto[];
+  }> = {}
+) {
   return {
     busy: false,
     downloaders: [],
     feeds: [],
     items: [],
     subscriptions,
-    runAction: successfulRunAction
+    runAction: successfulRunAction,
+    ...overrides
   };
 }
 
@@ -136,5 +175,53 @@ function makeSubscription(overrides: Partial<SubscriptionDto> = {}): Subscriptio
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z",
     ...overrides
+  };
+}
+
+function makeDownloader(): DownloaderDto {
+  return {
+    id: "downloader-primary",
+    name: "Primary qBittorrent",
+    type: "QBITTORRENT",
+    baseUrl: "http://qbittorrent:8080",
+    username: null,
+    defaultSavePath: null,
+    category: null,
+    tags: [],
+    enabled: true,
+    isDefault: true,
+    jobCount: 0,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-01T00:00:00.000Z"
+  };
+}
+
+function makeFeed(): FeedDto {
+  return {
+    id: "feed-primary",
+    name: "Primary feed",
+    urlPreview: "https://tracker.example/rss…",
+    hasRequestHeaders: false,
+    pollIntervalSeconds: 300,
+    enabled: true,
+    lastPolledAt: null,
+    lastError: null,
+    deletedAt: null,
+    itemCount: 1
+  };
+}
+
+function makeItem(): ItemDto {
+  return {
+    id: "item-primary",
+    feed: { id: "feed-primary", name: "Primary feed" },
+    rawTitle: "Dune.2021.2160p.WEB-DL",
+    sourceUrl: null,
+    sizeBytes: null,
+    publishDate: "2026-08-01T00:00:00.000Z",
+    firstSeenAt: "2026-08-01T00:00:00.000Z",
+    dedupeKeyType: "RELEASE_SIGNATURE",
+    enrichmentState: "UNMATCHED",
+    downloadJobs: []
   };
 }

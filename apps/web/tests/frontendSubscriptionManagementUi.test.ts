@@ -25,10 +25,7 @@ describe("Subscription management UI", () => {
     const source = readFileSync(resolve(__dirname, "../src/client/pages/subscriptions.tsx"), "utf8");
 
     expect(source).toContain("components/subscriptions/subscription-editor-dialog.js");
-    expect(source).toContain("useState<SubscriptionEditorSession | null>(null)");
     expect(source).toContain("<SubscriptionEditorDialog");
-    expect(source).toContain('setEditorSession({ kind: "create" })');
-    expect(source).toContain('setEditorSession({ kind: "edit", subscription })');
     expect(source).not.toContain('from "../api.js"');
     expect(source).not.toContain("/api/");
   });
