@@ -220,9 +220,14 @@ export async function refreshFeed(
       }
     }
 
+    const lastPolledAt = new Date();
     await prisma.rssFeed.update({
       where: { id_tenantId: { id: feedId, tenantId: ctx.tenantId } },
-      data: { lastPolledAt: new Date(), lastError: null }
+      data: {
+        lastPolledAt,
+        nextAttemptAt: nextFeedAttemptAt(lastPolledAt, feed.pollIntervalSeconds),
+        lastError: null
+      }
     });
 
     const { enrichment, subscriptions } = await enrichChangedItems({
@@ -250,12 +255,20 @@ export async function refreshFeed(
     return result;
   } catch (error) {
     const message = redactSecrets(error instanceof Error ? error.message : String(error));
+    const failedAt = new Date();
     await prisma.rssFeed.update({
       where: { id_tenantId: { id: feedId, tenantId: ctx.tenantId } },
-      data: { lastError: message }
+      data: {
+        nextAttemptAt: nextFeedAttemptAt(failedAt, feed.pollIntervalSeconds),
+        lastError: message
+      }
     });
     throw badGateway(`RSS refresh failed: ${message}`);
   }
+}
+
+function nextFeedAttemptAt(from: Date, pollIntervalSeconds: number) {
+  return new Date(from.getTime() + pollIntervalSeconds * 1000);
 }
 
 async function enrichChangedItems(input: {

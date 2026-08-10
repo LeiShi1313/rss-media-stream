@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   prisma: {
@@ -14,9 +14,15 @@ const mocks = vi.hoisted(() => ({
   listItems: vi.fn(),
   invalidateMatchesForParsedRelease: vi.fn(),
   matchParsedReleaseForItem: vi.fn(),
-  evaluateAutoDownloadsForItem: vi.fn()
+  evaluateAutoDownloadsForItem: vi.fn(),
+  parseURL: vi.fn()
 }));
 
+vi.mock("rss-parser", () => ({
+  default: class MockParser {
+    parseURL = mocks.parseURL;
+  }
+}));
 vi.mock("../src/server/db.js", () => ({ prisma: mocks.prisma }));
 vi.mock("../src/server/core/events.js", () => ({
   publishTenantEvent: mocks.publishTenantEvent
@@ -38,9 +44,15 @@ const {
   listFeeds,
   refreshFeed
 } = await import("../src/server/modules/feeds/feeds.service.js");
+const { encryptAead } = await import("../src/server/secrets.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.parseURL.mockResolvedValue({ items: [] });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("feed service deletion", () => {
@@ -122,6 +134,64 @@ describe("feed service deletion", () => {
         enabled: true,
         deletedAt: null,
         encryptedUrl: { not: null }
+      }
+    });
+  });
+});
+
+describe("feed refresh scheduling", () => {
+  it("advances the next attempt after a successful refresh", async () => {
+    const now = new Date("2026-08-10T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    mocks.prisma.rssFeed.findFirst.mockResolvedValue({
+      id: "feed-1",
+      tenantId: "tenant-1",
+      encryptedUrl: encryptAead("https://example.invalid/rss"),
+      encryptedRequestHeadersJson: null,
+      pollIntervalSeconds: 300
+    });
+    mocks.prisma.rssFeed.update.mockResolvedValue({ id: "feed-1" });
+
+    await refreshFeed("feed-1", {
+      tenantId: "tenant-1",
+      actor: "worker"
+    });
+
+    expect(mocks.prisma.rssFeed.update).toHaveBeenCalledWith({
+      where: { id_tenantId: { id: "feed-1", tenantId: "tenant-1" } },
+      data: {
+        lastPolledAt: now,
+        nextAttemptAt: new Date("2026-08-10T12:05:00.000Z"),
+        lastError: null
+      }
+    });
+  });
+
+  it("advances the next attempt without changing last success after a failure", async () => {
+    const now = new Date("2026-08-10T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    mocks.prisma.rssFeed.findFirst.mockResolvedValue({
+      id: "feed-1",
+      tenantId: "tenant-1",
+      encryptedUrl: encryptAead("https://example.invalid/rss"),
+      encryptedRequestHeadersJson: null,
+      pollIntervalSeconds: 300
+    });
+    mocks.parseURL.mockRejectedValueOnce(new Error("upstream failed"));
+    mocks.prisma.rssFeed.update.mockResolvedValue({ id: "feed-1" });
+
+    await expect(refreshFeed("feed-1", {
+      tenantId: "tenant-1",
+      actor: "worker"
+    })).rejects.toThrow("RSS refresh failed: upstream failed");
+
+    expect(mocks.prisma.rssFeed.update).toHaveBeenCalledWith({
+      where: { id_tenantId: { id: "feed-1", tenantId: "tenant-1" } },
+      data: {
+        nextAttemptAt: new Date("2026-08-10T12:05:00.000Z"),
+        lastError: "upstream failed"
       }
     });
   });
