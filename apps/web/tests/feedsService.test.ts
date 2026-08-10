@@ -30,7 +30,7 @@ vi.mock("../src/server/core/events.js", () => ({
 vi.mock("../src/server/modules/items/items.service.js", () => ({
   listItems: mocks.listItems
 }));
-vi.mock("../src/server/modules/media/media.service.js", () => ({
+vi.mock("../src/server/modules/media/releaseMatcher.js", () => ({
   invalidateMatchesForParsedRelease: mocks.invalidateMatchesForParsedRelease,
   matchParsedReleaseForItem: mocks.matchParsedReleaseForItem
 }));

@@ -2,12 +2,10 @@ import { redactSecrets } from "@rss-media/shared/redact";
 import type { MediaType } from "@rss-media/shared/types";
 import type { AppConfig } from "../../config.js";
 import { prisma } from "../../db.js";
-import {
-  createMatchedParsedReleaseMatch,
-  lookupProviderMediaMetadata,
-  upsertProviderMediaMetadata,
-  type ProviderMetadataCandidate
-} from "../media/media.service.js";
+import type { ProviderMetadataCandidate } from "../../integrations/providers/types.js";
+import { lookupProviderMediaMetadata } from "../media/providerDiscovery.js";
+import { upsertProviderMediaMetadata } from "../media/providerIdentity.js";
+import { createMatchedParsedReleaseMatch } from "../media/releaseMatchLedger.js";
 import type { ImportedProviderId } from "./ptRssImport.mapper.js";
 
 export type PtRssProviderMatchImportResult =

@@ -190,6 +190,12 @@ export function isProviderSource(value: string): value is ProviderSource {
   return Boolean(providerSourceDefinitions[value as ProviderSource]);
 }
 
+export function normalizeProviderSource(value?: string | null): ProviderSource | undefined {
+  if (!value) return undefined;
+  if (isProviderSource(value)) return value;
+  return providerSourceForLegacyProvider(value);
+}
+
 export function providerSourceForLegacyProvider(provider: string): ProviderSource | undefined {
   if (provider === "tmdb") return "tmdb_api";
   if (provider === "tvdb") return "tvdb_api";

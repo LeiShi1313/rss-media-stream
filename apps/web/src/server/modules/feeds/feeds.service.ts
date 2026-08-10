@@ -8,7 +8,7 @@ import { publishTenantEvent } from "../../core/events.js";
 import { decryptAead, encryptAead, hmacSecret } from "../../secrets.js";
 import { listItems } from "../items/items.service.js";
 import type { ItemQueryInput } from "../items/items.schemas.js";
-import { matchParsedReleaseForItem } from "../media/media.service.js";
+import { matchParsedReleaseForItem } from "../media/releaseMatcher.js";
 import { evaluateAutoDownloadsForItem } from "../subscriptions/subscriptionAutomation.js";
 import type { CreateFeedInput, PatchFeedInput } from "./feeds.schemas.js";
 import {

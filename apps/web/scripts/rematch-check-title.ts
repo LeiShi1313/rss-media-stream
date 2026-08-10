@@ -1,6 +1,6 @@
 import { loadConfig } from "../src/server/config.js";
 import { prisma } from "../src/server/db.js";
-import { matchParsedReleaseForItem } from "../src/server/modules/media/media.service.js";
+import { matchParsedReleaseForItem } from "../src/server/modules/media/releaseMatcher.js";
 
 type Candidate = {
   itemId: string;

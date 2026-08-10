@@ -14,7 +14,7 @@ vi.mock("../src/server/db.js", () => ({ prisma: mocks.prisma }));
 vi.mock("../src/server/integrations/providers/ratingPreference.js", () => ({
   getActiveRatingProviderSources: mocks.getActiveRatingProviderSources
 }));
-vi.mock("../src/server/modules/media/media.service.js", () => ({
+vi.mock("../src/server/modules/media/ratingEnrichment.js", () => ({
   enrichMediaTitleRating: mocks.enrichMediaTitleRating
 }));
 

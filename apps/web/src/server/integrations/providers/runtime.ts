@@ -8,7 +8,7 @@ import { badRequest } from "../../core/errors.js";
 import { prisma } from "../../db.js";
 import { decryptSecret, encryptSecret } from "../../secrets.js";
 import { getMetadataProvider, listProviderSourceDefinitions } from "./index.js";
-import { getProviderSourceDefinition, providerSourceForLegacyProvider } from "./sources.js";
+import { getProviderSourceDefinition, normalizeProviderSource } from "./sources.js";
 import type { ProviderRuntimeContext, ProviderSecrets } from "./types.js";
 
 export async function resolveProviderRuntime(
@@ -16,7 +16,7 @@ export async function resolveProviderRuntime(
   tenantId: string,
   providerSource: ProviderSource | string
 ): Promise<ProviderRuntimeContext> {
-  const normalizedProviderSource = canonicalProviderSource(providerSource);
+  const normalizedProviderSource = requireProviderSource(providerSource);
   const definition = getProviderSourceDefinition(normalizedProviderSource);
   const row = await findProviderSourceConfig(tenantId, normalizedProviderSource);
   const workspaceSecrets = row?.encryptedSecretsJson
@@ -91,7 +91,7 @@ export async function upsertProviderSettings(input: {
   region?: string | null;
   baseUrl?: string | null;
 }) {
-  const providerSource = canonicalProviderSource(input.providerSource ?? input.provider);
+  const providerSource = requireProviderSource(input.providerSource ?? input.provider);
   const definition = getProviderSourceDefinition(providerSource);
   const data: {
     enabled?: boolean;
@@ -185,7 +185,7 @@ export function providerRuntimeConfigured(runtime: ProviderRuntimeContext) {
 }
 
 function validateSecretShape(providerSource: ProviderSource | string, rawSecrets: ProviderSecrets) {
-  const definition = getProviderSourceDefinition(canonicalProviderSource(providerSource));
+  const definition = getProviderSourceDefinition(requireProviderSource(providerSource));
   const allowed = new Set(definition.authFields.map((field) => field.key));
   const cleaned = cleanSecrets(rawSecrets);
 
@@ -201,9 +201,8 @@ function validateSecretShape(providerSource: ProviderSource | string, rawSecrets
   return cleaned;
 }
 
-function canonicalProviderSource(providerSource?: string | null): ProviderSource {
-  const normalized = providerSourceForLegacyProvider(providerSource ?? "") ?? providerSource;
-  return getProviderSourceDefinition(normalized ?? "").id;
+function requireProviderSource(providerSource?: string | null): ProviderSource {
+  return getProviderSourceDefinition(normalizeProviderSource(providerSource) ?? providerSource ?? "").id;
 }
 
 function environmentSecrets(config: AppConfig, providerSource: ProviderSource): ProviderSecrets | undefined {

@@ -22,9 +22,13 @@ vi.mock("../src/server/db.js", () => ({
   prisma: mocks.prisma
 }));
 
-vi.mock("../src/server/modules/media/media.service.js", () => ({
-  lookupProviderMediaMetadata: mocks.media.lookupProviderMediaMetadata,
-  upsertProviderMediaMetadata: mocks.media.upsertProviderMediaMetadata,
+vi.mock("../src/server/modules/media/providerDiscovery.js", () => ({
+  lookupProviderMediaMetadata: mocks.media.lookupProviderMediaMetadata
+}));
+vi.mock("../src/server/modules/media/providerIdentity.js", () => ({
+  upsertProviderMediaMetadata: mocks.media.upsertProviderMediaMetadata
+}));
+vi.mock("../src/server/modules/media/releaseMatchLedger.js", () => ({
   createMatchedParsedReleaseMatch: mocks.media.createMatchedParsedReleaseMatch
 }));
 

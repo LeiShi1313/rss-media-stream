@@ -2,7 +2,7 @@ import type { MediaType, ProviderSource } from "@rss-media/shared/types";
 import type { AppConfig } from "../server/config.js";
 import { prisma } from "../server/db.js";
 import { getActiveRatingProviderSources } from "../server/integrations/providers/ratingPreference.js";
-import { enrichMediaTitleRating } from "../server/modules/media/media.service.js";
+import { enrichMediaTitleRating } from "../server/modules/media/ratingEnrichment.js";
 import { LOW_CONFIDENCE_THRESHOLD } from "../server/modules/media/matchingPolicy.js";
 
 const RATING_MEDIA_TYPES = ["MOVIE", "TV_SERIES"] as const satisfies readonly MediaType[];
