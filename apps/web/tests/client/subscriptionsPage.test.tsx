@@ -1,6 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  ItemDto,
   MediaPresentationDto,
   MediaSearchResultDto,
   ResolvedMediaTitleDto,
@@ -216,6 +217,77 @@ describe("SubscriptionsPage", () => {
     expect(screen.getByRole("dialog", { name: "Create Subscription" })).toBeInTheDocument();
   });
 
+  it("derives sorted release-group suggestions and excludes the selected value", async () => {
+    const subscription = makeSubscription({
+      rule: makeRule({
+        releaseGroupsInclude: ["Gamma", " Alpha "],
+        releaseGroupsExclude: ["beta", ""],
+        preferredReleaseGroups: ["Delta"]
+      })
+    });
+    const items = [
+      makeItem("item-beta", " Beta "),
+      makeItem("item-blank", " ")
+    ];
+    const { user } = renderWithUser(
+      <SubscriptionsPage {...pageProps([subscription], runActionThroughApi, items)} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Create Subscription" }));
+    await user.click(screen.getByRole("button", { name: "Raw regex rule" }));
+    const suggestions = screen.getByRole("button", { name: "Release group suggestions" });
+    await user.click(suggestions);
+
+    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
+      "Alpha",
+      "Beta",
+      "Delta",
+      "Gamma"
+    ]);
+
+    await user.keyboard("{Escape}");
+    await user.type(screen.getByLabelText("Include release groups"), "alpha");
+    await user.click(suggestions);
+
+    expect(screen.queryByRole("menuitem", { name: "Alpha" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Beta",
+      "Delta",
+      "Gamma"
+    ]);
+  });
+
+  it("keeps an edit open when its rule update fails after a null-downloader patch", async () => {
+    const subscription = makeSubscription({ downloader: undefined });
+    mocks.api.mockImplementation(async (url: string) => {
+      if (url === `/api/subscriptions/${subscription.id}`) return undefined;
+      if (url === `/api/subscriptions/${subscription.id}/rule`) {
+        throw new Error("Rule update was rejected");
+      }
+      throw new Error(`Unexpected API request: ${url}`);
+    });
+    const { user } = renderWithUser(
+      <SubscriptionsPage {...pageProps([subscription], runActionThroughApi)} />
+    );
+
+    await user.click(screen.getByRole("button", { name: `Edit ${subscription.title}` }));
+    await user.click(screen.getByRole("button", { name: "Save Subscription" }));
+
+    const mutationCalls = mocks.api.mock.calls.filter(([url]) =>
+      String(url).startsWith(`/api/subscriptions/${subscription.id}`)
+    );
+    expect(mutationCalls.map(([url]) => url)).toEqual([
+      `/api/subscriptions/${subscription.id}`,
+      `/api/subscriptions/${subscription.id}/rule`
+    ]);
+    expect(JSON.parse(mutationCalls[0]?.[1]?.body as string)).toMatchObject({
+      mediaTitleId: "media-dune",
+      downloaderId: null
+    });
+    expect(await screen.findByText("Rule update was rejected")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Edit Subscription" })).toBeInTheDocument();
+  });
+
   it("updates subscription metadata before its existing media rule and closes on success", async () => {
     const subscription = makeSubscription();
     mocks.api.mockResolvedValue(undefined);
@@ -262,12 +334,16 @@ describe("SubscriptionsPage", () => {
   });
 });
 
-function pageProps(subscriptions: SubscriptionDto[], runAction: RunAction = runActionThroughApi) {
+function pageProps(
+  subscriptions: SubscriptionDto[],
+  runAction: RunAction = runActionThroughApi,
+  items: ItemDto[] = []
+) {
   return {
     busy: false,
     downloaders: [],
     feeds: [],
-    items: [],
+    items,
     subscriptions,
     runAction
   };
@@ -356,5 +432,43 @@ function makeRule(overrides: Partial<SubscriptionRuleDto> = {}): SubscriptionRul
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z",
     ...overrides
+  };
+}
+
+function makeItem(id: string, releaseGroup: string): ItemDto {
+  return {
+    id,
+    feed: { id: "feed-primary", name: "Primary feed" },
+    rawTitle: `Release ${id}`,
+    sourceUrl: null,
+    sizeBytes: null,
+    publishDate: "2026-08-01T00:00:00.000Z",
+    firstSeenAt: "2026-08-01T00:00:00.000Z",
+    dedupeKeyType: "RELEASE_SIGNATURE",
+    parsedRelease: {
+      id: `parsed-${id}`,
+      title: `Release ${id}`,
+      year: null,
+      kind: "MOVIE",
+      mediaType: "MOVIE",
+      tvUnitType: null,
+      season: null,
+      episode: null,
+      episodeEnd: null,
+      specialNumber: null,
+      episodePart: null,
+      resolution: 2160,
+      quality: "WEB-DL",
+      source: "WEB-DL",
+      codec: "H265",
+      audio: null,
+      releaseGroup,
+      variant: null,
+      confidence: 1,
+      parseConfidence: 1,
+      parsedAt: "2026-08-01T00:00:00.000Z"
+    },
+    enrichmentState: "UNMATCHED",
+    downloadJobs: []
   };
 }
